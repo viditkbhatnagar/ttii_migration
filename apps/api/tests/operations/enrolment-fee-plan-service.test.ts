@@ -83,7 +83,7 @@ afterEach(() => {
 });
 
 function makeService(world: World) {
-  const committed = { deletedIds: [] as number[], created: [] as Array<Record<string, unknown>> };
+  const committed = { deletedIds: [] as number[], created: [] as Array<Record<string, unknown>>, agreed: [] as Array<{ id: number; fee: unknown }> };
   const sql: string[] = [];
 
   const scheduleFor = (userId: number, courseId: number) => world.rows
@@ -137,9 +137,17 @@ function makeService(world: World) {
   const prisma = {
     ...base,
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
-      const pending = { deletedIds: [] as number[], created: [] as Array<Record<string, unknown>> };
+      const pending = { deletedIds: [] as number[], created: [] as Array<Record<string, unknown>>, agreed: [] as Array<{ id: number; fee: unknown }> };
       const tx = {
         ...base,
+        applications: {
+          ...base.applications,
+          // The agreed fee a plan save records on the enrolment's application.
+          updateMany: ({ where, data }: { where: { id: number }; data: { application_final_fee?: unknown } }) => {
+            pending.agreed.push({ id: where.id, fee: data.application_final_fee });
+            return Promise.resolve({ count: 1 });
+          },
+        },
         $queryRaw: rawQuery,
         $executeRaw: (strings: TemplateStringsArray, ...values: unknown[]) => {
           sql.push(strings.join('?'));
@@ -163,6 +171,11 @@ function makeService(world: World) {
       // Commit only now: a throw above leaves `committed` untouched.
       committed.deletedIds.push(...pending.deletedIds);
       committed.created.push(...pending.created);
+      for (const a of pending.agreed) {
+        const appRow = world.apps.find((x) => x.id === a.id);
+        if (appRow) appRow.application_final_fee = Number(a.fee);
+        committed.agreed.push(a);
+      }
       return result;
     },
   } as unknown as PrismaClient;
@@ -227,6 +240,7 @@ describe('reading the plan of an enrolment on its own plan', () => {
       course_title: 'Certification in Ai - Early Childhood Educator',
       prefill: { total_fee: 20000, discount: 2000, gst_percent: 18, source: 'offering' },
       agreed_fee: 15000,
+      has_application: true,
       free_offering: false,
       money: { application_code: 'TTII260300', application: 0, online: 0, schedule_paid: 0, pending_approval: false, link_outstanding: false },
       block_reason: null,
@@ -301,7 +315,7 @@ describe('saving a per-enrolment plan', () => {
     }));
     // Payable 18,000 = 2,000 paid + 5,000 being paid at checkout + 11,000 new.
     const res = await service.savePlan('1', { enrolId: '253', plan: twoInstalments });
-    expect(res).toEqual({ status: 1, message: 'Payment plan saved.', data: { created: 2, replaced: 1, kept: 2, payable: 18000 } });
+    expect(res).toEqual({ status: 1, message: 'Payment plan saved.', data: { created: 2, replaced: 1, kept: 2, payable: 18000, agreed_fee_saved: true } });
     expect(committed.deletedIds).toEqual([1002]);
     expect(committed.created).toEqual([
       expect.objectContaining({ user_id: 228, course_id: 25, installment_details: 'Installment 2', amount: 5500, due_date: day('2026-11-10'), status: 'Pending', paid_date: null, payment_to: 'ttii', created_by: 1, updated_by: 1 }),
@@ -341,7 +355,7 @@ describe('saving a per-enrolment plan', () => {
     expect(await service.savePlan('1', { enrolId: '253', plan: { ...fullOf(18000), rows: [{ label: '', amount: 18000, dueDate: '2030-01-01' }] } })).toEqual({
       status: 0, message: 'Row 1: the due date must be between 16/10/2025 and 16/10/2029.',
     });
-    expect(committed).toEqual({ deletedIds: [], created: [] });
+    expect(committed).toEqual({ deletedIds: [], created: [], agreed: [] });
   });
 
   test('a row paid between the read and the write aborts the whole save (rolled back)', async () => {
@@ -355,7 +369,7 @@ describe('saving a per-enrolment plan', () => {
     expect(await service.savePlan('1', { enrolId: '253', plan: fullOf(18000) })).toEqual({
       status: 0, message: 'The fee schedule changed while you were editing it. Reload and try again.',
     });
-    expect(committed).toEqual({ deletedIds: [], created: [] });
+    expect(committed).toEqual({ deletedIds: [], created: [], agreed: [] });
   });
 
   test('a checkout started on a replaced row during the save is caught before commit (rolled back)', async () => {
@@ -363,21 +377,53 @@ describe('saving a per-enrolment plan', () => {
     expect(await service.savePlan('1', { enrolId: '253', plan: fullOf(18000) })).toEqual({
       status: 0, message: 'A payment for one of the instalments being replaced started while the plan was saving. Nothing was changed; reload and try again.',
     });
-    expect(committed).toEqual({ deletedIds: [], created: [] });
+    expect(committed).toEqual({ deletedIds: [], created: [], agreed: [] });
   });
 
   test("the original course with a scheduled application plan is refused without touching anything", async () => {
     const { service, committed } = makeService(vidhya());
     expect((await service.savePlan('1', { enrolId: '252', plan: twoInstalments })).status).toBe(0);
-    expect(committed).toEqual({ deletedIds: [], created: [] });
+    expect(committed).toEqual({ deletedIds: [], created: [], agreed: [] });
   });
 
-  test('nothing to change is refused', async () => {
+  test('a save with no rows still records a changed agreed fee; a repeat is "Nothing to change"', async () => {
+    // Application 300 says 15,000; the kept Paid row already covers 18,000.
     const { service, committed } = makeService(vidhya({ rows: [sp({ id: 1001, amount: 18000, status: 'Paid', paid_date: day('2026-10-01') })] }));
+    const plan = { mode: 'full' as const, totalFee: 18000, discount: 0, gstPercent: 0, rows: [] };
+    expect(await service.savePlan('1', { enrolId: '253', plan })).toEqual({
+      status: 1, message: 'Payment plan saved.', data: { created: 0, replaced: 0, kept: 1, payable: 18000, agreed_fee_saved: true },
+    });
+    expect(committed.agreed).toEqual([{ id: 300, fee: 18000 }]);
+    expect(await service.savePlan('1', { enrolId: '253', plan })).toEqual({
+      status: 0, message: 'Nothing to change: the kept instalments already cover the payable total.',
+    });
+  });
+
+  test('the probe: a Rs.15,000 plan fully paid, with a Rs.21,240 package price on the application, is never stuck', async () => {
+    const world = vidhya({ rows: [sp({ id: 1001, installment_details: 'Course Fee', amount: 15000, status: 'Paid', paid_date: day('2026-10-02') })] });
+    const addEnrolmentApp = world.apps[1];
+    if (!addEnrolmentApp) throw new Error('fixture');
+    addEnrolmentApp.application_final_fee = 21240;
+    const { service, committed } = makeService(world);
+    // The agreed fee shows a ₹6,240 balance; planning the real total corrects it.
+    expect((await service.getPlan('253')).data).toMatchObject({ agreed_fee: 21240, has_application: true });
+    const res = await service.savePlan('1', { enrolId: '253', plan: { mode: 'full', totalFee: 15000, discount: 0, gstPercent: 0, rows: [] } });
+    expect(res).toMatchObject({ status: 1, data: { created: 0, agreed_fee_saved: true } });
+    expect(committed.agreed).toEqual([{ id: 300, fee: 15000 }]);
+    expect((await service.getPlan('253')).data).toMatchObject({ agreed_fee: 15000 });
+  });
+
+  test('with no application there is nowhere to record an agreed fee: an unchanged schedule is "Nothing to change"', async () => {
+    const { service, committed } = makeService(vidhya({
+      student: { id: 228, name: 'Legacy', user_email: '', application_id: 0 },
+      apps: [],
+      rows: [sp({ id: 1001, amount: 18000, status: 'Paid', paid_date: day('2026-10-01') })],
+    }));
+    expect((await service.getPlan('253')).data).toMatchObject({ agreed_fee: null, has_application: false });
     expect(await service.savePlan('1', { enrolId: '253', plan: { mode: 'full', totalFee: 18000, discount: 0, gstPercent: 0, rows: [] } })).toEqual({
       status: 0, message: 'Nothing to change: the kept instalments already cover the payable total.',
     });
-    expect(committed).toEqual({ deletedIds: [], created: [] });
+    expect(committed).toEqual({ deletedIds: [], created: [], agreed: [] });
   });
 
   test('bad input is refused before any read', async () => {
@@ -394,7 +440,7 @@ describe('money recorded outside the schedule blocks a save', () => {
       status: 0,
       message: 'This student has already paid ₹18,000 online for this course, but the schedule shows ₹0 paid; record it as a Paid instalment first.',
     });
-    expect(blocked.committed).toEqual({ deletedIds: [], created: [] });
+    expect(blocked.committed).toEqual({ deletedIds: [], created: [], agreed: [] });
     // Recorded as a Paid row: the plan can now schedule the rest.
     const recorded = makeService(vidhya({
       online: [{ amount_paid: 18000, razorpay_payment_id: 'pay_A' }],
@@ -416,7 +462,7 @@ describe('money recorded outside the schedule blocks a save', () => {
       status: 0,
       message: "This student has already paid ₹15,000 on this enrolment's application (TTII260300) for this course, but the schedule shows ₹5,000 paid; record it as a Paid instalment first.",
     });
-    expect(short.committed).toEqual({ deletedIds: [], created: [] });
+    expect(short.committed).toEqual({ deletedIds: [], created: [], agreed: [] });
 
     const covered = makeService({ ...paidLink, rows: [sp({ id: 1001, installment_details: 'Course Fee', amount: 15000, status: 'Paid', paid_date: day('2026-10-02') })] });
     const ok = await covered.service.savePlan('1', { enrolId: '253', plan: { ...fullOf(18000), rows: [{ label: 'Balance', amount: 3000, dueDate: '2026-11-10' }] } });

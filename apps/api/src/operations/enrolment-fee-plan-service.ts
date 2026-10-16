@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
 import {
   CHECKOUT_HOLD_MS,
+  agreedPayableOf,
   classifyScheduleRow,
   computePayable,
   dueDateWindow,
@@ -171,7 +172,11 @@ export class EnrolmentFeePlanService {
           source: prefill.source,
           source_label: prefill.sourceLabel,
         },
-        agreed_fee: pricing.application?.finalFee != null && pricing.application.finalFee > 0 ? pricing.application.finalFee : null,
+        // The agreed fee (application_final_fee: the last saved plan, else the
+        // fee entered on the application); has_application says whether a
+        // save can record one.
+        agreed_fee: agreedPayableOf(pricing.application?.finalFee),
+        has_application: pricing.application !== null,
         free_offering: isFreeByPricing({
           enrolmentOffering: pricing.enrolmentOffering,
           combinationId: pricing.combinationId,
@@ -228,6 +233,7 @@ export class EnrolmentFeePlanService {
     const courseId = enrol.course_id;
     const now = new Date();
     const appMoney = applicationMoney(pricing.application, now);
+    const app = pricing.application;
 
     try {
       const result = await this.prisma.$transaction(async (tx) => {
@@ -243,7 +249,13 @@ export class EnrolmentFeePlanService {
 
         const plan = validateEnrolmentPlan(input.plan, kept, istToday(now));
         if (!plan.ok) throw new PlanRefusal(plan.message);
-        if (replaceable.length === 0 && plan.rows.length === 0) {
+        // The plan's payable becomes the AGREED fee on the enrolment's
+        // application (application_final_fee) — the only figure that can show a
+        // balance still to be scheduled, so a save can always set or correct it
+        // (TTII 2026-10-17). With no application there is nowhere to keep it,
+        // and no balance is ever inferred.
+        const agreedChanges = app !== null && agreedPayableOf(app.finalFee) !== plan.breakdown.payable;
+        if (replaceable.length === 0 && plan.rows.length === 0 && !agreedChanges) {
           throw new PlanRefusal('Nothing to change: the kept instalments already cover the payable total.');
         }
 
@@ -288,6 +300,13 @@ export class EnrolmentFeePlanService {
           });
         }
 
+        if (app && agreedChanges) {
+          await tx.applications.updateMany({
+            where: { id: app.id, deleted_at: null },
+            data: { application_final_fee: plan.breakdown.payable, updated_by: actor, updated_at: now },
+          });
+        }
+
         // Last statement before commit: a checkout started on a replaced row
         // while this ran could no longer be recorded against it. A LOCKING read
         // sees orders committed after this transaction's snapshot.
@@ -297,7 +316,13 @@ export class EnrolmentFeePlanService {
             throw new PlanRefusal('A payment for one of the instalments being replaced started while the plan was saving. Nothing was changed; reload and try again.');
           }
         }
-        return { created: plan.rows.length, replaced: replaceable.length, kept: kept.length, payable: plan.breakdown.payable };
+        return {
+          created: plan.rows.length,
+          replaced: replaceable.length,
+          kept: kept.length,
+          payable: plan.breakdown.payable,
+          agreed_fee_saved: app !== null && agreedChanges,
+        };
       });
       return { status: 1, message: 'Payment plan saved.', data: result };
     } catch (err) {

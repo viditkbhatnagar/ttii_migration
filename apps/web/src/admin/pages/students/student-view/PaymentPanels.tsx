@@ -223,15 +223,17 @@ function PaymentPlanCard({ p }: { p: PaymentData }) {
 
 /** Fee Summary for an enrolment priced by its own plan (TTII 2026-10-16): the
  *  plan already holds any discount and GST, so only its totals are shown. When
- *  the plan is fully paid but the offering fee is larger, the course fee is
- *  the offering's and the balance is still to be scheduled. */
+ *  the plan is fully paid but the AGREED fee (the last saved plan, else the fee
+ *  entered on the enrolment's application) is larger, the course fee is the
+ *  agreed fee and the balance is still to be scheduled. A list price never
+ *  creates a balance (TTII 2026-10-17). */
 function ScheduleFeeSummary({ fee }: { fee: Record<string, unknown> }) {
   const balancePending = asString(fee.fee_source) === 'balance_pending';
   return (
     <div className="grid gap-x-8 md:grid-cols-2">
       <div>
-        <InfoRow label="Fee set by" value={balancePending ? 'Course offering (plan fully paid)' : "This enrolment's payment plan"} />
-        <InfoRow label={balancePending ? 'Course Fee (offering)' : 'Course Fee (per plan)'} value={rupees(asNumber(fee.total_fee))} />
+        <InfoRow label="Fee set by" value={balancePending ? 'Agreed fee (plan fully paid)' : "This enrolment's payment plan"} />
+        <InfoRow label={balancePending ? 'Course Fee (agreed)' : 'Course Fee (per plan)'} value={rupees(asNumber(fee.total_fee))} />
       </div>
       <div>
         <InfoRow label="Fee Paid" value={rupees(asNumber(fee.paid_amount))} />

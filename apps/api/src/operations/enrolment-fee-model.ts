@@ -423,27 +423,28 @@ export function usesOwnFeePlan(
   return !planHasSchedule(original.payment_plan);
 }
 
-/** The payable fee the course's offering pricing implies, or null when only a
- *  legacy course price (or nothing) resolves — those are list prices, too
- *  stale to call a student's schedule short. */
-export function knownPayableFromPrefill(prefill: FeePrefill): number | null {
-  if (prefill.totalFee == null || (prefill.source !== 'offering' && prefill.source !== 'fee_structure')) return null;
-  const payable = computePayable(prefill.totalFee, prefill.discount, prefill.gstPercent);
-  return 'error' in payable ? null : payable.payable;
-}
-
 /**
  * Fee of an enrolment on its own plan. Its schedule is the fee — except when
- * everything scheduled is paid and the offering pricing says the course costs
- * more: then the rest is still to be scheduled, so it must never read as
- * cleared (Jayasree S: ₹18,880 recorded against a larger package fee).
+ * everything scheduled is paid and the AGREED payable is larger: then the
+ * rest is still to be scheduled, so it must never read as cleared.
+ *
+ * Agreed = the payable the per-enrolment plan tool saved, else the fee entered
+ * on the enrolment's application (both live in application_final_fee). A list
+ * price is NEVER used: a ₹15,000 plan agreed against a ₹21,240 package would
+ * show a phantom ₹6,240 balance the admin could not clear (TTII 2026-10-17).
+ * With no agreed payable this behaves exactly as before.
  */
-export function ownPlanFee(input: { scheduleTotal: number; paidTotal: number; knownPayable: number | null }): { fee: number; balancePending: boolean } {
+export function ownPlanFee(input: { scheduleTotal: number; paidTotal: number; agreedPayable: number | null }): { fee: number; balancePending: boolean } {
   const settled = input.scheduleTotal > 0 && input.paidTotal >= input.scheduleTotal;
-  if (settled && input.knownPayable != null && input.knownPayable > input.scheduleTotal) {
-    return { fee: input.knownPayable, balancePending: true };
+  if (settled && input.agreedPayable != null && input.agreedPayable > input.scheduleTotal) {
+    return { fee: input.agreedPayable, balancePending: true };
   }
   return { fee: input.scheduleTotal, balancePending: false };
+}
+
+/** An application_final_fee as whole rupees, or null when none is recorded. */
+export function agreedPayableOf(finalFee: number | null | undefined): number | null {
+  return finalFee != null && Number.isFinite(finalFee) && finalFee > 0 ? Math.round(finalFee) : null;
 }
 
 // ── Money recorded outside the schedule ───────────────────────────────────

@@ -5,11 +5,11 @@ import { env } from '../env.js';
 import type { IntegrationRegistry, PaymentGateway } from '../integrations/contracts.js';
 import { createIntegrationRegistry } from '../integrations/registry.js';
 import { ownPlanFee, studentCourseFeeStatus, usesOwnFeePlan } from '../operations/enrolment-fee-model.js';
-import { findFreeCourseIds, knownPayableByCourse, originalApplication } from '../operations/enrolment-fee-data.js';
+import { agreedPayableByCourse, findFreeCourseIds, originalApplication } from '../operations/enrolment-fee-data.js';
 
 /** Pay Now on a schedule with nothing left to pay. */
 const ALL_INSTALMENTS_PAID = 'All instalments for this course are already paid. Please contact support if you believe a balance is due.';
-/** ...when the offering pricing says the course costs more than the schedule. */
+/** ...when the agreed payable for the course is more than the schedule. */
 const BALANCE_TO_BE_SCHEDULED = 'Balance to be scheduled by TTII. You can pay it here once your instalments are set up.';
 
 const EASEBUZZ_PAYMENT_URL = 'https://project.trogon.info/easebuzz/index.php';
@@ -368,9 +368,9 @@ export class CommerceService {
 
   /**
    * What to tell a student whose schedule has nothing left to pay. When the
-   * enrolment is on its own plan and the offering pricing says the course costs
-   * more than the schedule, the rest is still to be scheduled by TTII — never
-   * "all paid" (TTII 2026-10-16).
+   * enrolment is on its own plan and its AGREED payable is more than the
+   * schedule, the rest is still to be scheduled by TTII — never "all paid".
+   * A list price is never used for this (TTII 2026-10-17).
    */
   private async settledScheduleMessage(userIntId: number, courseIntId: number): Promise<string> {
     try {
@@ -380,15 +380,15 @@ export class CommerceService {
       });
       if (!user) return ALL_INSTALMENTS_PAID;
       if (!usesOwnFeePlan(courseIntId, await originalApplication(this.prisma, user))) return ALL_INSTALMENTS_PAID;
-      const [known, scheduled] = await Promise.all([
-        knownPayableByCourse(this.prisma, user, [courseIntId]),
+      const [agreed, scheduled] = await Promise.all([
+        agreedPayableByCourse(this.prisma, user, [courseIntId]),
         this.prisma.student_payments.aggregate({
           where: { user_id: userIntId, course_id: courseIntId, deleted_at: null },
           _sum: { amount: true },
         }),
       ]);
-      const knownPayable = known.get(courseIntId) ?? null;
-      return knownPayable != null && knownPayable > Number(scheduled._sum.amount ?? 0) ? BALANCE_TO_BE_SCHEDULED : ALL_INSTALMENTS_PAID;
+      const agreedPayable = agreed.get(courseIntId) ?? null;
+      return agreedPayable != null && agreedPayable > Number(scheduled._sum.amount ?? 0) ? BALANCE_TO_BE_SCHEDULED : ALL_INSTALMENTS_PAID;
     } catch (err) {
       console.error(`[createOrder] fee lookup failed for user ${userIntId}, course ${courseIntId}:`, err instanceof Error ? err.message : err);
       return ALL_INSTALMENTS_PAID;
@@ -1383,12 +1383,12 @@ export class CommerceService {
     // Required" on the Payments page, which is how a PAID course added through
     // Add Enrolment (course 25, no fee rows yet) was shown as free. Report the
     // state explicitly: free only on a free offering, otherwise 'pending'.
-    // And a fully paid schedule on a course whose offering costs more is not
-    // "cleared": the balance is still to be scheduled ('balance_pending').
+    // And a fully paid schedule below the AGREED payable is not "cleared": the
+    // balance is still to be scheduled ('balance_pending').
     const unpriced = [...new Set(totals.filter((t) => t.scheduleTotal <= 0 && t.legacyTotal <= 0).map((t) => t.courseId))];
     const settled = [...new Set(totals.filter((t) => t.scheduleTotal > 0 && t.amountPaid >= t.scheduleTotal).map((t) => t.courseId))];
     let freeCourseIds = new Set<number>();
-    let knownPayable = new Map<number, number | null>();
+    let agreedPayable = new Map<number, number | null>();
     if (userRecord && unpriced.length > 0) {
       try {
         freeCourseIds = await findFreeCourseIds(this.prisma, userRecord, unpriced);
@@ -1401,15 +1401,15 @@ export class CommerceService {
       try {
         const original = await originalApplication(this.prisma, userRecord);
         const own = settled.filter((courseId) => usesOwnFeePlan(courseId, original));
-        if (own.length > 0) knownPayable = await knownPayableByCourse(this.prisma, userRecord, own);
+        if (own.length > 0) agreedPayable = await agreedPayableByCourse(this.prisma, userRecord, own);
       } catch (err) {
-        console.error(`[getStudentCourses] offering pricing lookup failed for user ${userIntId}:`, err instanceof Error ? err.message : err);
+        console.error(`[getStudentCourses] agreed-fee lookup failed for user ${userIntId}:`, err instanceof Error ? err.message : err);
       }
     }
     return output.map((row, i) => {
       const t = totals[i];
       if (!t) return { ...row, fee_status: 'pending', is_free: 0 };
-      const own = ownPlanFee({ scheduleTotal: t.scheduleTotal, paidTotal: t.amountPaid, knownPayable: knownPayable.get(t.courseId) ?? null });
+      const own = ownPlanFee({ scheduleTotal: t.scheduleTotal, paidTotal: t.amountPaid, agreedPayable: agreedPayable.get(t.courseId) ?? null });
       if (own.balancePending) {
         return {
           ...row,

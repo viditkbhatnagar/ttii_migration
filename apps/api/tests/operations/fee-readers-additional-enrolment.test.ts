@@ -6,10 +6,12 @@ import type { PrismaClient } from '@prisma/client';
 // The application-wide plan governs only the course of the application
 // users.application_id names, and only while that plan has a schedule; every
 // other enrolment is billed by its own student_payments schedule — exactly as
-// the student portal shows it — and a fully paid schedule below the offering
-// fee is a balance still to be scheduled, never "cleared".
+// the student portal shows it — and a fully paid schedule below the AGREED fee
+// (application_final_fee; never a list price) is a balance still to be
+// scheduled, never "cleared".
 
 const { OperationsService } = await import('../../src/operations/operations-service.js');
+const { agreedPayableByCourse, agreedPayableByStudentCourse } = await import('../../src/operations/enrolment-fee-data.js');
 
 const EMPTY_MODEL = {
   findMany: () => Promise.resolve([]),
@@ -60,7 +62,15 @@ describe('Fee Installments: expected fee per enrolment', () => {
 });
 
 describe('Fee Summary: per enrolment', () => {
-  function summaryService(opts: { originalPlan: string | null; applicationId: number; schedule: Array<{ user_id: number; course_id: number; total: number; paid: number; overdue: number }> }) {
+  function summaryService(opts: {
+    originalPlan: string | null;
+    applicationId: number;
+    schedule: Array<{ user_id: number; course_id: number; total: number; paid: number; overdue: number }>;
+    /** application_final_fee on the course-16 application (the agreed payable). */
+    agreedFee?: number | null;
+    /** Extra applications the agreed-fee lookup sees (newest first). */
+    extraApps?: Array<Record<string, unknown>>;
+  }) {
     return new OperationsService(fakePrisma({
       enrol: {
         findMany: () => Promise.resolve([
@@ -71,13 +81,20 @@ describe('Fee Summary: per enrolment', () => {
       users: { findMany: () => Promise.resolve([{ id: 228, name: 'VIDHYA SHANKAR KS', student_id: 'TTS0052', user_email: 'vidhya@example.com', email: null, application_id: opts.applicationId }]) },
       course: { findMany: () => Promise.resolve([{ id: 25, title: 'AI Educator' }, { id: 16, title: 'Diploma' }]) },
       applications: {
-        // By id: the users.application_id rows. By email + course: the pricing match.
-        findMany: ({ where }: { where: { id?: unknown } }) => Promise.resolve(where.id
+        // By id: the users.application_id rows. OR: the agreed-fee lookup.
+        // By email + course: the offering match.
+        findMany: ({ where }: { where: { id?: unknown; OR?: unknown } }) => Promise.resolve(where.id
           ? [{ id: 100, course_id: 16, payment_plan: opts.originalPlan }]
-          : [
-              { id: 300, user_email: 'vidhya@example.com', course_id: 25, offering_id: 70, certificate_combination_id: 4 },
-              { id: 100, user_email: 'vidhya@example.com', course_id: 16, offering_id: 60, certificate_combination_id: 1 },
-            ]),
+          : where.OR
+            ? [
+                ...(opts.extraApps ?? []),
+                { id: 300, course_id: 25, student_id: 228, user_email: 'vidhya@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: null },
+                { id: 100, course_id: 16, student_id: 228, user_email: 'vidhya@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: opts.agreedFee ?? null },
+              ]
+            : [
+                { id: 300, user_email: 'vidhya@example.com', course_id: 25, offering_id: 70, certificate_combination_id: 4 },
+                { id: 100, user_email: 'vidhya@example.com', course_id: 16, offering_id: 60, certificate_combination_id: 1 },
+              ]),
       },
       offerings: {
         findMany: () => Promise.resolve([
@@ -111,15 +128,75 @@ describe('Fee Summary: per enrolment', () => {
     expect(rows.find((r) => r.enrol_id === 252)).toMatchObject({ course_fee_inc_gst: 29500, fee_paid: 29500, balance_fee: 0 });
   });
 
-  test('a fully paid own-plan schedule below the offering fee shows the balance to schedule', async () => {
+  test('a fully paid own-plan schedule: no balance from the package list price, a balance only from an agreed fee', async () => {
     // Jayasree's shape: the original plan holds only a recorded payment.
-    const service = summaryService({
+    const settled = [{ user_id: 228, course_id: 16, total: 18880, paid: 18880, overdue: 0 }];
+    const listPriceOnly = await summaryService({ originalPlan: LEDGER_ONLY, applicationId: 100, schedule: settled }).listFeeSummary();
+    expect(listPriceOnly.find((r) => r.enrol_id === 252)).toMatchObject({ course_fee_inc_gst: 18880, fee_paid: 18880, balance_fee: 0 });
+
+    const agreed = await summaryService({ originalPlan: LEDGER_ONLY, applicationId: 100, schedule: settled, agreedFee: 29500 }).listFeeSummary();
+    expect(agreed.find((r) => r.enrol_id === 252)).toMatchObject({ course_fee_inc_gst: 29500, fee_paid: 18880, balance_fee: 10620 });
+  });
+
+  test("a newer application that is not the student's enrolment never sets the agreed fee", async () => {
+    // A fresh lead under the same email for the same course, not enrolled and
+    // not linked: the student portal ignores it, so the Fee Summary must too.
+    const rows = await summaryService({
       originalPlan: LEDGER_ONLY,
       applicationId: 100,
       schedule: [{ user_id: 228, course_id: 16, total: 18880, paid: 18880, overdue: 0 }],
+      extraApps: [{ id: 640, course_id: 16, student_id: null, user_email: 'vidhya@example.com', stage: 'form_submitted', is_converted: 0, application_final_fee: 29500 }],
+    }).listFeeSummary();
+    expect(rows.find((r) => r.enrol_id === 252)).toMatchObject({ course_fee_inc_gst: 18880, fee_paid: 18880, balance_fee: 0 });
+  });
+});
+
+describe('the agreed fee is read from the same application on every screen', () => {
+  // A minimal where-evaluator for the two lookups (field equality, `in`, OR).
+  function matches(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
+    return Object.entries(where).every(([key, cond]) => {
+      if (key === 'OR') return (cond as Array<Record<string, unknown>>).some((w) => matches(row, w));
+      if (cond !== null && typeof cond === 'object' && 'in' in cond) return (cond as { in: unknown[] }).in.includes(row[key]);
+      return row[key] === cond;
     });
-    const rows = await service.listFeeSummary();
-    expect(rows.find((r) => r.enrol_id === 252)).toMatchObject({ course_fee_inc_gst: 29500, fee_paid: 18880, balance_fee: 10620 });
+  }
+  const app = (over: Record<string, unknown>): Record<string, unknown> => ({
+    application_id: 'TTII26', offering_id: null, certificate_combination_id: null, payment_plan: null, payment_status: null,
+    payment_link_url: null, payment_link_id: null, payment_link_expires_at: null, deleted_at: null, ...over,
+  });
+  const APPS = [
+    // Course 16: linked (rank 0) beats a NEWER enrolled application found by email (rank 2) and a newer lead (never).
+    app({ id: 640, course_id: 16, student_id: null, user_email: 'vidhya@example.com', stage: 'form_submitted', is_converted: 0, application_final_fee: 99999 }),
+    app({ id: 500, course_id: 16, student_id: null, user_email: 'vidhya@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: 29500 }),
+    app({ id: 120, course_id: 16, student_id: 228, user_email: 'vidhya@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: 18880 }),
+    // Course 18: the users.application_id application (rank 1) beats one found by email.
+    app({ id: 410, course_id: 18, student_id: null, user_email: 'vidhya@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: 40000 }),
+    app({ id: 100, course_id: 18, student_id: null, user_email: 'vidhya@example.com', stage: 'approval_waiting', is_converted: 0, application_final_fee: 35400 }),
+    // Course 25: found by email only; the newest enrolled one.
+    app({ id: 310, course_id: 25, student_id: null, user_email: 'vidhya@example.com', stage: 'enrolled', is_converted: 0, application_final_fee: 3539 }),
+    app({ id: 300, course_id: 25, student_id: null, user_email: 'vidhya@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: 3000 }),
+    // Another student's applications.
+    app({ id: 800, course_id: 25, student_id: 353, user_email: 'ansy@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: 15000 }),
+    app({ id: 801, course_id: 30, student_id: 353, user_email: 'ansy@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: 0 }),
+  ];
+  const db = fakePrisma({
+    applications: {
+      findMany: ({ where }: { where: Record<string, unknown> }) => Promise.resolve(
+        APPS.filter((a) => matches(a, where)).sort((a, b) => Number(b.id) - Number(a.id)),
+      ),
+    },
+  });
+  const VIDHYA = { id: 228, user_email: 'vidhya@example.com', application_id: 100 };
+  const ANSY = { id: 353, user_email: 'ansy@example.com', application_id: 0 };
+
+  test('the Fee Summary batch picks what the student portal and the plan tool pick', async () => {
+    const courses = [16, 18, 25, 30];
+    const batch = await agreedPayableByStudentCourse(db, [VIDHYA, ANSY], courses);
+    expect(Object.fromEntries(batch)).toEqual({ '228:16': 18880, '228:18': 35400, '228:25': 3539, '353:25': 15000, '353:30': null });
+    for (const student of [VIDHYA, ANSY]) {
+      const single = await agreedPayableByCourse(db, student, courses);
+      for (const c of courses) expect(batch.get(`${student.id}:${c}`) ?? null).toBe(single.get(c) ?? null);
+    }
   });
 });
 
@@ -186,17 +263,25 @@ describe('View Student: Fee Summary rows and the original course', () => {
     expect(enrolments.map((e) => e.own_fee_plan)).toEqual([true, true]);
   });
 
-  test("Jayasree's shape: a ledger-only original plan, fully paid below the package fee, is a balance to schedule", async () => {
-    const res = await detailService({
+  test("Jayasree's shape: a ledger-only original plan, fully paid, shows a balance only once an agreed fee exists", async () => {
+    const jayasree = (agreedFee: number | null) => detailService({
       applicationId: 100,
       originalPlan: LEDGER_ONLY,
       schedule: [{ ...COURSE_16_PAID, amount: 18880 }],
-      pricingApps: [{ id: 100, application_id: 'TTII260100', course_id: 16, student_id: 228, offering_id: 60, certificate_combination_id: 1, application_final_fee: null, payment_plan: LEDGER_ONLY, payment_status: 'paid', payment_link_url: null, payment_link_id: null, payment_link_expires_at: null }],
+      pricingApps: [{ id: 100, application_id: 'TTII260100', course_id: 16, student_id: 228, offering_id: 60, certificate_combination_id: 1, application_final_fee: agreedFee, payment_plan: LEDGER_ONLY, payment_status: 'paid', payment_link_url: null, payment_link_id: null, payment_link_expires_at: null }],
     }).getStudentDetail('228');
-    const enrolments = res.enrolments as Array<Record<string, unknown>>;
-    expect(enrolments.find((e) => e.id === 252)?.own_fee_plan).toBe(true);
-    const fees = res.studentFees as Array<Record<string, unknown>>;
-    expect(fees.find((f) => f.enrol_id === 252)).toMatchObject({
+
+    // Production today: application_final_fee NULL — the package list price
+    // (25,000 + 18%) is ignored and the schedule is the fee, as before.
+    const before = await jayasree(null);
+    expect((before.enrolments as Array<Record<string, unknown>>).find((e) => e.id === 252)?.own_fee_plan).toBe(true);
+    expect((before.studentFees as Array<Record<string, unknown>>).find((f) => f.enrol_id === 252)).toMatchObject({
+      fee_source: 'schedule', total_fee: 18880, paid_amount: 18880, pending_amount: 0,
+    });
+
+    // Once TTII records the agreed fee (a plan save does), the balance shows.
+    const agreed = await jayasree(29500);
+    expect((agreed.studentFees as Array<Record<string, unknown>>).find((f) => f.enrol_id === 252)).toMatchObject({
       fee_source: 'balance_pending', total_fee: 29500, paid_amount: 18880, pending_amount: 10620,
     });
   });

@@ -15,19 +15,34 @@ import type { PrismaClient } from '@prisma/client';
 //    mode_of_study or created_by — 33 live students since May have no student
 //    ID. It now allocates the code inside one transaction with the user insert,
 //    exactly like convertApplication.
+//
+// 3. Credentials email (TTII 2026-10-17). Both paths used to email the temp
+//    password BEFORE the transaction, so a double submit that lost the claim
+//    still mailed a second password that was never saved. The password is now
+//    generated first and emailed only after the commit, by the request that
+//    created the student.
 
+const credentialMocks = vi.hoisted(() => ({
+  issueCredentials: vi.fn<() => Promise<{ tempPassword: string; hashedPassword: string }>>(),
+  emailIssuedCredentials: vi.fn<(ctx: { name: string; email: string; roleLabel: string }, tempPassword: string) => Promise<{ emailDelivered: boolean }>>(),
+}));
 vi.mock('../../src/auth/credentials-issuer.js', () => ({
-  issueAndEmailCredentials: vi.fn(() => Promise.resolve({ tempPassword: 'Temp-Secret-1', hashedPassword: 'hashed-secret' })),
+  issueCredentials: credentialMocks.issueCredentials,
+  emailIssuedCredentials: credentialMocks.emailIssuedCredentials,
 }));
 
 const { OperationsService } = await import('../../src/operations/operations-service.js');
 const { allocateEnrollmentId, baseEnrollmentId, pickUniqueEnrollmentId } = await import('../../src/operations/enrolment-id.js');
+const { verifyPassword } = await import('../../src/auth/password.js');
 
 const FIXED_NOW = new Date('2026-10-16T06:00:00.000Z');
+const STUDENT_610_EMAIL = { name: 'Student 610', email: 'student610@example.com', roleLabel: 'Student' };
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(FIXED_NOW);
+  credentialMocks.issueCredentials.mockReset().mockResolvedValue({ tempPassword: 'Temp-Secret-1', hashedPassword: 'hashed-secret' });
+  credentialMocks.emailIssuedCredentials.mockReset().mockResolvedValue({ emailDelivered: true });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -79,6 +94,17 @@ function makeEnrolmentService(world: ApprovalWorld) {
   let attempts = 0;
   let nextUserId = 777;
   let queue: Promise<unknown> = Promise.resolve();
+  let pauseBeforeCommit: { markReached: () => void; released: Promise<void> } | null = null;
+
+  /** Hold the next transaction that reaches its commit until `release()`. */
+  const pauseNextCommit = () => {
+    let markReached: () => void = () => undefined;
+    let release: () => void = () => undefined;
+    const reached = new Promise<void>((resolve) => { markReached = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    pauseBeforeCommit = { markReached, released };
+    return { reached, release };
+  };
 
   const prisma = {
     applications: { findFirst: ({ where }: { where: { id: number; is_converted?: number } }) => {
@@ -127,6 +153,12 @@ function makeEnrolmentService(world: ApprovalWorld) {
           },
         };
         const result = await fn(tx);
+        if (pauseBeforeCommit) {
+          const pause = pauseBeforeCommit;
+          pauseBeforeCommit = null;
+          pause.markReached();
+          await pause.released;
+        }
         world.apps = pending.apps;
         committed.users.push(...pending.users);
         committed.enrols.push(...pending.enrols);
@@ -146,7 +178,33 @@ function makeEnrolmentService(world: ApprovalWorld) {
   const materialize = vi.spyOn(service as unknown as { materializePaymentPlanToStudentPayments: (...args: unknown[]) => Promise<unknown> }, 'materializePaymentPlanToStudentPayments')
     .mockResolvedValue({ created: 0, skipped: 'no-plan' });
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  return { service, committed, txOptions, materialize, world };
+  return { service, committed, txOptions, materialize, world, pauseNextCommit };
+}
+
+/**
+ * Two requests in flight together: `first` is held just before its commit,
+ * `second` starts then (so its pre-checks read the uncommitted state and it
+ * generates its own credentials), and `first` commits once `second` is
+ * queued behind it — a double click, or two admins on the same application.
+ *
+ * Not a bare Promise.all: vitest's mocked dynamic import is not safe when two
+ * imports of the same mocked module from one importer overlap — the second
+ * falls through to the REAL module — so the requests must not reach
+ * `await import('../auth/credentials-issuer.js')` at the same instant.
+ */
+async function overlapping<T>(
+  fx: { pauseNextCommit: () => { reached: Promise<void>; release: () => void }; txOptions: unknown[] },
+  first: () => Promise<T>,
+  second: () => Promise<T>,
+): Promise<[T, T]> {
+  const hold = fx.pauseNextCommit();
+  const a = first();
+  await hold.reached;
+  const queuedBefore = fx.txOptions.length;
+  const b = second();
+  await vi.waitFor(() => { expect(fx.txOptions.length).toBeGreaterThan(queuedBefore); });
+  hold.release();
+  return Promise.all([a, b]);
 }
 
 const approvalApp = (id: number, over: Row = {}): Row => ({
@@ -237,21 +295,55 @@ describe('Admin Approve & Enrol creates a complete student', () => {
     expect(res.status).toBe(1);
     expect(committed.users).toHaveLength(0);
     expect(committed.enrols[0]).toMatchObject({ user_id: 353, enrollment_id: 'TIDMTT26100353-2', enrollment_status: 'Active', mode_of_study: 'Online', created_by: 1 });
+    // No new password for an existing student, so no credentials email (as before).
+    expect(credentialMocks.issueCredentials).not.toHaveBeenCalled();
+    expect(credentialMocks.emailIssuedCredentials).not.toHaveBeenCalled();
+  });
+
+  test('the credentials email goes to the new student once, only after the student is committed', async () => {
+    const { service, committed } = makeEnrolmentService(approvalWorld());
+    const usersCommittedWhenEmailed: number[] = [];
+    credentialMocks.emailIssuedCredentials.mockImplementation(() => {
+      usersCommittedWhenEmailed.push(committed.users.length);
+      return Promise.resolve({ emailDelivered: true });
+    });
+    expect((await service.adminApproveApplication('1', '610')).status).toBe(1);
+    expect(credentialMocks.emailIssuedCredentials).toHaveBeenCalledTimes(1);
+    expect(credentialMocks.emailIssuedCredentials).toHaveBeenCalledWith(STUDENT_610_EMAIL, 'Temp-Secret-1');
+    expect(usersCommittedWhenEmailed).toEqual([1]);
   });
 
   test('a double submit approves once: one student, one TTS code; the second is refused', async () => {
-    const { service, committed } = makeEnrolmentService(approvalWorld());
-    const results = await Promise.all([service.adminApproveApplication('1', '610'), service.adminApproveApplication('8', '610')]);
-    expect(results.map((r) => r.status).sort()).toEqual([0, 1]);
-    expect(results.find((r) => r.status === 0)?.message).toBe('This application has already been approved.');
-    expect(committed.users).toHaveLength(1);
-    expect(committed.enrols).toHaveLength(1);
+    const fx = makeEnrolmentService(approvalWorld());
+    const [first, second] = await overlapping(fx, () => fx.service.adminApproveApplication('1', '610'), () => fx.service.adminApproveApplication('8', '610'));
+    expect(first.status).toBe(1);
+    expect(second).toEqual({ status: 0, message: 'This application has already been approved.' });
+    expect(fx.committed.users).toHaveLength(1);
+    expect(fx.committed.enrols).toHaveLength(1);
+  });
+
+  test('two concurrent approvals send exactly one credentials email, carrying the password that was saved', async () => {
+    credentialMocks.issueCredentials
+      .mockResolvedValueOnce({ tempPassword: 'Temp-Secret-A', hashedPassword: 'hash-A' })
+      .mockResolvedValueOnce({ tempPassword: 'Temp-Secret-B', hashedPassword: 'hash-B' });
+    const fx = makeEnrolmentService(approvalWorld());
+    const [first, second] = await overlapping(fx, () => fx.service.adminApproveApplication('1', '610'), () => fx.service.adminApproveApplication('8', '610'));
+    expect([first.status, second.status]).toEqual([1, 0]);
+    // The loser passed its checks and generated a password before losing the
+    // claim — and that password was never saved, so it is never mailed.
+    expect(credentialMocks.issueCredentials).toHaveBeenCalledTimes(2);
+    expect(fx.committed.users).toHaveLength(1);
+    expect(fx.committed.users[0]?.password).toBe('hash-A');
+    expect(credentialMocks.emailIssuedCredentials).toHaveBeenCalledTimes(1);
+    expect(credentialMocks.emailIssuedCredentials).toHaveBeenCalledWith(STUDENT_610_EMAIL, 'Temp-Secret-A');
   });
 
   test('two DIFFERENT approvals at the same moment mint different TTS codes', async () => {
-    const { service, committed } = makeEnrolmentService(approvalWorld());
-    await Promise.all([service.adminApproveApplication('1', '610'), service.adminApproveApplication('1', '611')]);
-    expect(committed.users.map((u) => u.student_id)).toEqual(['TTS0132', 'TTS0133']);
+    const fx = makeEnrolmentService(approvalWorld());
+    await overlapping(fx, () => fx.service.adminApproveApplication('1', '610'), () => fx.service.adminApproveApplication('1', '611'));
+    expect(fx.committed.users.map((u) => u.student_id)).toEqual(['TTS0132', 'TTS0133']);
+    // One credentials email per student actually created.
+    expect(credentialMocks.emailIssuedCredentials.mock.calls.map(([ctx]) => ctx.email)).toEqual(['student610@example.com', 'student611@example.com']);
   });
 
   test('a deadlock victim is retried and succeeds; repeated contention gives a friendly refusal and writes nothing', async () => {
@@ -259,6 +351,7 @@ describe('Admin Approve & Enrol creates a complete student', () => {
     expect((await retried.service.adminApproveApplication('1', '610')).status).toBe(1);
     expect(retried.txOptions).toHaveLength(2);
     expect(retried.committed.users).toHaveLength(1);
+    expect(credentialMocks.emailIssuedCredentials).toHaveBeenCalledTimes(1);
 
     const stuck = makeEnrolmentService(approvalWorld({ deadlocks: 9 }));
     expect(await stuck.service.adminApproveApplication('1', '610')).toEqual({
@@ -266,24 +359,59 @@ describe('Admin Approve & Enrol creates a complete student', () => {
     });
     expect(stuck.txOptions).toHaveLength(3);
     expect(stuck.committed.users).toHaveLength(0);
+    // Nothing was saved, so nothing more was emailed.
+    expect(credentialMocks.emailIssuedCredentials).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('Convert Application allocates the TTS code the same safe way', () => {
   test('Serializable, claim-first: a double submit converts once', async () => {
-    const { service, committed, txOptions } = makeEnrolmentService(approvalWorld());
-    const results = await Promise.all([service.convertApplication('1', '610'), service.convertApplication('1', '610')]);
-    expect(txOptions[0]).toMatchObject({ isolationLevel: 'Serializable' });
-    expect(results.map((r) => r.status).sort()).toEqual([0, 1]);
-    expect(results.find((r) => r.status === 0)?.message).toBe('This application has already been converted.');
-    expect(committed.users).toHaveLength(1);
-    expect(committed.users[0]).toMatchObject({ student_id: 'TTS0132', application_id: 610, course_id: 16, created_by: 1 });
+    const fx = makeEnrolmentService(approvalWorld());
+    const [first, second] = await overlapping(fx, () => fx.service.convertApplication('1', '610'), () => fx.service.convertApplication('1', '610'));
+    expect(fx.txOptions[0]).toMatchObject({ isolationLevel: 'Serializable' });
+    expect(first.status).toBe(1);
+    expect(second).toEqual({ status: 0, message: 'This application has already been converted.' });
+    expect(fx.committed.users).toHaveLength(1);
+    expect(fx.committed.users[0]).toMatchObject({ student_id: 'TTS0132', application_id: 610, course_id: 16, created_by: 1 });
+  });
+
+  test('a double submit sends exactly one credentials email, after the commit, with the saved password', async () => {
+    credentialMocks.issueCredentials
+      .mockResolvedValueOnce({ tempPassword: 'Temp-Secret-A', hashedPassword: 'hash-A' })
+      .mockResolvedValueOnce({ tempPassword: 'Temp-Secret-B', hashedPassword: 'hash-B' });
+    const fx = makeEnrolmentService(approvalWorld());
+    const usersCommittedWhenEmailed: number[] = [];
+    credentialMocks.emailIssuedCredentials.mockImplementation(() => {
+      usersCommittedWhenEmailed.push(fx.committed.users.length);
+      return Promise.resolve({ emailDelivered: true });
+    });
+    const [first, second] = await overlapping(fx, () => fx.service.convertApplication('1', '610'), () => fx.service.convertApplication('1', '610'));
+    expect([first.status, second.status]).toEqual([1, 0]);
+    expect(credentialMocks.issueCredentials).toHaveBeenCalledTimes(2);
+    expect(fx.committed.users).toHaveLength(1);
+    expect(fx.committed.users[0]?.password).toBe('hash-A');
+    expect(credentialMocks.emailIssuedCredentials).toHaveBeenCalledTimes(1);
+    expect(credentialMocks.emailIssuedCredentials).toHaveBeenCalledWith(STUDENT_610_EMAIL, 'Temp-Secret-A');
+    expect(usersCommittedWhenEmailed).toEqual([1]);
+  });
+
+  test('no email on file: no credentials are issued or emailed and the default password is kept, as before', async () => {
+    const world = approvalWorld();
+    world.apps.set(610, approvalApp(610, { user_email: null, email: null }));
+    const { service, committed } = makeEnrolmentService(world);
+    expect((await service.convertApplication('1', '610')).status).toBe(1);
+    expect(credentialMocks.issueCredentials).not.toHaveBeenCalled();
+    expect(credentialMocks.emailIssuedCredentials).not.toHaveBeenCalled();
+    expect(await verifyPassword('Temp@1234', String(committed.users[0]?.password))).toBe(true);
   });
 
   test('two different conversions mint different codes, and contention is retried', async () => {
-    const { service, committed } = makeEnrolmentService(approvalWorld({ deadlocks: 1 }));
-    await Promise.all([service.convertApplication('1', '610'), service.convertApplication('1', '611')]);
-    expect(committed.users.map((u) => u.student_id).sort()).toEqual(['TTS0132', 'TTS0133']);
+    const fx = makeEnrolmentService(approvalWorld({ deadlocks: 1 }));
+    const results = await overlapping(fx, () => fx.service.convertApplication('1', '610'), () => fx.service.convertApplication('1', '611'));
+    expect(results.map((r) => r.status)).toEqual([1, 1]);
+    expect(fx.committed.users.map((u) => u.student_id)).toEqual(['TTS0132', 'TTS0133']);
+    // One credentials email per student actually created.
+    expect(credentialMocks.emailIssuedCredentials.mock.calls.map(([ctx]) => ctx.email)).toEqual(['student610@example.com', 'student611@example.com']);
   });
 });
 

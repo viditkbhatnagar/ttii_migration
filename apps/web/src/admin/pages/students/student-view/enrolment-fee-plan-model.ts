@@ -28,7 +28,12 @@ export interface EnrolmentPlanData {
   enrollmentId: string;
   studentName: string;
   prefill: { totalFee: number | null; discount: number; gstPercent: number; sourceLabel: string };
+  /** The agreed payable (the last saved plan, else the fee entered on the
+   *  enrolment's application). Only this can show a balance still to be
+   *  scheduled; a list price never does. */
   agreedFee: number | null;
+  /** Whether the enrolment has an application to keep the agreed fee on. */
+  hasApplication: boolean;
   freeOffering: boolean;
   /** Money recorded outside the schedule (the server's view). */
   money: { code: string; application: number; online: number; schedulePaid: number; pendingApproval: boolean; linkOutstanding: boolean };
@@ -80,6 +85,7 @@ export function parsePlanData(raw: Record<string, unknown>): EnrolmentPlanData {
       sourceLabel: asString(prefill.source_label),
     },
     agreedFee: numOrNull(raw.agreed_fee),
+    hasApplication: raw.has_application === true,
     freeOffering: raw.free_offering === true,
     money: {
       code: asString(money.application_code),
@@ -233,6 +239,8 @@ export interface DraftSummary {
   keptTotal: number;
   remaining: number | null;
   planned: number;
+  /** The save would record `payable` as the agreed fee (it differs today). */
+  agreedChanges: boolean;
   problem: string | null;
 }
 
@@ -242,28 +250,34 @@ const dmy = (ymd: string): string => `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}/${y
 
 /** What the save would send, and the first thing the server would refuse.
  *  `replaceableCount` = current rows the save would replace; `window` = the
- *  server's due-date bounds (YYYY-MM-DD). */
+ *  server's due-date bounds (YYYY-MM-DD); `agreed` = the enrolment's agreed
+ *  fee and whether it has an application to keep one on. */
 export function summarizeDraft(
   draft: PlanDraft,
   kept: ReadonlyArray<Pick<PlanScheduleRow, 'amount'>>,
   replaceableCount = 0,
   window: { from: string; to: string } | null = null,
+  agreed: Pick<EnrolmentPlanData, 'agreedFee' | 'hasApplication'> | null = null,
 ): DraftSummary {
   const keptTotal = kept.reduce((sum, r) => sum + r.amount, 0);
   const pay = payableOf(Number(draft.totalFee), Number(draft.discount || 0), Number(draft.gstPercent || 0));
   if ('error' in pay) {
-    return { payable: null, afterDiscount: null, gstAmount: null, keptTotal, remaining: null, planned: 0, problem: pay.error };
+    return { payable: null, afterDiscount: null, gstAmount: null, keptTotal, remaining: null, planned: 0, agreedChanges: false, problem: pay.error };
   }
   const remaining = pay.payable - keptTotal;
   const rows = rowsToSend(draft, remaining);
   const planned = rows.reduce((sum, r) => sum + (Number.isFinite(r.amount) ? r.amount : 0), 0);
-  const base = { payable: pay.payable, afterDiscount: pay.afterDiscount, gstAmount: pay.gstAmount, keptTotal, remaining, planned };
+  // As the server: a save records the payable as the agreed fee whenever the
+  // enrolment has an application and the figure differs — so setting or
+  // correcting the agreed fee is a change even when no row moves.
+  const agreedChanges = agreed?.hasApplication === true && agreed.agreedFee !== pay.payable;
+  const base = { payable: pay.payable, afterDiscount: pay.afterDiscount, gstAmount: pay.gstAmount, keptTotal, remaining, planned, agreedChanges };
   if (remaining < 0) {
     return { ...base, problem: `The instalments that must be kept already total ${inr(keptTotal)}, more than the payable ${inr(pay.payable)}.` };
   }
   if (remaining === 0) {
     if (rows.length > 0) return { ...base, problem: 'Nothing is left to schedule: the kept instalments already cover the payable total.' };
-    return { ...base, problem: replaceableCount > 0 ? null : 'Nothing to change: the kept instalments already cover the payable total.' };
+    return { ...base, problem: replaceableCount > 0 || agreedChanges ? null : 'Nothing to change: the kept instalments already cover the payable total.' };
   }
   if (rows.length === 0) return { ...base, problem: `Add the instalments for the remaining ${inr(remaining)}.` };
   if (rows.length > MAX_PLAN_INSTALMENTS) return { ...base, problem: `A plan can have at most ${MAX_PLAN_INSTALMENTS} instalments.` };

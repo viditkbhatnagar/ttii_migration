@@ -617,8 +617,8 @@ function CourseAccountCard({
             </div>
           </div>
 
-          {/* Next due — or, when everything scheduled is paid but the course
-              costs more, the balance TTII still has to schedule. */}
+          {/* Next due — or, when everything scheduled is paid but the agreed
+              fee is larger, the balance TTII still has to schedule. */}
           {acc.balancePending ? (
             <div className="mt-3 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
               <CalendarClock aria-hidden="true" className="size-3.5 shrink-0" />
