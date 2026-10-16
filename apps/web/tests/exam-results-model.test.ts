@@ -99,4 +99,21 @@ describe('the result sheet export', () => {
   test('a name that looks like a formula stays text in Excel', () => {
     expect(resultSheetCsv(detail)).toContain('"\'=HYPERLINK(""x"")"');
   });
+
+  test('TTII 2026-10-16 — an extra trailing column (supplementary outcomes) is added only when asked', () => {
+    const plain = resultSheetCsv(detail).split('\n')[0] ?? '';
+    expect(plain.endsWith('Notes')).toBe(true);
+    const withSupp = resultSheetCsv(detail, { header: 'Supplementary', valueFor: (st) => (st.userId === 1 ? 'Child Psychology: Supplementary: 40/70 Passed' : '') });
+    expect(withSupp.split('\n')[0]).toContain('Notes,Supplementary');
+    expect(withSupp).toContain('Child Psychology: Supplementary: 40/70 Passed');
+  });
+
+  test('a supplementary student\'s subject they were not entered for exports as "Not entered"', () => {
+    const supp = toExamResultsDetail({
+      examId: 40,
+      sittings: [{ examId: 41, subjectTitle: 'Child Psychology', totalMarks: 70, passMarks: 25, closed: true }],
+      sheet: { students: [{ userId: 1, name: 'A', sittings: [{ examId: 41, status: 'not_entered', score: null, totalMarks: 70 }] }] },
+    });
+    expect(resultSheetCsv(supp).split('\n')[1]).toMatch(/^A,,Not entered,/);
+  });
 });

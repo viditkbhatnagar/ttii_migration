@@ -6,7 +6,8 @@
 import { toCsv } from '@/lib/csv';
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
 
-export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only' | 'reexam';
+// 'not_entered': a supplementary exam's student was not entered for this subject.
+export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only' | 'reexam' | 'not_entered';
 export type OverallResult = 'passed' | 'failed' | 'incomplete' | 'absent' | 'pending' | 'marks_only' | 'reexam';
 export type ExamResultsStatus = 'in_progress' | 'ready' | 'published';
 
@@ -262,6 +263,7 @@ export const SITTING_LABEL: Record<SittingStatus, string> = {
   pending: 'Not held yet',
   marks_only: 'No pass mark',
   reexam: 'Re-exam scheduled',
+  not_entered: 'Not entered',
 };
 
 export const STATUS_LABEL: Record<ExamResultsStatus, string> = {
@@ -270,12 +272,19 @@ export const STATUS_LABEL: Record<ExamResultsStatus, string> = {
   published: 'Published',
 };
 
+/** An extra trailing column for the export (the supplementary outcomes, TTII 2026-10-16). */
+export interface ExtraCsvColumn {
+  header: string;
+  valueFor: (student: StudentResult) => string;
+}
+
 /** CSV of the result sheet — one row per student, one column per subject. */
-export function resultSheetCsv(detail: ExamResultsDetail): string {
+export function resultSheetCsv(detail: ExamResultsDetail, extra?: ExtraCsvColumn): string {
   const head = [
     'Student', 'Student ID',
     ...detail.sittings.map((s) => `${s.subjectTitle} (/${s.totalMarks})`),
     'Total', 'Max', 'Percentage', 'Subjects passed', 'Result', 'Notes',
+    ...(extra ? [extra.header] : []),
   ];
   const rows = detail.students.map((st) => [
     st.name, st.studentCode,
@@ -287,6 +296,7 @@ export function resultSheetCsv(detail: ExamResultsDetail): string {
     st.obtained, st.maxMarks, `${st.percentage}%`, `${st.subjectsPassed}/${st.subjectsTotal}`,
     OVERALL_LABEL[st.overall] ?? st.overall,
     st.sittings.map((c) => c.flag).filter(Boolean).join('; '),
+    ...(extra ? [extra.valueFor(st)] : []),
   ]);
   return toCsv([head, ...rows]);
 }

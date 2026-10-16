@@ -241,6 +241,26 @@ export function orderBySections(sections: QuestionSection[], next: Map<number, n
   return out;
 }
 
+// TTII 2026-10-16 — a supplementary exam re-examines students who already
+// sat the regular paper, so it should not hand them the same questions. The
+// bank listing is re-ordered so questions NOT on the regular papers come
+// first (order otherwise unchanged): Auto-fill and "Select first N" then take
+// them first, and fall back to regular-paper questions only when a subject's
+// bank has too few others — which the step then states, with a count.
+
+/** Questions outside `avoid` first, each group in its original order. */
+export function preferFresh<T extends { id: number }>(options: T[], avoid: ReadonlySet<number>): T[] {
+  if (avoid.size === 0) return options;
+  return [...options.filter((o) => !avoid.has(o.id)), ...options.filter((o) => avoid.has(o.id))];
+}
+
+/** How many selected questions are in `avoid` (on the regular exam's papers). */
+export function reusedCount(selected: ReadonlyMap<number, number>, avoid: ReadonlySet<number>): number {
+  let n = 0;
+  for (const id of selected.keys()) if (avoid.has(id)) n += 1;
+  return n;
+}
+
 /** How many of a section's questions are selected, and their marks. */
 export function sectionStats(s: QuestionSection, selected: Map<number, number>): { count: number; marks: number } {
   let count = 0;

@@ -8,12 +8,14 @@ import { getPrismaClient } from '../data/prisma-client.js';
 import type { EmailProvider } from '../integrations/contracts.js';
 import {
   computeExamResults,
+  type EnteredStudents,
   type ExamResultSheet,
   type ResultAttempt,
   type ResultReExam,
   type ResultSitting,
   type ResultStudent,
 } from './exam-results.js';
+import { supplementaryExamIds } from './supplementary-links.js';
 
 // Exam → Result (TTII 2026-10-08). Loads one exam's sittings, students and
 // attempts, hands them to computeExamResults, and owns the ONE publish action.
@@ -111,6 +113,19 @@ export interface PublishOutcome {
   notified?: number;
 }
 
+/** One exam's sheet with its sitting rows, for readers outside the Result page (supplementary links). */
+export interface ExamSheetSummary {
+  examId: number;
+  examCode: string;
+  title: string;
+  /** The exam row's own status: 'draft' until the wizard publishes it. */
+  examStatus: string;
+  resultStatus: ExamResultsStatus;
+  sittingRows: Array<{ examId: number; examSubjectId: number | null }>;
+  sittings: ResultSitting[];
+  sheet: ExamResultSheet;
+}
+
 function ymd(value: Date | null | undefined): string {
   return value instanceof Date && !Number.isNaN(value.getTime()) ? value.toISOString().slice(0, 10) : '';
 }
@@ -146,6 +161,15 @@ interface LoadedExam {
   attempts: ResultAttempt[];
   reExams: ResultReExam[];
   courses: string[];
+  /**
+   * A supplementary exam's students per sitting (each sitting has its own).
+   * Undefined for every other exam: there every student sits every sitting.
+   */
+  entered?: EnteredStudents;
+}
+
+function sheetOf(loaded: LoadedExam): ExamResultSheet {
+  return computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams, loaded.entered);
 }
 
 export class ExamResultsService {
@@ -169,7 +193,7 @@ export class ExamResultsService {
     });
     const rows: ExamResultsListRow[] = [];
     for (const loaded of await this.loadMany(tops)) {
-      const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams);
+      const sheet = sheetOf(loaded);
       rows.push({ ...(await this.header(loaded, sheet)), subjects: loaded.sittings.length, totals: sheet.totals });
     }
     return rows;
@@ -187,7 +211,7 @@ export class ExamResultsService {
       select: examSelect,
     });
     return (await this.loadMany(tops)).map((loaded) => {
-      const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams);
+      const sheet = sheetOf(loaded);
       return {
         examId: loaded.top.id,
         title: (loaded.top.title ?? '').trim() || `Exam ${loaded.top.id}`,
@@ -207,13 +231,40 @@ export class ExamResultsService {
     const top = await this.resolveTop(examId);
     if (!top) return null;
     const loaded = await this.load(top);
-    const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams);
+    const sheet = sheetOf(loaded);
     return {
       ...(await this.header(loaded, sheet)),
       sheet,
       sittings: loaded.sittings,
       awaitingMarking: await this.papersAwaitingMarking(loaded),
     };
+  }
+
+  /**
+   * TTII 2026-10-16 — the result sheets of several exams by id, drafts
+   * included (a supplementary exam is a draft until the wizard publishes it).
+   * Same loader and the same computeExamResults as the Result page.
+   */
+  async resultSheets(examIds: number[]): Promise<ExamSheetSummary[]> {
+    const ids = [...new Set(examIds.filter((id) => Number.isInteger(id) && id > 0))];
+    if (ids.length === 0) return [];
+    const tops = await this.prisma.exam.findMany({
+      where: { id: { in: ids }, deleted_at: null, parent_exam_id: null },
+      select: examSelect,
+    });
+    return (await this.loadMany(tops)).map((loaded) => {
+      const sheet = sheetOf(loaded);
+      return {
+        examId: loaded.top.id,
+        examCode: loaded.top.exam_code ?? '',
+        title: (loaded.top.title ?? '').trim() || `Exam ${loaded.top.id}`,
+        examStatus: loaded.top.status ?? 'draft',
+        resultStatus: resultStatus(loaded.top, sheet),
+        sittingRows: loaded.sittingRows.map((r) => ({ examId: r.id, examSubjectId: r.exam_subject_id })),
+        sittings: loaded.sittings,
+        sheet,
+      };
+    });
   }
 
   /**
@@ -238,7 +289,7 @@ export class ExamResultsService {
       return { status: 0, message: 'Results for this exam are already published.' };
     }
     const loaded = await this.load(top);
-    const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams);
+    const sheet = sheetOf(loaded);
     if (!sheet.allSittingsClosed) {
       const lastDate = loaded.sittings.map((s) => s.date).filter(Boolean).sort().at(-1) ?? '';
       return {
@@ -325,7 +376,7 @@ export class ExamResultsService {
     for (const c of children) if (c.parent_exam_id !== null) topOf.set(c.id, c.parent_exam_id);
 
     const scheduleSelect = { id: true, exam_id: true, subject_title: true, total_marks: true, pass_marks: true } as const;
-    const [childSchedules, ownSchedules, allocations, courseLinks] = await Promise.all([
+    const [childSchedules, ownSchedules, allocations, courseLinks, supplementaryTops] = await Promise.all([
       childSubjectIds.length > 0
         ? this.prisma.exam_subjects.findMany({ where: { id: { in: childSubjectIds } }, select: scheduleSelect })
         : Promise.resolve([]),
@@ -337,6 +388,9 @@ export class ExamResultsService {
         select: { exam_id: true, user_id: true },
       }),
       this.prisma.exam_courses.findMany({ where: { exam_id: { in: topIds } }, select: { exam_id: true, course_id: true } }),
+      // TTII 2026-10-16 — a supplementary exam enters each student for only
+      // some sittings; every other exam keeps "everyone sits everything".
+      supplementaryExamIds(this.prisma, topIds),
     ]);
 
     const scheduleById = new Map(childSchedules.map((s) => [s.id, s]));
@@ -459,6 +513,12 @@ export class ExamResultsService {
         ...courseLinks.filter((c) => c.exam_id === top.id).map((c) => c.course_id),
         ...(top.course_id ? [top.course_id] : []),
       ])];
+      // A supplementary's sittings each hold only that subject's students.
+      let entered: Map<number, Set<number>> | undefined;
+      if (hasChildren && supplementaryTops.has(top.id)) {
+        entered = new Map(sittingRows.map((r) => [r.id, new Set<number>()]));
+        for (const a of allocations) entered.get(a.exam_id)?.add(a.user_id);
+      }
       return {
         top,
         sittingRows,
@@ -468,6 +528,7 @@ export class ExamResultsService {
         attempts,
         reExams,
         courses: courseIds.map((id) => courseTitle.get(id) ?? '').filter(Boolean),
+        ...(entered ? { entered } : {}),
       };
     });
   }

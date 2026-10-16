@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  EXAM_TYPE_LABEL,
+  canCreateSupplementary,
+  examType,
   filterExams,
   instructionLines,
   phaseCounts,
@@ -40,6 +43,28 @@ describe('exam list filters', () => {
   test('sorting by subjects and by from date', () => {
     expect(sortExams(rows, 'subjects', 'desc').map((r) => r.examId)).toEqual([28, 22, 40, 8]);
     expect(sortExams(rows, 'fromDate', 'desc')[0]?.examId).toBe(28);
+  });
+});
+
+describe('supplementary exams in the list (TTII 2026-10-16)', () => {
+  const withSupp = [
+    ...rows,
+    ...toExamListRows([{ examId: 50, examCode: 'TTIIEXM2600010', title: 'Diploma Supplementary', courses: ['Diploma in Montessori'], courseIds: [16], isPractice: false, isSupplementary: true, sourceExamId: 22, phase: 'draft', fromDate: '2026-10-27', toDate: '2026-10-28', subjects: 2 }]),
+  ];
+
+  test('the type column reads Supplementary, and the type filter separates it from Regular', () => {
+    const supp = withSupp.find((r) => r.examId === 50);
+    expect(supp && EXAM_TYPE_LABEL[examType(supp)]).toBe('Supplementary');
+    expect(supp?.sourceExamId).toBe(22);
+    expect(filterExams(withSupp, { ...none, type: 'supplementary' }).map((r) => r.examId)).toEqual([50]);
+    expect(filterExams(withSupp, { ...none, type: 'regular' }).map((r) => r.examId)).toEqual([22, 28, 40]);
+    expect(filterExams(withSupp, { ...none, type: 'practice' }).map((r) => r.examId)).toEqual([8]);
+    expect(rows[0]?.isSupplementary).toBe(false);
+    expect(sortExams(withSupp, 'type', 'asc').map((r) => examType(r))).toEqual(['practice', 'regular', 'regular', 'regular', 'supplementary']);
+  });
+
+  test('Create Supplementary Exam is offered on completed, real exams only', () => {
+    expect(withSupp.filter(canCreateSupplementary).map((r) => r.examId)).toEqual([22]);
   });
 });
 

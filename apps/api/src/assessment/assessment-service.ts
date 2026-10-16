@@ -3,6 +3,8 @@ import { randomBytes } from 'node:crypto';
 import type { PrismaClient, Prisma } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
+import { isNotDraftSitting } from '../operations/exam-phase.js';
+import { supplementaryExamIds } from '../operations/supplementary-links.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 import { createIntegrationRegistry } from '../integrations/registry.js';
@@ -1304,13 +1306,13 @@ export class AssessmentService {
     // rather than crashing; the caller still gets the course's exams.
     void filter.lessonId;
 
-    const candidateExams = await this.prisma.exam.findMany({
+    const candidateExams = (await this.prisma.exam.findMany({
       where: whereClause,
       orderBy: [
         { from_date: 'asc' },
         { from_time: 'asc' },
       ],
-    });
+    })).filter(isNotDraftSitting);
 
     // Risha UAT 2026-08-06 — a wizard exam scheduled subject-wise is only a
     // PARENT: it holds the pooled questions and the allocation, and publishing
@@ -1318,9 +1320,10 @@ export class AssessmentService {
     // the student a single umbrella card with every subject's duration and
     // marks summed (5835 minutes / 167 marks). Students see children only.
     const parentExamIds = await this.findParentExamIds(candidateExams.map((exam) => exam.id));
-    const exams = parentExamIds.size === 0
-      ? candidateExams
-      : candidateExams.filter((exam) => !parentExamIds.has(exam.id));
+    const exams = await this.withoutOthersSupplementarySittings(
+      parentExamIds.size === 0 ? candidateExams : candidateExams.filter((exam) => !parentExamIds.has(exam.id)),
+      toNullableIntId(userId) ?? 0,
+    );
 
     // TTII 2026-10-09 — a sitting re-opened for this student shows (and is
     // listed by) the re-exam's date and window, not the original one.
@@ -1445,6 +1448,30 @@ export class AssessmentService {
   }
 
   /**
+   * TTII 2026-10-16 (review) — a SUPPLEMENTARY exam's sitting is for the
+   * students entered for it only, so it is left out of every other student's
+   * exam list and calendar (the web portal and the mobile app read both from
+   * here). Every other exam is listed exactly as before.
+   */
+  private async withoutOthersSupplementarySittings<T extends { id: number; parent_exam_id: number | null }>(
+    exams: T[],
+    userId: number,
+  ): Promise<T[]> {
+    const parentIds = [...new Set(exams.map((e) => e.parent_exam_id).filter((v): v is number => v !== null && v !== undefined))];
+    if (parentIds.length === 0) return exams;
+    const supplementary = await supplementaryExamIds(this.prisma, parentIds);
+    const theirs = exams.filter((e) => e.parent_exam_id !== null && supplementary.has(e.parent_exam_id));
+    if (theirs.length === 0) return exams;
+    const entered = userId > 0
+      ? new Set((await this.prisma.exam_student_allocations.findMany({
+          where: { exam_id: { in: theirs.map((e) => e.id) }, user_id: userId },
+          select: { exam_id: true },
+        })).map((a) => a.exam_id))
+      : new Set<number>();
+    return exams.filter((e) => e.parent_exam_id === null || !supplementary.has(e.parent_exam_id) || entered.has(e.id));
+  }
+
+  /**
    * Risha UAT 2026-08-06 — the ids, out of the given list, that are PARENT
    * exams: a wizard exam whose subject-wise sittings were materialised as
    * child exam rows. Parents are templates, never sittings, so no
@@ -1479,7 +1506,7 @@ export class AssessmentService {
       return this.getEmptyExamCalendar();
     }
 
-    const candidateExams = await this.prisma.exam.findMany({
+    const candidateExams = (await this.prisma.exam.findMany({
       where: {
         course_id: toNullableIntId(resolvedCourseId),
         deleted_at: null,
@@ -1487,20 +1514,23 @@ export class AssessmentService {
       select: {
         id: true,
         from_date: true,
+        parent_exam_id: true,
+        status: true,
       },
       orderBy: [
         { from_date: 'asc' },
         { id: 'asc' },
       ],
-    });
+    })).filter(isNotDraftSitting);
 
     // Parents carry the wizard's own (umbrella) dates, which are not sittings —
     // marking those days on the student's calendar invents exams that do not
     // exist. Only the materialised children are real sittings.
     const parentExamIds = await this.findParentExamIds(candidateExams.map((exam) => exam.id));
-    const sittings = parentExamIds.size === 0
-      ? candidateExams
-      : candidateExams.filter((exam) => !parentExamIds.has(exam.id));
+    const sittings = await this.withoutOthersSupplementarySittings(
+      parentExamIds.size === 0 ? candidateExams : candidateExams.filter((exam) => !parentExamIds.has(exam.id)),
+      toNullableIntId(userId) ?? 0,
+    );
 
     if (sittings.length === 0) {
       return this.getEmptyExamCalendar();

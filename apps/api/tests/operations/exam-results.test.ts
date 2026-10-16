@@ -189,3 +189,74 @@ describe('a re-exam replaces the original paper for that subject', () => {
     expect(sheet.students[1]?.sittings[0]).toMatchObject({ status: 'pass', reExam: null, previousScore: null });
   });
 });
+
+describe('a supplementary exam enters each student for some subjects only (TTII 2026-10-16)', () => {
+  // Montessori Methodology (24) for the two who failed it; Child Psychology
+  // (25) for one of them and a third who missed it.
+  const sittings = [sitting(24), sitting(25)];
+  const entered = new Map([[24, new Set([1, 2])], [25, new Set([1, 3])]]);
+  const papers = (): ResultAttempt[] => [attempt(1, 24, 40), attempt(1, 25, 30), attempt(2, 24, 20)];
+
+  test('a subject the student was not entered for is NOT_ENTERED — never absent — and counts nowhere', () => {
+    const sheet = computeExamResults(sittings, [student(1), student(2), student(3)], papers(), [], entered);
+    const [s1, s2, s3] = sheet.students;
+
+    expect(s1).toMatchObject({ overall: 'passed', subjectsPassed: 2, subjectsTotal: 2, maxMarks: 140, obtained: 70 });
+    expect(s2?.sittings.map((c) => c.status)).toEqual(['fail', 'not_entered']);
+    expect(s2).toMatchObject({ overall: 'failed', subjectsTotal: 1, maxMarks: 70, percentage: 28.6 });
+    expect(s3?.sittings.map((c) => c.status)).toEqual(['not_entered', 'absent']);
+    expect(s3).toMatchObject({ overall: 'absent', subjectsTotal: 1, maxMarks: 70 });
+  });
+
+  test('subject summaries and totals count only the students entered for them', () => {
+    const sheet = computeExamResults(sittings, [student(1), student(2), student(3)], papers(), [], entered);
+
+    expect(sheet.subjects[0]).toMatchObject({ students: 2, passed: 1, failed: 1, absent: 0, averageMarks: 30 });
+    expect(sheet.subjects[1]).toMatchObject({ students: 2, passed: 1, failed: 0, absent: 1 });
+    expect(sheet.totals).toMatchObject({ students: 3, passed: 1, failed: 1, absent: 1, incomplete: 0 });
+  });
+
+  test('a student entered for no subject is not on the sheet', () => {
+    const sheet = computeExamResults(sittings, [student(1), student(9)], [], [], entered);
+    expect(sheet.students.map((s) => s.userId)).toEqual([1]);
+  });
+
+  test('without the map (every regular exam) a student missing a sitting is still ABSENT, as before', () => {
+    const sheet = computeExamResults(sittings, [student(2)], [attempt(2, 24, 20)]);
+    expect(sheet.students[0]?.sittings.map((c) => c.status)).toEqual(['fail', 'absent']);
+    expect(sheet.students[0]).toMatchObject({ overall: 'failed', subjectsTotal: 2, maxMarks: 140 });
+  });
+});
+
+describe('existing results are unchanged by the supplementary rule', () => {
+  // Every shape this file pins above, recomputed with no map (what a regular
+  // exam passes) and with a map entering every student for every sitting: the
+  // sheet is identical either way, so no existing exam's numbers can move.
+  const everyone = (sittings: ResultSitting[], students: ResultStudent[]) =>
+    new Map(sittings.map((s) => [s.examId, new Set(students.map((st) => st.userId))]));
+  const reExamOn24 = (closed: boolean): ResultReExam => ({
+    id: 7, examId: 24, userId: 1, scheduledAt: new Date('2026-08-15T06:00:00Z'), date: '2026-08-20', startTime: '10:00', endTime: '11:30', closed,
+  });
+  const reExamPaper = attempt(1, 24, 66, { createdAt: new Date('2026-08-20T04:30:00Z') });
+  const scenarios: Array<[string, ResultSitting[], ResultStudent[], ResultAttempt[], ResultReExam[]]> = [
+    ['all passed', [sitting(23), sitting(24), sitting(25)], [student(1)], [attempt(1, 23, 70), attempt(1, 24, 25), attempt(1, 25, 64)], []],
+    ['one fail', [sitting(23), sitting(24), sitting(25)], [student(1)], [attempt(1, 23, 50), attempt(1, 24, 52), attempt(1, 25, 17)], []],
+    ['absent makes it incomplete', [sitting(23), sitting(24), sitting(25)], [student(1)], [attempt(1, 23, 70), attempt(1, 24, 66)], []],
+    ['pending', [sitting(29), sitting(30), sitting(32, false)], [student(1)], [attempt(1, 29, 67), attempt(1, 30, 66)], []],
+    ['all absent', [sitting(23), sitting(24)], [student(1)], [], []],
+    ['marks only', [sitting(2, true, null)], [student(1)], [attempt(1, 2, 12)], []],
+    ['flagged', [sitting(24)], [student(1)], [attempt(1, 24, 0, { skipped: 70 })], []],
+    ['totals', [sitting(23), sitting(24)], [student(1), student(2), student(3), student(4)],
+      [attempt(1, 23, 60), attempt(1, 24, 60), attempt(2, 23, 10), attempt(2, 24, 60), attempt(3, 23, 60)], []],
+    ['re-exam pending', [sitting(23), sitting(24)], [student(1)], [attempt(1, 23, 68), attempt(1, 24, 0, { skipped: 70 })], [reExamOn24(false)]],
+    ['re-exam sat', [sitting(24)], [student(1), student(2)], [attempt(1, 24, 0, { skipped: 70 }), reExamPaper, attempt(2, 24, 50)], [reExamOn24(false)]],
+    ['re-exam missed', [sitting(24)], [student(1)], [attempt(1, 24, 0, { skipped: 70 })], [reExamOn24(true)]],
+  ];
+
+  test.each(scenarios)('%s', (_name, sittings, students, attempts, reExams) => {
+    const before = computeExamResults(sittings, students, attempts, reExams);
+    expect(computeExamResults(sittings, students, attempts, reExams, undefined)).toEqual(before);
+    expect(computeExamResults(sittings, students, attempts, reExams, everyone(sittings, students))).toEqual(before);
+    expect(before.students.flatMap((s) => s.sittings).some((c) => c.status === 'not_entered')).toBe(false);
+  });
+});

@@ -14,11 +14,13 @@ interface Props extends Omit<StepProps, 'onSaved' | 'examId'> {
   offerings: string[];
   meta: DraftMeta;
   metaLoaded: boolean;
+  /** TTII 2026-10-16 — each student is entered (and emailed) for their own subjects only. */
+  isSupplementary?: boolean;
   onPublished: () => void;
 }
 
 /** Step 6 — instructions, notification channels, then Review → confirm → Publish. */
-export function StepPublish({ api, authToken, closeLabel, draft, courses, offerings, meta, metaLoaded, onPublished, onBack, onClose }: Props) {
+export function StepPublish({ api, authToken, closeLabel, draft, courses, offerings, meta, metaLoaded, isSupplementary = false, onPublished, onBack, onClose }: Props) {
   const examId = draft.id;
   const [instructions, setInstructions] = useState(meta.instructions);
   // Only a real edit is worth sending. Publishing used to post the (empty)
@@ -159,7 +161,12 @@ export function StepPublish({ api, authToken, closeLabel, draft, courses, offeri
                     ? `${allocated} allocated student${allocated === 1 ? '' : 's'} will be emailed when you publish.`
                     : `${allocated} student${allocated === 1 ? '' : 's'} allocated — no emails will be sent on this publish.`}
               </p>
-              <p className="mt-0.5 text-muted-foreground">Recipients are the students in the <span className="font-medium text-foreground">Added Students</span> list of the previous step. You review everything and confirm before anything is sent.</p>
+              <p className="mt-0.5 text-muted-foreground">
+                {isSupplementary
+                  ? 'Recipients are the students of this supplementary exam (previous step). Each is sent the schedule of only the subjects they are entered for.'
+                  : <>Recipients are the students in the <span className="font-medium text-foreground">Added Students</span> list of the previous step.</>}
+                {' '}You review everything and confirm before anything is sent.
+              </p>
             </div>
           </div>
         </div>

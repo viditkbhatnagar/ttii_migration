@@ -12,6 +12,8 @@ import {
   missingIn,
   orderBySections,
   planPickFor,
+  preferFresh,
+  reusedCount,
   sectionStats,
   toQuestionOption,
   toSubjectPlan,
@@ -37,12 +39,20 @@ interface Args {
   examId: string;
   /** A published exam's sittings keep their own copy of the questions until re-published. */
   isPublished: boolean;
+  /**
+   * TTII 2026-10-16 — a supplementary exam's regular papers' questions: listed
+   * last in each subject, so Auto-fill takes them only when the bank is short.
+   * Must be a stable Set (it seeds the first-open auto-fill).
+   */
+  avoidIds?: ReadonlySet<number> | undefined;
   onSaved: () => void;
   onClose: () => void;
 }
 
+const NONE: ReadonlySet<number> = new Set();
+
 /** Step 4 state and actions — moved verbatim out of the single-file wizard. */
-export function useAssignQuestions({ api, authToken, examId, isPublished, onSaved, onClose }: Args) {
+export function useAssignQuestions({ api, authToken, examId, isPublished, avoidIds = NONE, onSaved, onClose }: Args) {
   const confirm = useConfirm();
   const [options, setOptions] = useState<QuestionOption[]>([]);
   const [plans, setPlans] = useState<SubjectPlan[]>([]);
@@ -82,7 +92,7 @@ export function useAssignQuestions({ api, authToken, examId, isPublished, onSave
           api.getExamQuestionPlan(authToken, examId).catch(() => [] as Record<string, unknown>[]),
         ]);
         if (cancelled) return;
-        const mappedOptions = opts.map(toQuestionOption);
+        const mappedOptions = preferFresh(opts.map(toQuestionOption), avoidIds);
         const mappedPlans = plan.map(toSubjectPlan);
         setOptions(mappedOptions);
         setPlans(mappedPlans);
@@ -118,9 +128,11 @@ export function useAssignQuestions({ api, authToken, examId, isPublished, onSave
       }
     })();
     return () => { cancelled = true; };
-  }, [api, authToken, examId]);
+  }, [api, authToken, examId, avoidIds]);
 
   const sections = useMemo<QuestionSection[]>(() => buildSections(options, plans), [options, plans]);
+  // Picked questions that are also on the regular exam's papers (supplementary only).
+  const reused = useMemo(() => reusedCount(selected, avoidIds), [selected, avoidIds]);
 
   // What the plan asks of each subject, and how much of it the bank can cover.
   // Computed for every planned subject whether or not the auto-fill ran, since
@@ -297,6 +309,7 @@ export function useAssignQuestions({ api, authToken, examId, isPublished, onSave
   };
 
   return {
+    usedOnRegular: avoidIds, reused,
     options, sections, picks, shortfalls, selected, defaultMark, setDefaultMark, query, setQuery,
     savedCount, dirty, deletedSavedCount, autoFill, collapsed, loading, saving, hasPlan,
     statsForSection, toggle, setMark, selectFirstN, selectAllIn, clearSection,

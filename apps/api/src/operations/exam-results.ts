@@ -23,8 +23,14 @@
 //     had papers submitted 1–5 minutes in with 0–2 answers, next to 60s/70 on
 //     the same student's other subjects. Flags never change the result — they
 //     tell staff to check before publishing.
+//   - A SUPPLEMENTARY exam (TTII 2026-10-16) enters each student for only the
+//     subjects they failed, so its sittings have different students. When the
+//     caller passes who is entered for each sitting, a subject a student was
+//     not entered for is NOT_ENTERED: it is not absent, and it counts nowhere
+//     (marks, subjects, overall result, subject summary). Without that map —
+//     every regular exam — every student sits every subject, as before.
 
-export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only' | 'reexam';
+export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only' | 'reexam' | 'not_entered';
 export type OverallResult = 'passed' | 'failed' | 'incomplete' | 'absent' | 'pending' | 'marks_only' | 'reexam';
 export type ReExamState = 'scheduled' | 'completed' | 'missed';
 
@@ -272,7 +278,15 @@ export function overallResult(statuses: SittingStatus[]): OverallResult {
   return 'passed';
 }
 
-function summariseSubject(sitting: ResultSitting, cells: StudentSittingResult[]): SubjectSummary {
+/** Sitting exam id → the students entered for it (a supplementary exam's per-subject allocation). */
+export type EnteredStudents = ReadonlyMap<number, ReadonlySet<number>>;
+
+function isEntered(cell: StudentSittingResult): boolean {
+  return cell.status !== 'not_entered';
+}
+
+function summariseSubject(sitting: ResultSitting, allCells: StudentSittingResult[]): SubjectSummary {
+  const cells = allCells.filter(isEntered);
   const scored = cells.filter((c) => c.score !== null);
   const passed = cells.filter((c) => c.status === 'pass').length;
   const failed = cells.filter((c) => c.status === 'fail').length;
@@ -297,11 +311,18 @@ function summariseSubject(sitting: ResultSitting, cells: StudentSittingResult[])
   };
 }
 
+/**
+ * The result sheet. `entered` is given only for a supplementary exam: a
+ * student then sits just the sittings they are entered for, and a student
+ * entered for none is left off the sheet. Without it (every regular exam)
+ * every student sits every sitting — the sheet is exactly what it always was.
+ */
 export function computeExamResults(
   sittings: ResultSitting[],
   students: ResultStudent[],
   attempts: ResultAttempt[],
   reExams: ResultReExam[] = [],
+  entered?: EnteredStudents,
 ): ExamResultSheet {
   const reExamByKey = new Map(reExams.map((r) => [`${r.userId}:${r.examId}`, r]));
   const attemptsByKey = new Map<string, ResultAttempt[]>();
@@ -313,11 +334,18 @@ export function computeExamResults(
   }
 
   const maxMarks = sittings.reduce((sum, s) => sum + s.totalMarks, 0);
-  const studentResults: StudentResult[] = students.map((student) => {
+  const sits = (userId: number, examId: number): boolean => !entered || entered.get(examId)?.has(userId) === true;
+  const eligible = entered ? students.filter((st) => sittings.some((s) => sits(st.userId, s.examId))) : students;
+  const studentResults: StudentResult[] = eligible.map((student) => {
     const cells = sittings.map((s) => {
+      if (!sits(student.userId, s.examId)) {
+        return unscoredCell({ examId: s.examId, totalMarks: s.totalMarks, passMarks: s.passMarks }, 'not_entered');
+      }
       const key = `${student.userId}:${s.examId}`;
       return sittingResult(s, attemptsByKey.get(key) ?? [], reExamByKey.get(key) ?? null);
     });
+    const own = entered ? cells.filter(isEntered) : cells;
+    const studentMax = entered ? own.reduce((sum, c) => sum + c.totalMarks, 0) : maxMarks;
     const obtained = cells.reduce((sum, c) => sum + (c.score ?? 0), 0);
     return {
       userId: student.userId,
@@ -325,11 +353,11 @@ export function computeExamResults(
       studentCode: student.studentCode,
       sittings: cells,
       obtained: round1(obtained),
-      maxMarks,
-      percentage: maxMarks > 0 ? round1((obtained / maxMarks) * 100) : 0,
+      maxMarks: studentMax,
+      percentage: studentMax > 0 ? round1((obtained / studentMax) * 100) : 0,
       subjectsPassed: cells.filter((c) => c.status === 'pass').length,
-      subjectsTotal: sittings.length,
-      overall: overallResult(cells.map((c) => c.status)),
+      subjectsTotal: own.length,
+      overall: overallResult(own.map((c) => c.status)),
       flagged: cells.some((c) => c.flag !== null),
     };
   });

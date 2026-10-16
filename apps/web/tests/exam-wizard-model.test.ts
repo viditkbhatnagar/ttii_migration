@@ -30,6 +30,8 @@ import {
   buildSections,
   orderBySections,
   planPickFor,
+  preferFresh,
+  reusedCount,
   sectionStats,
   type QuestionOption,
   type SubjectPlan,
@@ -190,6 +192,22 @@ describe('step 4 assign questions', () => {
     const ordered = orderBySections(sections, new Map([[4, 1], [999, 2], [1, 1]]));
     expect([...ordered.keys()]).toEqual([1, 4, 999]);
     expect(sectionStats(sections[0]!, ordered)).toEqual({ count: 2, marks: 2 });
+  });
+
+  // TTII 2026-10-16 — a supplementary exam should not repeat the regular paper.
+  test('a supplementary exam auto-fills questions NOT on the regular paper first', () => {
+    const regularPaper = new Set([1, 2]);
+    const fresh = preferFresh(options, regularPaper);
+    expect(fresh.map((o) => o.id)).toEqual([3, 4, 9, 1, 2]);
+    const filled = autoFillSelection(buildSections(fresh, [plan()]), 1);
+    // 2 MCQ wanted: only one fresh MCQ (4) exists, so one regular-paper question (1) is used — and counted.
+    expect([...filled.selection.keys()].sort()).toEqual([1, 3, 4]);
+    expect(reusedCount(filled.selection, regularPaper)).toBe(1);
+  });
+
+  test('without a regular paper to avoid, the order is untouched', () => {
+    expect(preferFresh(options, new Set())).toBe(options);
+    expect(reusedCount(new Map([[1, 1]]), new Set())).toBe(0);
   });
 });
 

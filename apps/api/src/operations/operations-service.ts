@@ -5,6 +5,17 @@ import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { normaliseQuestionText, shapeChanged, toArray, validateQuestionShape, type QuestionShape } from './question-rules.js';
 import { questionBankCourseScope, questionUsage, type QuestionUsage } from './question-usage.js';
+import { nextExamCode } from './exam-code.js';
+import { isNotDraftSitting } from './exam-phase.js';
+import { supplementaryPublishProblem } from './supplementary-exam.js';
+import { SUPPLEMENTARY_WRITES_BLOCKED_MESSAGE, supplementaryState } from './supplementary-links.js';
+
+// TTII 2026-10-16 — Step 5 and publish refuse to give a supplementary exam's
+// sittings one shared student list (see saveExamAllocations / publishExam).
+const SUPPLEMENTARY_STUDENTS_LOCKED_MESSAGE =
+  'This is a supplementary exam: its students were chosen subject by subject when it was created, so they cannot be changed here. To change them, delete this exam and create the supplementary exam again from the Result page.';
+const UNLINKED_DRAFT_SITTINGS_MESSAGE =
+  'This draft exam already has subject sittings with their own students, which only a supplementary exam has before it is published, but its supplementary link is missing. To keep each sitting\'s students it cannot be published or have its students changed: delete it and create the supplementary exam again from the Result page.';
 import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
@@ -3847,7 +3858,7 @@ export class OperationsService {
       }),
       this.prisma.exam.findMany({
         where: { deleted_at: null, from_date: { gte: dateFrom, lte: dateTo } },
-        select: { id: true, title: true, from_date: true, from_time: true, to_time: true },
+        select: { id: true, title: true, from_date: true, from_time: true, to_time: true, parent_exam_id: true, status: true },
       }),
       this.prisma.events.findMany({
         where: { deleted_at: null, event_date: { gte: dateFrom, lte: dateTo } },
@@ -3859,12 +3870,17 @@ export class OperationsService {
     // as a PARENT whose window spans every sitting, so the calendar drew a
     // phantom 10–14 Aug exam on top of the five real sittings. Drop any exam
     // that has live children; single-sitting exams are unaffected.
+    //
+    // TTII 2026-10-16 — a supplementary exam's sittings exist as DRAFTS before
+    // it is published. Like any draft, it shows as its one exam until then:
+    // only published sittings replace their parent, and draft ones are left out.
+    // (A regular exam's sittings are always created published.)
     const examIds = exams.map((e) => e.id);
     const sittings = examIds.length > 0
-      ? await this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null }, select: { parent_exam_id: true } })
+      ? await this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null, status: 'published' }, select: { parent_exam_id: true } })
       : [];
     const parentsWithSittings = new Set(sittings.map((s) => s.parent_exam_id).filter((x): x is number => x !== null && x !== undefined));
-    const calendarExams = exams.filter((e) => !parentsWithSittings.has(e.id));
+    const calendarExams = exams.filter((e) => !parentsWithSittings.has(e.id) && isNotDraftSitting(e));
 
     const combined: SqlRow[] = [
       ...liveClasses.map(lc => ({
@@ -4934,7 +4950,9 @@ export class OperationsService {
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       batchIds.length > 0 ? this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [],
       examIds.length > 0 ? this.prisma.exam_questions.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds }, deleted_at: null }, _count: { id: true } }) : [],
-      examIds.length > 0 ? this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null }, select: { id: true, parent_exam_id: true } }) : [],
+      // Published sittings only: a draft supplementary exam's sittings (created
+      // up front with their students) count once published, like any draft's.
+      examIds.length > 0 ? this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null, status: 'published' }, select: { id: true, parent_exam_id: true } }) : [],
       examSubjectIds.length > 0 ? this.prisma.exam_subjects.findMany({ where: { id: { in: examSubjectIds } }, select: { id: true, subject_title: true } }) : [],
       // Risha UAT 2026-08-08 — "why is the new exam showing sitting to 1 by
       // default? This will appear as a single exam then right?" Sittings only
@@ -5013,22 +5031,8 @@ export class OperationsService {
   // attach scheduling rows, question setup, student allocation, and
   // instructions/notification — each via their own endpoint.
   private async nextExamCode(): Promise<string> {
-    const yy = new Date().getFullYear() % 100;
-    const prefix = `TTIIEXM${String(yy).padStart(2, '0')}`;
-    const recent = await this.prisma.exam.findMany({
-      where: { exam_code: { startsWith: prefix } },
-      select: { exam_code: true },
-      orderBy: { id: 'desc' },
-      take: 500,
-    });
-    let maxSeq = 0;
-    for (const row of recent) {
-      const code = row.exam_code ?? '';
-      if (!code.startsWith(prefix)) continue;
-      const n = Number.parseInt(code.slice(prefix.length), 10);
-      if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
-    }
-    return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`;
+    // Shared with supplementary exams (exam-code.ts), so both use one sequence.
+    return nextExamCode(this.prisma);
   }
 
   async saveExamDraft(
@@ -6183,6 +6187,11 @@ export class OperationsService {
   async saveExamAllocations(examId: string, userIds: number[]): Promise<Record<string, unknown>> {
     const id = toNullableIntId(examId);
     if (!id) return { status: 0, message: 'Invalid exam id.' };
+    // TTII 2026-10-16 — a supplementary exam's students are entered per
+    // subject. One list written onto every sitting (below) — or onto one of its
+    // sittings — would enter students for subjects they passed.
+    const refusal = await this.supplementaryAllocationRefusal(id);
+    if (refusal) return { status: 0, message: refusal };
     await this.prisma.exam_student_allocations.deleteMany({ where: { exam_id: id } });
     if (userIds.length > 0) {
       await this.prisma.exam_student_allocations.createMany({
@@ -6206,6 +6215,26 @@ export class OperationsService {
       }
     }
     return { status: 1, message: 'Allocations saved.' };
+  }
+
+  /**
+   * Why Step 5 may not write this exam's — or this sitting's — students, or
+   * null. Fails closed: an unreadable link refuses, and so does a draft that
+   * already has sittings (only creating a supplementary exam makes those).
+   */
+  private async supplementaryAllocationRefusal(examId: number): Promise<string | null> {
+    const select = { id: true, parent_exam_id: true, status: true } as const;
+    const target = await this.prisma.exam.findFirst({ where: { id: examId }, select });
+    const parentId = target?.parent_exam_id ?? examId;
+    const state = await supplementaryState(this.prisma, parentId);
+    if (state === 'not_set_up') return SUPPLEMENTARY_WRITES_BLOCKED_MESSAGE;
+    if (state === 'supplementary') return SUPPLEMENTARY_STUDENTS_LOCKED_MESSAGE;
+    const parent = parentId === examId ? target : await this.prisma.exam.findFirst({ where: { id: parentId }, select });
+    if (parent && parent.status !== 'published') {
+      const sittings = await this.prisma.exam.count({ where: { parent_exam_id: parentId, deleted_at: null } });
+      if (sittings > 0) return UNLINKED_DRAFT_SITTINGS_MESSAGE;
+    }
+    return null;
   }
 
   // Naji 2026-05-09 — Step 5: instruction templates library + publish.
@@ -6304,6 +6333,35 @@ export class OperationsService {
       if (c.exam_subject_id === null || c.exam_subject_id === undefined) continue;
       childBySubjectRow.set(c.exam_subject_id, c.id);
     }
+
+    // TTII 2026-10-16 — a SUPPLEMENTARY exam's sittings were created with
+    // their own students (only those who failed or missed that subject).
+    // Publishing must keep them: copying the parent's list onto every sitting,
+    // as below for a regular exam, would enter every student for every subject.
+    // Fails closed: an unreadable link must never fall through to the regular
+    // copy below, and a draft that already has sittings is a supplementary
+    // exam (only its creation makes sittings before the first publish).
+    const linkState = await supplementaryState(this.prisma, id);
+    if (linkState === 'not_set_up') return { status: 0, message: SUPPLEMENTARY_WRITES_BLOCKED_MESSAGE };
+    if (linkState === 'regular' && parent.status !== 'published' && existingChildren.length > 0) {
+      return { status: 0, message: UNLINKED_DRAFT_SITTINGS_MESSAGE };
+    }
+    const supplementary = linkState === 'supplementary';
+    const supplementaryStudents = new Map<number, number[]>();
+    if (supplementary) {
+      const childIds = existingChildren.map((c) => c.id);
+      const rows = childIds.length > 0
+        ? await this.prisma.exam_student_allocations.findMany({ where: { exam_id: { in: childIds } }, select: { exam_id: true, user_id: true } })
+        : [];
+      for (const r of rows) supplementaryStudents.set(r.exam_id, [...(supplementaryStudents.get(r.exam_id) ?? []), r.user_id]);
+      const problem = supplementaryPublishProblem(
+        schedule.map((r) => ({ id: r.id, subject_title: r.subject_title })),
+        childBySubjectRow,
+        new Map([...supplementaryStudents].map(([childId, users]) => [childId, users.length])),
+      );
+      if (problem) return { status: 0, message: problem };
+    }
+
     // A child with attempts is an in-flight or already-graded sitting — never
     // re-slice its questions underneath a student.
     const existingChildIds = existingChildren.map((c) => c.id);
@@ -6396,6 +6454,27 @@ export class OperationsService {
         );
       }
       return { status: 0, message: parts.join(' ') };
+    }
+
+    // TTII 2026-10-16 (review) — a supplementary sitting with no questions
+    // would open empty after its students were emailed the date. Unlike a
+    // regular exam's, every supplementary sitting needs a paper, plan or no
+    // plan (create copies the plan only when the source subject had one).
+    if (supplementary) {
+      const bare = schedule.filter((row) => {
+        const childId = childBySubjectRow.get(row.id);
+        if (childId !== undefined && attemptedChildIds.has(childId)) return false;
+        return !sliceFor(row).some((q) => {
+          const bank = q.question_id !== null && q.question_id !== undefined ? bankMap.get(q.question_id) : undefined;
+          return bank !== undefined && bank.deleted_at === null;
+        });
+      }).map((row) => row.subject_title || `Subject ${row.id}`);
+      if (bare.length > 0) {
+        return {
+          status: 0,
+          message: `Not published — ${bare.join(', ')} ${bare.length === 1 ? 'has' : 'have'} no questions. Every subject of a supplementary exam needs its own paper: assign its questions in Step 4 (Auto-fill from plan), then publish.`,
+        };
+      }
     }
 
     // Writes are ordered children-first, parent-publish-last, and wrapped so a
@@ -6493,13 +6572,16 @@ export class OperationsService {
         }
 
         // The admin explicitly picked these students in Step 5 — copy them
-        // across as-is rather than silently re-filtering per sitting.
-        await tx.exam_student_allocations.deleteMany({ where: { exam_id: childId } });
-        if (parentAllocs.length > 0) {
-          await tx.exam_student_allocations.createMany({
-            data: parentAllocs.map((a) => ({ exam_id: childId, user_id: a.user_id })),
-            skipDuplicates: true,
-          });
+        // across as-is rather than silently re-filtering per sitting. A
+        // supplementary sitting keeps the students it was created with.
+        if (!supplementary) {
+          await tx.exam_student_allocations.deleteMany({ where: { exam_id: childId } });
+          if (parentAllocs.length > 0) {
+            await tx.exam_student_allocations.createMany({
+              data: parentAllocs.map((a) => ({ exam_id: childId, user_id: a.user_id })),
+              skipDuplicates: true,
+            });
+          }
         }
 
         if (locked) {
@@ -6541,6 +6623,15 @@ export class OperationsService {
         await tx.exam.updateMany({ where: { id: c.id }, data: { deleted_at: now, deleted_by: actor, updated_at: now } });
       }
 
+      // A supplementary exam's own student list is the students of its
+      // sittings: one whose only subject was removed in Step 2 leaves it.
+      if (supplementary) {
+        const keep = [...new Set(materialised.flatMap((childId) => supplementaryStudents.get(childId) ?? []))];
+        if (keep.length > 0) {
+          await tx.exam_student_allocations.deleteMany({ where: { exam_id: id, user_id: { notIn: keep } } });
+        }
+      }
+
       await tx.exam.updateMany({
         where: { id, deleted_at: null },
         data: {
@@ -6567,9 +6658,15 @@ export class OperationsService {
     // Only on the FIRST publish, or when the admin explicitly asks to resend:
     // re-publishing to fix a typo used to re-email the whole cohort.
     const shouldNotify = input.notifyEmail && (firstPublish || input.resendNotification === true);
+    // A supplementary student is entered for some subjects only: they are the
+    // recipients, and each is sent just their own subjects' schedule.
+    const supplementarySubjectsOf = (userId: number): typeof schedule =>
+      schedule.filter((r) => (supplementaryStudents.get(childBySubjectRow.get(r.id) ?? 0) ?? []).includes(userId));
     if (shouldNotify) {
       try {
-        const userIds = parentAllocs.map((a) => a.user_id);
+        const userIds = supplementary
+          ? [...new Set(schedule.flatMap((r) => supplementaryStudents.get(childBySubjectRow.get(r.id) ?? 0) ?? []))]
+          : parentAllocs.map((a) => a.user_id);
         if (userIds.length > 0) {
           const students = await this.prisma.users.findMany({
             where: { id: { in: userIds }, deleted_at: null },
@@ -6607,6 +6704,11 @@ export class OperationsService {
           for (const s of students) {
             const to = s.user_email ?? s.email ?? '';
             if (!to) continue;
+            const ownRows = supplementary
+              ? supplementarySubjectsOf(s.id)
+                  .map((r) => formatRow(r.subject_title, r.exam_date, r.start_time))
+                  .filter((r): r is NonNullable<typeof r> => r !== null)
+              : scheduleRows;
             try {
               await registry.email.sendEmail({
                 to,
@@ -6615,7 +6717,7 @@ export class OperationsService {
                   studentFirstName: toStringValue(s.name).trim().split(/\s+/)[0] ?? '',
                   examName: toStringValue(parent.title),
                   courseName: courseTitle,
-                  schedule: scheduleRows,
+                  schedule: ownRows,
                 }),
               });
             } catch { /* best-effort */ }

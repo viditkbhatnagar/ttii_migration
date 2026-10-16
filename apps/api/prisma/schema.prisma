@@ -1102,6 +1102,22 @@ model exam_reminders {
   @@index([exam_id], map: "idx_exam_reminders_exam")
 }
 
+/// TTII 2026-10-16 (Risha) — a SUPPLEMENTARY exam: a separate, named exam
+/// created from a finished one for the students who failed (or missed) some
+/// subjects. `exam_id` is the supplementary's parent exam, `source_exam_id`
+/// the exam it was created from. Its child sittings carry their OWN student
+/// allocations (only the students of that subject), which publishing keeps.
+/// Created by deploy/migrations/2026-10-16-exam-supplementary.sql; until it
+/// runs, no exam is supplementary and creating one answers "not set up yet".
+model exam_supplementary {
+  exam_id        Int       @id
+  source_exam_id Int
+  created_by     Int?
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+
+  @@index([source_exam_id], map: "source_exam_id")
+}
+
 model exam_re_examinations {
   id              Int       @id @default(autoincrement()) @db.UnsignedInt
   exam_id         Int
