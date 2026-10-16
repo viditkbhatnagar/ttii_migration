@@ -122,6 +122,26 @@ export function defaultRowLabel(mode: PlanMode, index: number, offset = 0): stri
   return mode === 'full' ? 'Course Fee' : `Installment ${offset + index + 1}`;
 }
 
+/** Add whole years to a YYYY-MM-DD, clamping 29 Feb to 28 Feb. */
+function addYearsYmd(ymd: string, years: number): string {
+  const y = Number(ymd.slice(0, 4)) + years;
+  const md = ymd.slice(5);
+  const isLeap = (yr: number): boolean => (yr % 4 === 0 && yr % 100 !== 0) || yr % 400 === 0;
+  return `${y}-${md === '02-29' && !isLeap(y) ? '02-28' : md}`;
+}
+
+/** Due dates must fall between a year back and three years ahead of `today`. */
+export function dueDateWindow(today: string): { from: string; to: string } {
+  return { from: addYearsYmd(today, -1), to: addYearsYmd(today, 3) };
+}
+
+/** Today's IST calendar day as YYYY-MM-DD. */
+export function istToday(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+const dmy = (ymd: string): string => `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}/${ymd.slice(0, 4)}`;
+
 export interface PlanRowInput {
   label: string;
   amount: number;
@@ -151,9 +171,13 @@ const inr = (n: number): string => `₹${n.toLocaleString('en-IN')}`;
 /**
  * Check a plan against the rows it must keep. The kept rows stay in the
  * schedule, so they count toward the total: kept + new rows must equal the
- * payable total to the rupee.
+ * payable total to the rupee. `today` (YYYY-MM-DD, IST) bounds the due dates.
  */
-export function validateEnrolmentPlan(input: PlanInput, keptRows: ReadonlyArray<Pick<ScheduleRow, 'amount'>>): PlanValidation {
+export function validateEnrolmentPlan(
+  input: PlanInput,
+  keptRows: ReadonlyArray<Pick<ScheduleRow, 'amount'>>,
+  today: string,
+): PlanValidation {
   const breakdown = computePayable(input.totalFee, input.discount, input.gstPercent);
   if ('error' in breakdown) return { ok: false, message: breakdown.error };
   const keptTotal = keptRows.reduce((sum, r) => sum + (Number.isFinite(r.amount) ? r.amount : 0), 0);
@@ -170,6 +194,7 @@ export function validateEnrolmentPlan(input: PlanInput, keptRows: ReadonlyArray<
   if (input.mode === 'full' && input.rows.length !== 1) return { ok: false, message: 'Full payment has exactly one row.' };
   if (input.rows.length > MAX_PLAN_INSTALMENTS) return { ok: false, message: `A plan can have at most ${MAX_PLAN_INSTALMENTS} instalments.` };
 
+  const window = dueDateWindow(today);
   const rows: ValidatedPlanRow[] = [];
   for (const [i, row] of input.rows.entries()) {
     const n = i + 1;
@@ -178,6 +203,10 @@ export function validateEnrolmentPlan(input: PlanInput, keptRows: ReadonlyArray<
     }
     const dueDate = ymdToUtcMidnight(row.dueDate);
     if (!dueDate) return { ok: false, message: `Row ${n}: enter a valid due date.` };
+    const due = row.dueDate.trim();
+    if (due < window.from || due > window.to) {
+      return { ok: false, message: `Row ${n}: the due date must be between ${dmy(window.from)} and ${dmy(window.to)}.` };
+    }
     const label = row.label.trim().slice(0, LABEL_MAX) || defaultRowLabel(input.mode, i);
     rows.push({ label, amount: row.amount, dueDate });
   }
@@ -356,4 +385,115 @@ export function resolveFeePrefill(input: {
   if (coursePrice != null) return { totalFee: coursePrice, discount: 0, gstPercent: 0, source: 'course', sourceLabel: "the course's price" };
 
   return { totalFee: null, discount: 0, gstPercent: 0, source: null, sourceLabel: '' };
+}
+
+// ── Which plan governs an enrolment ───────────────────────────────────────
+
+/** Whether an application payment_plan holds a schedule (instalments, full
+ *  mode or a total) — as opposed to only recorded payments, or nothing. */
+export function planHasSchedule(paymentPlanJson: string | null | undefined): boolean {
+  if (!paymentPlanJson) return false;
+  let plan: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(paymentPlanJson);
+    if (!parsed || typeof parsed !== 'object') return false;
+    plan = parsed as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+  if (Array.isArray(plan.installments) && plan.installments.length > 0) return true;
+  if (plan.mode === 'full') return true;
+  const total = Number(plan.total_amount_minor ?? 0);
+  return Number.isFinite(total) && total > 0;
+}
+
+/**
+ * Whether an enrolment's fee is planned on its own (student_payments) rather
+ * than by the application-wide plan. The application-wide plan is the
+ * authority only for the course of the application `users.application_id`
+ * names, and only while that plan HAS a schedule. A student with no linked
+ * application (application_id 0) has no original course: the newest
+ * application by email is often an Add Enrolment one, so it is never used.
+ */
+export function usesOwnFeePlan(
+  courseId: number | null,
+  original: { course_id: number | null; payment_plan: string | null } | null,
+): boolean {
+  if (!original || original.course_id == null || original.course_id !== courseId) return true;
+  return !planHasSchedule(original.payment_plan);
+}
+
+/** The payable fee the course's offering pricing implies, or null when only a
+ *  legacy course price (or nothing) resolves — those are list prices, too
+ *  stale to call a student's schedule short. */
+export function knownPayableFromPrefill(prefill: FeePrefill): number | null {
+  if (prefill.totalFee == null || (prefill.source !== 'offering' && prefill.source !== 'fee_structure')) return null;
+  const payable = computePayable(prefill.totalFee, prefill.discount, prefill.gstPercent);
+  return 'error' in payable ? null : payable.payable;
+}
+
+/**
+ * Fee of an enrolment on its own plan. Its schedule is the fee — except when
+ * everything scheduled is paid and the offering pricing says the course costs
+ * more: then the rest is still to be scheduled, so it must never read as
+ * cleared (Jayasree S: ₹18,880 recorded against a larger package fee).
+ */
+export function ownPlanFee(input: { scheduleTotal: number; paidTotal: number; knownPayable: number | null }): { fee: number; balancePending: boolean } {
+  const settled = input.scheduleTotal > 0 && input.paidTotal >= input.scheduleTotal;
+  if (settled && input.knownPayable != null && input.knownPayable > input.scheduleTotal) {
+    return { fee: input.knownPayable, balancePending: true };
+  }
+  return { fee: input.scheduleTotal, balancePending: false };
+}
+
+// ── Money recorded outside the schedule ───────────────────────────────────
+
+export interface ReceivedMoney {
+  /** Approved on the enrolment's own application ledger, rupees. */
+  application: number;
+  /** The application reads paid but holds no amount. */
+  applicationPaidUnknown: boolean;
+  applicationCode: string;
+  /** A manual payment on the application awaits Finance approval. */
+  pendingApproval: boolean;
+  /** An application payment link may still be paid; its expiry YYYY-MM-DD or ''. */
+  linkOutstanding: boolean;
+  linkExpiresOn: string;
+  /** Live checkout payments (payment_info) for the course, rupees. */
+  online: number;
+}
+
+export const NO_MONEY_ELSEWHERE: ReceivedMoney = {
+  application: 0, applicationPaidUnknown: false, applicationCode: '', pendingApproval: false,
+  linkOutstanding: false, linkExpiresOn: '', online: 0,
+};
+
+/**
+ * Why a plan must not be saved yet, or null. Money that reaches the course
+ * outside its schedule — a checkout paid on the course price, a payment link or
+ * a Finance-approved manual payment on the enrolment's application — never
+ * writes student_payments, so a plan saved over it would bill the student again.
+ * The Paid rows must cover every rupee received, and nothing may be in flight.
+ */
+export function planBlockReason(money: ReceivedMoney, paidRowsTotal: number): string | null {
+  const code = money.applicationCode || 'the application';
+  if (money.pendingApproval) {
+    return `A payment on this enrolment's application (${code}) is waiting for Finance approval. Approve or reject it first, record an approved payment as a Paid instalment, then save the plan.`;
+  }
+  if (money.linkOutstanding) {
+    const until = money.linkExpiresOn ? ` until ${dmy(money.linkExpiresOn)}` : '';
+    return `A payment link from this enrolment's application (${code}) can still be paid${until}. Save the plan once it is paid (record it as a Paid instalment) or has expired.`;
+  }
+  const received = money.application + money.online;
+  if (received > paidRowsTotal) {
+    const parts = [
+      ...(money.online > 0 ? [`${inr(money.online)} online`] : []),
+      ...(money.application > 0 ? [`${inr(money.application)} on this enrolment's application (${code})`] : []),
+    ];
+    return `This student has already paid ${parts.join(' and ')} for this course, but the schedule shows ${inr(paidRowsTotal)} paid; record it as a Paid instalment first.`;
+  }
+  if (money.applicationPaidUnknown && paidRowsTotal <= 0) {
+    return `This enrolment's application (${code}) is marked paid; record that payment as a Paid instalment first.`;
+  }
+  return null;
 }

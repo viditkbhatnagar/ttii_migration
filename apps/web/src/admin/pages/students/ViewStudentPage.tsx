@@ -12,7 +12,7 @@ import { GeneratePaymentLinkDialog } from '../applications/GeneratePaymentLinkDi
 import { AddEnrolmentDialog } from './student-view/AddEnrolmentDialog.js';
 import { EditEnrolmentDialog } from './student-view/EditEnrolmentDialog.js';
 import { EnrolmentFeePlanDialog, type EnrolmentFeePlanTarget } from './student-view/EnrolmentFeePlanDialog.js';
-import { isAdditionalEnrolment, scopeToCourse } from './student-view/enrolment-fee-plan-model.js';
+import { scopeToCourse, usesOwnFeePlan } from './student-view/enrolment-fee-plan-model.js';
 import { DocumentsTab } from './student-view/DocumentsTab.js';
 import {
   ApplicationDetails, AssignmentTable, CohortCards, ExaminationTable, LearningProgress, LiveClassAttendance, QuizHistory,
@@ -198,9 +198,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       case 'assignment': return <AssignmentTable rows={toRecords(data?.assignmentSubmissions)} />;
       case 'exam': return <ExaminationTable rows={toRecords(data?.examAttempts)} />;
       case 'payments': {
-        // TTII 2026-10-16 — the sub-tab shows THIS enrolment's fee rows. A
-        // course added after the student's application (an ADDITIONAL
-        // enrolment) gets its own plan; the original course keeps the
+        // TTII 2026-10-16 — the sub-tab shows THIS enrolment's fee rows. An
+        // enrolment on its own plan (decided by the server: everything except
+        // the linked application's course while that plan has a schedule)
+        // gets the per-enrolment plan; the original course keeps the
         // application-wide one.
         const courseId = asNumber(selected.course_id);
         const scoped: PaymentData = {
@@ -209,14 +210,13 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           scopedSchedule: scopeToCourse(payment.scopedSchedule, courseId),
         };
         const hasOwnPlan = scoped.scopedSchedule.length > 0;
-        const additional = isAdditionalEnrolment(selected, applicationId, asNumber(student.application_course_id));
         return (
           <EnrollmentPaymentsPanel
             p={scoped}
             canEdit={canEditStudent}
             applicationId={applicationId}
             onOpenPlan={() => setPayPlanOpen(true)}
-            enrolmentPlan={additional
+            enrolmentPlan={usesOwnFeePlan(selected)
               ? {
                   hasPlan: hasOwnPlan,
                   onOpen: () => setFeePlanTarget({ enrolId: asString(selected.id), courseTitle: asString(selected.course_title), hasPlan: hasOwnPlan }),

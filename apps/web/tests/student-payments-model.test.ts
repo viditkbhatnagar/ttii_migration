@@ -35,6 +35,17 @@ describe('free vs fee pending', () => {
     expect(canPayCourse(free)).toBe(false);
   });
 
+  test('a fully paid schedule below the course fee is a balance to be scheduled: not cleared, no Pay Now', () => {
+    const balance = normalizeCourse({
+      course_id: 16, title: 'Diploma', total_fee: 23600, amount_paid: 18880, balance: 4720, status: 'Pending', fee_status: 'balance_pending',
+      installments: [{ id: 1, installment_details: 'Course Fee', amount: 18880, status: 'Paid' }],
+    });
+    expect(balance).toMatchObject({ balancePending: true, isFree: false, feePending: false, balance: 4720, nextDue: null });
+    expect(courseStatusPill(balance)).toEqual({ label: 'Balance pending', tone: 'muted' });
+    expect(canPayCourse(balance)).toBe(false);
+    expect(filterAccounts([balance], 'completed', '')).toEqual([]);
+  });
+
   test('without fee_status (older API) a zero total is pending, never free', () => {
     const legacy = normalizeCourse({ course_id: 25, total_fee: 0, balance: 0, installments: [] });
     expect(legacy).toMatchObject({ isFree: false, feePending: true });

@@ -204,10 +204,10 @@ describe('ledger-only plans (no installments, no total, not full mode)', () => {
     },
   };
 
-  test('the production shape becomes one Paid Registration Fee row dated the day it was paid', () => {
+  test('the production shape becomes one Paid Course Fee row dated the day it was paid', () => {
     expect(buildStudentPaymentRowsFromPlan(JSON.stringify(PROD_SHAPE), 'paid', { ...CTX, settledAt: '2026-07-12T04:00:00.000Z' })).toEqual([
       {
-        ...BASE, installment_details: 'Registration Fee', amount: 2999, payment_mode: 'UPI', status: 'Paid',
+        ...BASE, installment_details: 'Course Fee', amount: 2999, payment_mode: 'UPI', status: 'Paid',
         due_date: null, paid_date: utcDay(2026, 7, 11), reference_number: 'T2607111234', receipt_url: 'uploads/payment_receipts/r187.jpg',
       },
     ]);
@@ -222,7 +222,7 @@ describe('ledger-only plans (no installments, no total, not full mode)', () => {
     };
     expect(buildStudentPaymentRowsFromPlan(JSON.stringify(plan), 'paid', CTX)).toEqual([
       {
-        ...BASE, installment_details: 'Registration Fee', amount: 1000, payment_mode: 'Cash', status: 'Paid',
+        ...BASE, installment_details: 'Course Fee', amount: 1000, payment_mode: 'Cash', status: 'Paid',
         due_date: null, paid_date: utcDay(2026, 7, 12), reference_number: null, receipt_url: null,
       },
     ]);
@@ -241,12 +241,12 @@ describe('ledger-only plans (no installments, no total, not full mode)', () => {
     };
     expect(buildStudentPaymentRowsFromPlan(JSON.stringify(plan), 'pending_approval', CTX)).toEqual([
       {
-        ...BASE, installment_details: 'Registration Fee', amount: 2999, payment_mode: 'UPI', status: 'Paid',
+        ...BASE, installment_details: 'Course Fee', amount: 2999, payment_mode: 'UPI', status: 'Paid',
         due_date: null, paid_date: utcDay(2026, 7, 11), reference_number: 'A', receipt_url: null,
       },
       {
         // 500050 paise rounds to whole rupees like every other row.
-        ...BASE, installment_details: 'Instalment 1', amount: 5001, payment_mode: 'UPI', status: 'Paid',
+        ...BASE, installment_details: 'Installment 1', amount: 5001, payment_mode: 'UPI', status: 'Paid',
         due_date: null, paid_date: utcDay(2026, 8, 11), reference_number: 'B', receipt_url: null,
       },
     ]);
@@ -263,6 +263,21 @@ describe('ledger-only plans (no installments, no total, not full mode)', () => {
     expect(buildStudentPaymentRowsFromPlan(JSON.stringify(rejected), 'payment_rejected', CTX)).toEqual([]);
   });
 
+  test('an approved entry that rounds to Rs.0 is skipped; one that rounds up is kept', () => {
+    const plan = {
+      instalment_payments: [
+        { index: 0, mode: 'UPI', reference: 'A', receipt_url: '', note: '', amount_minor: 40, paid_date: '2026-07-11', marked_at: '', marked_by: 9, status: 'approved' },
+        { index: 1, mode: 'UPI', reference: 'B', receipt_url: '', note: '', amount_minor: 150, paid_date: '2026-07-12', marked_at: '', marked_by: 9, status: 'approved' },
+      ],
+    };
+    expect(buildStudentPaymentRowsFromPlan(JSON.stringify(plan), 'paid', CTX)).toEqual([
+      {
+        ...BASE, installment_details: 'Installment 1', amount: 2, payment_mode: 'UPI', status: 'Paid',
+        due_date: null, paid_date: utcDay(2026, 7, 12), reference_number: 'B', receipt_url: null,
+      },
+    ]);
+  });
+
   test('an approved entry with no recorded amount is skipped (there is no money to record)', () => {
     const plan = {
       instalment_payments: [
@@ -276,7 +291,7 @@ describe('ledger-only plans (no installments, no total, not full mode)', () => {
     const plan = { manual_payment: { mode: 'Cheque', reference: 'CHQ1', receipt_url: '', note: '', amount_minor: 1500000, paid_date: null, marked_at: '2026-06-01T05:00:00.000Z', marked_by: 9 } };
     expect(buildStudentPaymentRowsFromPlan(JSON.stringify(plan), 'paid', { ...CTX, settledAt: '2026-06-02T05:00:00.000Z' })).toEqual([
       {
-        ...BASE, installment_details: 'Registration Fee', amount: 15000, payment_mode: 'Cheque', status: 'Paid',
+        ...BASE, installment_details: 'Course Fee', amount: 15000, payment_mode: 'Cheque', status: 'Paid',
         due_date: null, paid_date: utcDay(2026, 6, 2), reference_number: 'CHQ1', receipt_url: null,
       },
     ]);

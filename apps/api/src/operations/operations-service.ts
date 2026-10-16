@@ -9,7 +9,8 @@ import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 import { allocateEnrollmentId } from './enrolment-id.js';
-import { feeWithScheduleFallback } from './enrolment-fee-model.js';
+import { feeWithScheduleFallback, ownPlanFee, usesOwnFeePlan } from './enrolment-fee-model.js';
+import { knownPayableByCourse } from './enrolment-fee-data.js';
 // Type-only — the runtime modules stay lazily imported so MSAL is never loaded
 // on non-Teams paths.
 // Naji UAT 2026-08-10 — the Graph meeting payload and the student join gate must
@@ -1065,7 +1066,7 @@ function parseLooseInt(value: string | number | null | undefined): number | null
 // `manual_payment` object is kept as a mirror of the latest entry; on read, when
 // no ledger array exists we synthesise index 0 from it so old applications work.
 type InstalmentLedgerStatus = 'pending_approval' | 'approved' | 'rejected';
-interface InstalmentLedgerEntry {
+export interface InstalmentLedgerEntry {
   index: number;
   mode: string;
   reference: string;
@@ -1081,7 +1082,7 @@ interface InstalmentLedgerEntry {
   reject_reason?: string;
 }
 
-function readInstalmentLedger(
+export function readInstalmentLedger(
   plan: Record<string, unknown>,
   appPaymentStatus?: string,
 ): InstalmentLedgerEntry[] {
@@ -1197,17 +1198,22 @@ interface PlanRowsContext {
   settledAt?: Date | string | null;
 }
 
-/** Label for a recorded payment with no schedule row, following the ledger's
- *  own convention (index 0 is the registration milestone, see
- *  listPaymentApprovals). */
+/** Label for a recorded payment with no schedule row. A standalone approved
+ *  payment is a course-fee payment (TTII 2026-10-16: the three affected
+ *  students all paid a full course fee); later ones are numbered with the one
+ *  spelling every fee screen uses. */
 function ledgerOnlyRowLabel(index: number): string {
-  return index === 0 ? 'Registration Fee' : `Instalment ${index}`;
+  return index === 0 ? 'Course Fee' : `Installment ${index}`;
 }
+
+/** Whole rupees of a ledger entry (paise in the plan JSON), or 0. */
+const ledgerRupees = (amountMinor: number | null): number =>
+  amountMinor != null && Number.isFinite(amountMinor) ? Math.round(amountMinor / 100) : 0;
 
 /** One Paid student_payments row per APPROVED ledger entry, for plans that hold
  *  recorded payments but no schedule. Pending and rejected entries are money
- *  not yet received, and an approved entry without an amount has nothing to
- *  record, so neither produces a row. */
+ *  not yet received, and an approved entry under ₹1 (no amount, or one that
+ *  rounds to ₹0) has nothing to record, so neither produces a row. */
 function buildPaidRowsFromApprovedLedger(
   planObj: Record<string, unknown>,
   paymentStatus: string | null | undefined,
@@ -1215,12 +1221,12 @@ function buildPaidRowsFromApprovedLedger(
 ): Prisma.student_paymentsCreateManyInput[] {
   const { studentUserId, courseId, actorUserId, now, settledAt } = ctx;
   return readInstalmentLedger(planObj, paymentStatus ?? undefined)
-    .filter((e) => e.status === 'approved' && e.amount_minor != null && Number.isFinite(e.amount_minor) && e.amount_minor > 0)
+    .filter((e) => e.status === 'approved' && ledgerRupees(e.amount_minor) >= 1)
     .map((e): Prisma.student_paymentsCreateManyInput => ({
       user_id: studentUserId,
       course_id: courseId,
       installment_details: ledgerOnlyRowLabel(e.index),
-      amount: Math.round((e.amount_minor ?? 0) / 100),
+      amount: ledgerRupees(e.amount_minor),
       payment_mode: (e.mode || '').slice(0, 20) || null,
       status: 'Paid',
       due_date: null,
@@ -1329,6 +1335,13 @@ function parseApprovalRowId(rowId: string): { applicationId: string; index: numb
 /** Compare-and-swap retries for a centre wallet credit before giving up. */
 const FUND_CREDIT_CAS_ATTEMPTS = 5;
 
+/** Thrown inside an enrolment transaction when another request already moved
+ *  the application on (double submit): the loser writes nothing. */
+class EnrolmentClaimLost extends Error {}
+
+/** Serializable attempts before a contended enrolment gives up. */
+const ENROLMENT_TX_ATTEMPTS = 3;
+
 export class OperationsService {
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
@@ -1382,6 +1395,25 @@ export class OperationsService {
     }
 
     return `TTS${String(maxNumber + 1).padStart(4, '0')}`;
+  }
+
+  /**
+   * Run an enrolment transaction at Serializable, retrying when InnoDB rolls it
+   * back as the deadlock / write-conflict victim (P2034 / P2028, see
+   * isImportContentionError). nextStudentCode is a max+1 read and
+   * users.student_id has no unique index, so two approvals at the same moment
+   * could mint the same TTS code; under Serializable the second waits or is
+   * rolled back and retries against the committed code (TTII 2026-10-16).
+   * Only database statements run inside — no email, no network.
+   */
+  private async inSerializableTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(fn, { isolationLevel: 'Serializable', maxWait: 10_000, timeout: 30_000 });
+      } catch (error: unknown) {
+        if (attempt >= ENROLMENT_TX_ATTEMPTS || !isImportContentionError(error)) throw error;
+      }
+    }
   }
 
   // Naji 2026-05-07: continue the legacy TTII26#### sequence rather
@@ -2097,76 +2129,97 @@ export class OperationsService {
       issuedHashedPassword = creds.hashedPassword;
     }
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      const studentCode = await this.nextStudentCode(tx);
-      const now = new Date();
-      // Use the issued (emailed) password hash; fall back to a default only for
-      // the rare application with no email on file.
-      const hashedPassword = issuedHashedPassword ?? await hashPassword('Temp@1234');
-      const courseIdNum = application.course_id;
-      const enrolDate = toDateOnly(now);
+    // Use the issued (emailed) password hash; fall back to a default only for
+    // the rare application with no email on file. Hashed before the
+    // transaction so it stays short.
+    const hashedPassword = issuedHashedPassword ?? await hashPassword('Temp@1234');
 
-      const student = await tx.users.create({
-        data: {
-          student_id: studentCode,
-          name: toStringValue(application.name),
-          country_code: toStringValue(application.country_code),
-          phone: toStringValue(application.phone),
-          email: toStringValue(application.email),
-          user_email: applicationEmail,
-          password: hashedPassword,
-          role_id: 2,
-          course_id: courseIdNum ?? null,
-          added_under_centre: application.added_under_centre,
-          status: 1,
-          gender: '',
-          dynamic_link: '',
-          image: '',
-          profile_picture: '',
-          // Link the student back to the source application so post-conversion
-          // reads (and the payment backfill) can resolve users.id <- application.
-          application_id: application.id,
-          created_by: toIntId(actorUserId),
-          updated_by: toIntId(actorUserId),
-          created_at: now,
-          updated_at: now,
-        },
-      });
+    let created: { studentUserId: number; studentCode: string };
+    try {
+      created = await this.inSerializableTransaction(async (tx) => {
+        const now = new Date();
+        // Claim first (TTII 2026-10-16): only one request converts the
+        // application; a double submit waits on the row, matches nothing and
+        // creates no second student or TTS code.
+        const claimed = await tx.applications.updateMany({
+          where: { id: toIntId(applicationId), deleted_at: null, is_converted: 0 },
+          data: { is_converted: 1, status: 'converted', updated_by: toIntId(actorUserId), updated_at: now },
+        });
+        if (claimed.count === 0) throw new EnrolmentClaimLost();
+        const studentCode = await this.nextStudentCode(tx);
+        const courseIdNum = application.course_id;
+        const enrolDate = toDateOnly(now);
 
-      if (courseIdNum) {
-        await tx.enrol.create({
+        const student = await tx.users.create({
           data: {
-            user_id: student.id,
-            course_id: courseIdNum,
-            enrollment_date: enrolDate,
-            enrollment_status: toStringValue(application.enrollment_status) || 'Active',
-            mode_of_study: toStringValue(application.mode_of_study) || 'Online',
+            student_id: studentCode,
+            name: toStringValue(application.name),
+            country_code: toStringValue(application.country_code),
+            phone: toStringValue(application.phone),
+            email: toStringValue(application.email),
+            user_email: applicationEmail,
+            password: hashedPassword,
+            role_id: 2,
+            course_id: courseIdNum ?? null,
+            added_under_centre: application.added_under_centre,
+            status: 1,
+            gender: '',
+            dynamic_link: '',
+            image: '',
+            profile_picture: '',
+            // Link the student back to the source application so post-conversion
+            // reads (and the payment backfill) can resolve users.id <- application.
+            application_id: application.id,
             created_by: toIntId(actorUserId),
             updated_by: toIntId(actorUserId),
             created_at: now,
             updated_at: now,
           },
         });
-      }
 
-      await tx.applications.update({
-        where: { id: toIntId(applicationId) },
-        data: {
-          is_converted: 1,
-          status: 'converted',
-          // Link the converted student back onto the application (legacy convert
-          // never did this, which broke the app-scoped Payments reads).
-          student_id: student.id,
-          updated_by: toIntId(actorUserId),
-          updated_at: now,
-        },
+        if (courseIdNum) {
+          await tx.enrol.create({
+            data: {
+              user_id: student.id,
+              course_id: courseIdNum,
+              enrollment_date: enrolDate,
+              enrollment_status: toStringValue(application.enrollment_status) || 'Active',
+              mode_of_study: toStringValue(application.mode_of_study) || 'Online',
+              created_by: toIntId(actorUserId),
+              updated_by: toIntId(actorUserId),
+              created_at: now,
+              updated_at: now,
+            },
+          });
+        }
+
+        await tx.applications.update({
+          where: { id: toIntId(applicationId) },
+          data: {
+            is_converted: 1,
+            status: 'converted',
+            // Link the converted student back onto the application (legacy convert
+            // never did this, which broke the app-scoped Payments reads).
+            student_id: student.id,
+            updated_by: toIntId(actorUserId),
+            updated_at: now,
+          },
+        });
+
+        return {
+          studentUserId: student.id,
+          studentCode,
+        };
       });
-
-      return {
-        studentUserId: student.id,
-        studentCode,
-      };
-    });
+    } catch (error: unknown) {
+      if (error instanceof EnrolmentClaimLost) {
+        return { status: 0, message: 'This application has already been converted.' };
+      }
+      if (isImportContentionError(error)) {
+        return { status: 0, message: 'Another conversion was being saved at the same moment. Nothing was changed; please try again.' };
+      }
+      throw error;
+    }
 
     // Materialize the application-stage payment plan into student_payments so the
     // post-conversion payment views (Payment History, Payment Status) reflect it.
@@ -7914,9 +7967,9 @@ export class OperationsService {
       userIds.length > 0
         ? this.prisma.users.findMany({
             where: { id: { in: userIds }, deleted_at: null },
-            select: { id: true, name: true, student_id: true, user_email: true, email: true },
+            select: { id: true, name: true, student_id: true, user_email: true, email: true, application_id: true },
           })
-        : Promise.resolve([] as Array<{ id: number; name: string | null; student_id: number | null; user_email: string | null; email: string | null }>),
+        : Promise.resolve([] as Array<{ id: number; name: string | null; student_id: string | null; user_email: string | null; email: string | null; application_id: number }>),
       courseIds.length > 0
         ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
         : Promise.resolve([] as Array<{ id: number; title: string | null }>),
@@ -7924,6 +7977,18 @@ export class OperationsService {
 
     const userMap = new Map(users.map((u) => [u.id, u]));
     const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+
+    // TTII 2026-10-16 — each student's original application (the one
+    // users.application_id names): its course keeps the application-wide plan
+    // while that plan has a schedule; every other enrolment is on its own plan.
+    const originalAppIds = [...new Set(users.map((u) => u.application_id).filter((v) => v > 0))];
+    const originalApps = originalAppIds.length > 0
+      ? await this.prisma.applications.findMany({
+          where: { id: { in: originalAppIds }, deleted_at: null },
+          select: { id: true, course_id: true, payment_plan: true },
+        })
+      : [];
+    const originalAppById = new Map(originalApps.map((a) => [a.id, a]));
 
     // Match each enrolment back to its source application via email +
     // course_id (applications doesn't carry user_id). Pick the most-
@@ -8073,9 +8138,15 @@ export class OperationsService {
       const pay = e.user_id && e.course_id ? payByKey.get(`${e.user_id}:${e.course_id}`) : null;
       const paid = pay?.paid ?? 0;
       const overdue = pay?.overdue ?? 0;
-      // TTII 2026-10-16 — an additional enrolment's plan lives only in its
-      // schedule; with no resolvable price, bill what the schedule says.
-      courseFee = feeWithScheduleFallback(courseFee, pay?.total ?? 0).fee;
+      // TTII 2026-10-16 — an enrolment on its own plan is billed by its
+      // schedule (as the student portal shows it), unless that is fully paid
+      // and the offering pricing says the course costs more; any other course
+      // with no resolvable price falls back to its schedule.
+      const scheduleTotal = pay?.total ?? 0;
+      const original = u?.application_id ? originalAppById.get(u.application_id) ?? null : null;
+      courseFee = usesOwnFeePlan(e.course_id, original) && scheduleTotal > 0
+        ? ownPlanFee({ scheduleTotal, paidTotal: paid, knownPayable: courseFee > 0 ? courseFee : null }).fee
+        : feeWithScheduleFallback(courseFee, scheduleTotal).fee;
       const balance = Math.max(0, courseFee - paid);
 
       return {
@@ -13383,75 +13454,95 @@ export class OperationsService {
     // application link commit together, mirroring convertApplication. This
     // path used to create the user with no student_id, no created_by /
     // updated_by and no course_id, and the enrol row with no status, mode or
-    // creator: 33 students enrolled since May had no student ID.
-    const student = await this.prisma.$transaction(async (tx) => {
-      let row = existingStudent;
-      if (!row) {
-        const studentCode = await this.nextStudentCode(tx);
-        const created = await tx.users.create({
+    // creator: 33 students enrolled since May had no student ID. Serializable
+    // with retry, so two approvals at once cannot mint the same TTS code.
+    let student: { id: number; name: string | null; user_email: string | null };
+    try {
+      student = await this.inSerializableTransaction(async (tx) => {
+        // Claim first: only one request moves the application out of the
+        // approval stages. A double submit waits on the row, matches nothing
+        // and creates no second student or TTS code.
+        const claimed = await tx.applications.updateMany({
+          where: { id, deleted_at: null, stage: { in: ['approval_waiting', 'form_submitted'] } },
           data: {
-            student_id: studentCode,
-            name: app.name ?? '',
-            user_email: appEmail,
-            email: appEmail,
-            phone: app.phone || '',
-            password: issuedHashedPassword,
-            role_id: 2,
-            status: 1,
-            gender: '',
-            dynamic_link: '',
-            image: '',
-            profile_picture: '',
-            application_id: id,
-            course_id: courseId,
-            created_by: actor,
-            updated_by: actor,
-            created_at: now,
+            stage: 'enrolled',
+            admin_approved_at: now,
+            admin_approved_by: actor,
+            is_converted: 1,
+            converted_at: now,
+            converted_by: actor,
+            status: 'converted',
             updated_at: now,
+            updated_by: actor,
           },
         });
-        row = { id: created.id, name: created.name, user_email: created.user_email };
-      }
+        if (claimed.count === 0) throw new EnrolmentClaimLost();
 
-      // Enrol if not already.
-      const existingEnrol = await tx.enrol.findFirst({
-        where: { user_id: row.id, course_id: courseId, deleted_at: null },
-        select: { id: true },
-      });
-      if (!existingEnrol) {
-        await tx.enrol.create({
-          data: {
-            user_id: row.id,
-            course_id: courseId,
-            enrollment_id: await allocateEnrollmentId(tx, row.id, now),
-            enrollment_date: toDateOnly(now),
-            enrollment_status: toStringValue(app.enrollment_status) || 'Active',
-            mode_of_study: toStringValue(app.mode_of_study) || 'Online',
-            created_by: actor,
-            updated_by: actor,
-            created_at: now,
-            updated_at: now,
-          },
+        let row = existingStudent;
+        if (!row) {
+          const studentCode = await this.nextStudentCode(tx);
+          const created = await tx.users.create({
+            data: {
+              student_id: studentCode,
+              name: app.name ?? '',
+              user_email: appEmail,
+              email: appEmail,
+              phone: app.phone || '',
+              password: issuedHashedPassword,
+              role_id: 2,
+              status: 1,
+              gender: '',
+              dynamic_link: '',
+              image: '',
+              profile_picture: '',
+              application_id: id,
+              course_id: courseId,
+              created_by: actor,
+              updated_by: actor,
+              created_at: now,
+              updated_at: now,
+            },
+          });
+          row = { id: created.id, name: created.name, user_email: created.user_email };
+        }
+
+        // Enrol if not already.
+        const existingEnrol = await tx.enrol.findFirst({
+          where: { user_id: row.id, course_id: courseId, deleted_at: null },
+          select: { id: true },
         });
-      }
+        if (!existingEnrol) {
+          await tx.enrol.create({
+            data: {
+              user_id: row.id,
+              course_id: courseId,
+              enrollment_id: await allocateEnrollmentId(tx, row.id, now),
+              enrollment_date: toDateOnly(now),
+              enrollment_status: toStringValue(app.enrollment_status) || 'Active',
+              mode_of_study: toStringValue(app.mode_of_study) || 'Online',
+              created_by: actor,
+              updated_by: actor,
+              created_at: now,
+              updated_at: now,
+            },
+          });
+        }
 
-      await tx.applications.update({
-        where: { id },
-        data: {
-          stage: 'enrolled',
-          student_id: row.id,
-          admin_approved_at: now,
-          admin_approved_by: actor,
-          is_converted: 1,
-          converted_at: now,
-          converted_by: actor,
-          status: 'converted',
-          updated_at: now,
-          updated_by: actor,
-        },
+        await tx.applications.update({
+          where: { id },
+          data: { student_id: row.id },
+        });
+        return row;
       });
-      return row;
-    });
+    } catch (error: unknown) {
+      if (error instanceof EnrolmentClaimLost) {
+        return { status: 0, message: 'This application has already been approved.' };
+      }
+      if (isImportContentionError(error)) {
+        return { status: 0, message: 'Another approval was being saved at the same moment. Nothing was changed; please try again.' };
+      }
+      throw error;
+    }
 
     // Materialize the application-stage payment plan into student_payments so the
     // post-conversion payment views reflect it. Idempotent + non-blocking — a
@@ -13464,6 +13555,8 @@ export class OperationsService {
         courseId: app.course_id,
         actorUserId: actor,
         now,
+        // The moment the payment settled, as convertApplication passes it.
+        settledAt: app.payment_marked_paid_at,
       });
     } catch (err) {
       console.error('[adminApproveApplication] payment materialization failed:', err instanceof Error ? err.message : err);
@@ -14665,6 +14758,15 @@ export class OperationsService {
       cohortsByCourse.set(c.course_id, arr);
     }
 
+    // TTII 2026-10-16 — the application-wide plan governs only the course of
+    // the application users.application_id names, and only while that plan
+    // has a schedule. Every other enrolment is planned on its own (its
+    // student_payments rows); the email-matched fallback above can be an Add
+    // Enrolment application, so it never decides this.
+    const originalApp = user.application_id && application
+      ? { course_id: application.course_id, payment_plan: application.payment_plan }
+      : null;
+
     const enrichedEnrolments = enrolments.map(e => {
       const course = e.course_id ? courseMap.get(e.course_id) : null;
       const fee = e.course_id ? courseFeeMap.get(e.course_id) : null;
@@ -14675,6 +14777,7 @@ export class OperationsService {
       const progress = vp && vp.total > 0 ? Math.round((vp.completed / vp.total) * 100) : 0;
       return {
         ...e,
+        own_fee_plan: usesOwnFeePlan(e.course_id ?? null, originalApp),
         course_title: course?.title ?? null,
         offering_title: offering?.title ?? offering?.offering_code ?? null,
         // Naji 2026-05-12 — Certificate Combination column on the
@@ -14725,19 +14828,37 @@ export class OperationsService {
             progress: 0,
             status: 'Active',
             cohorts: [],
+            // Display only: there is no enrol row to plan against.
+            own_fee_plan: false,
             synthesized: true,
           }]
         : [];
 
-    // TTII 2026-10-16 — every live schedule row per course. An ADDITIONAL
-    // enrolment's fee lives only in its schedule (its per-enrolment plan), so
-    // a course with no resolvable price is billed what its schedule says.
+    // TTII 2026-10-16 — every live schedule row per course. An enrolment on
+    // its own plan is billed what its schedule says.
     const scheduleTotalByCourse = new Map<number, number>();
     for (const sp of studentPaymentSchedule) {
       const courseId = Number(sp.course_id ?? 0);
       const amt = Number(sp.amount ?? 0);
       if (!courseId || !Number.isFinite(amt) || amt <= 0) continue;
       scheduleTotalByCourse.set(courseId, (scheduleTotalByCourse.get(courseId) ?? 0) + amt);
+    }
+    // When such a schedule is fully paid but the offering pricing says the
+    // course costs more, the rest is still to be scheduled — never "cleared".
+    const settledOwnCourses = [...new Set(enrichedEnrolments
+      .filter((e) => e.own_fee_plan && e.course_id != null)
+      .map((e) => e.course_id as number)
+      .filter((c) => {
+        const total = scheduleTotalByCourse.get(c) ?? 0;
+        return total > 0 && (paidByCourse.get(c) ?? 0) >= total;
+      }))];
+    let knownPayable = new Map<number, number | null>();
+    if (settledOwnCourses.length > 0) {
+      try {
+        knownPayable = await knownPayableByCourse(this.prisma, { id: uid, user_email: user.user_email, application_id: user.application_id }, settledOwnCourses);
+      } catch (err) {
+        console.error(`[getStudentDetail] offering pricing lookup failed for user ${uid}:`, err instanceof Error ? err.message : err);
+      }
     }
 
     // Per-enrolment fee aggregation for Tab 3 (Course Fee) + the
@@ -14779,8 +14900,19 @@ export class OperationsService {
       // only, so another course's row no longer borrows them.
       const offeringTitle = onOfferingCourse ? e.offering_title : null;
       const combinationTitle = onOfferingCourse ? enrolmentCombination?.combination_code ?? null : null;
-      const scheduled = feeSrc ? null : feeWithScheduleFallback(courseFeeIncGst, e.course_id ? scheduleTotalByCourse.get(e.course_id) ?? 0 : 0);
-      if (scheduled?.fromSchedule) {
+      const scheduleTotal = e.course_id ? scheduleTotalByCourse.get(e.course_id) ?? 0 : 0;
+      // An enrolment on its own plan is billed by its schedule (the portal
+      // shows the same); otherwise a course with no resolvable price falls
+      // back to its schedule.
+      let scheduled: { fee: number; source: 'schedule' | 'balance_pending' } | null = null;
+      if (e.own_fee_plan && scheduleTotal > 0) {
+        const own = ownPlanFee({ scheduleTotal, paidTotal: paid, knownPayable: e.course_id ? knownPayable.get(e.course_id) ?? null : null });
+        scheduled = { fee: own.fee, source: own.balancePending ? 'balance_pending' : 'schedule' };
+      } else if (!feeSrc) {
+        const fallback = feeWithScheduleFallback(courseFeeIncGst, scheduleTotal);
+        if (fallback.fromSchedule) scheduled = { fee: fallback.fee, source: 'schedule' };
+      }
+      if (scheduled) {
         // Priced by its own schedule: the plan already holds discount and GST.
         return {
           ...ids,
@@ -14788,7 +14920,7 @@ export class OperationsService {
           course_title: e.course_title,
           offering_title: offeringTitle,
           combination_title: combinationTitle,
-          fee_source: 'schedule',
+          fee_source: scheduled.source,
           base_fee: scheduled.fee,
           discount: 0,
           course_fee: scheduled.fee,
@@ -15078,10 +15210,6 @@ export class OperationsService {
       specialization: (biographyParsed?.specialization as string | null | undefined) ?? null,
       // Application metadata for the new "Application Details" card.
       application_id: application?.id ?? null,
-      // The course the application-wide payment plan belongs to. Any other
-      // enrolment is an ADDITIONAL one with its own per-enrolment plan
-      // (TTII 2026-10-16).
-      application_course_id: application?.course_id ?? null,
       application_date: application?.created_at ?? null,
       application_status: application?.status ?? null,
       certificate_combination_id: application?.certificate_combination_id ?? null,
@@ -17076,10 +17204,15 @@ export class OperationsService {
       const url = extras.receiptUrl.trim();
       if (url) data.receipt_url = url;
     }
-    await this.prisma.student_payments.updateMany({
+    const updated = await this.prisma.student_payments.updateMany({
       where: { id: toIntId(installmentId), deleted_at: null },
       data,
     });
+    // TTII 2026-10-16 — a row replaced by a new payment plan is soft-deleted;
+    // reporting success for it would leave the payment recorded nowhere.
+    if (updated.count === 0) {
+      return { status: 0, message: 'This instalment no longer exists (it may have been replaced by a new payment plan). Reload and record the payment against the current schedule.' };
+    }
     return { status: 1, message: 'Installment marked as paid.' };
   }
 

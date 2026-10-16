@@ -4,338 +4,100 @@ import type { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
 import {
   CHECKOUT_HOLD_MS,
-  checkoutRowIdsFromNotes,
   classifyScheduleRow,
   computePayable,
+  dueDateWindow,
   isFreeByPricing,
-  resolveFeePrefill,
+  istToday,
+  planBlockReason,
+  usesOwnFeePlan,
   validateEnrolmentPlan,
-  type OfferingPricing,
-  type PackagePricing,
   type PlanInput,
+  type ReceivedMoney,
   type ScheduleRow,
 } from './enrolment-fee-model.js';
-import { buildStudentPaymentRowsFromPlan } from './operations-service.js';
+import {
+  checkoutHeldRowIds,
+  checkoutHeldRowIdsNow,
+  loadCoursePricing,
+  onlinePaidTotal,
+  originalApplication,
+  prefillFor,
+  readSchedule,
+  type CoursePricing,
+  type EnrolmentApplication,
+  type StudentRef,
+} from './enrolment-fee-data.js';
+import { buildStudentPaymentRowsFromPlan, readInstalmentLedger } from './operations-service.js';
 
-// Per-enrolment payment plans for ADDITIONAL enrolments (TTII 2026-10-16).
+// Per-enrolment payment plans (TTII 2026-10-16).
 //
 // VIDHYA SHANKAR KS (users.id 228) was given course 25 through Add Enrolment.
 // The admin "Generate / Edit Payment Plan" edits the student's ORIGINAL
-// application (one course), so the added course had no way to get a fee: the
-// portal called it Free and Pay Now had nothing to charge. This service plans
-// such an enrolment directly in student_payments (user_id = users.id,
-// course_id) — the rows Pay Now charges and every fee view reads. The original
-// course keeps its application-wide plan; it is refused here.
-
-type Db = PrismaClient | Prisma.TransactionClient;
+// application, so the added course had no way to get a fee: the portal called
+// it Free and Pay Now had nothing to charge. This service plans an enrolment
+// directly in student_payments (user_id = users.id, course_id) — the rows Pay
+// Now charges and every fee view reads. It is refused only for the course of
+// the application users.application_id names, while that application's plan
+// has a schedule (the plan is the authority for that course).
+//
+// The save transaction runs database statements only — no network call — so
+// the FOR UPDATE on student_payments (no index on user_id/course_id, so it
+// locks broadly) is held for milliseconds.
 
 class PlanRefusal extends Error {}
-
-interface StudentRef {
-  id: number;
-  name: string | null;
-  user_email: string | null;
-  application_id: number | null;
-}
-
-export interface EnrolmentApplication {
-  id: number;
-  applicationCode: string;
-  courseId: number;
-  offeringId: number | null;
-  combinationId: number | null;
-  finalFee: number | null;
-  paymentPlan: string | null;
-  paymentStatus: string | null;
-  paymentLinkUrl: string | null;
-}
-
-export interface CoursePricing {
-  application: EnrolmentApplication | null;
-  enrolmentOffering: OfferingPricing | null;
-  combinationId: number | null;
-  combinationGst: number | null;
-  courseOfferings: OfferingPricing[];
-  courseFee: { base_fee: number | null; discount: number | null } | null;
-  course: { title: string; total_amount: number | null; sale_price: number | null } | null;
-}
 
 export interface SaveEnrolmentPlanInput {
   enrolId: string;
   plan: PlanInput;
 }
 
-const toNum = (v: unknown): number | null => {
-  if (v == null || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
 const toPositiveInt = (v: string | number | null | undefined): number => {
   const n = typeof v === 'number' ? Math.trunc(v) : Number.parseInt(v ?? '', 10);
   return Number.isFinite(n) && n > 0 ? n : 0;
 };
 
-const ymd = (v: unknown): string => {
-  if (v instanceof Date) return Number.isNaN(v.getTime()) ? '' : v.toISOString().slice(0, 10);
-  if (typeof v === 'string') {
-    const s = v.trim().slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(s) && !s.startsWith('0000') ? s : '';
-  }
-  return '';
-};
-
-const str = (v: unknown): string => {
-  if (typeof v === 'string') return v;
-  return typeof v === 'number' || typeof v === 'bigint' || typeof v === 'boolean' ? String(v) : '';
-};
+const sumPaid = (rows: ReadonlyArray<{ amount: number; lockReason: string | null }>): number =>
+  rows.filter((r) => r.lockReason === 'paid').reduce((sum, r) => sum + r.amount, 0);
 
 /**
- * The application the Student View treats as the student's own (the one its
- * application-wide plan edits): users.application_id, else the latest
- * application with the student's email — exactly getStudentDetail's lookup.
+ * Money on the enrolment's own application: Finance-approved payments (as the
+ * conversion mapping would record them), a payment awaiting approval, and a
+ * payment link that can still be paid. None of these write student_payments
+ * for an enrolled student (approveManualPayment and the link webhook update
+ * only the application).
  */
-export async function retainedApplication(db: Db, student: StudentRef): Promise<{ id: number; course_id: number | null } | null> {
-  if (student.application_id) {
-    return db.applications.findFirst({
-      where: { id: student.application_id, deleted_at: null },
-      select: { id: true, course_id: true },
-    });
+export function applicationMoney(app: EnrolmentApplication | null, now: Date): Omit<ReceivedMoney, 'online'> {
+  if (!app) {
+    return { application: 0, applicationPaidUnknown: false, applicationCode: '', pendingApproval: false, linkOutstanding: false, linkExpiresOn: '' };
   }
-  if (student.user_email) {
-    return db.applications.findFirst({
-      where: { user_email: student.user_email, deleted_at: null },
-      orderBy: { created_at: 'desc' },
-      select: { id: true, course_id: true },
-    });
-  }
-  return null;
-}
-
-/**
- * Pricing facts per enrolled course: the student's own application for the
- * course (linked by student_id, by users.application_id, or — for Add
- * Enrolment rows, which carry no student_id — by email on an enrolled
- * application), its offering and packages, and every offering of the course.
- * `withCourseFacts` also loads the legacy course fee and combination GST.
- */
-export async function loadCoursePricing(
-  db: Db,
-  student: Pick<StudentRef, 'id' | 'user_email' | 'application_id'>,
-  courseIds: number[],
-  opts: { withCourseFacts: boolean },
-): Promise<Map<number, CoursePricing>> {
-  const out = new Map<number, CoursePricing>();
-  if (courseIds.length === 0) return out;
-  const email = (student.user_email ?? '').trim();
-  const apps = await db.applications.findMany({
-    where: {
-      deleted_at: null,
-      course_id: { in: courseIds },
-      OR: [
-        { student_id: student.id },
-        ...(student.application_id ? [{ id: student.application_id }] : []),
-        ...(email ? [{ user_email: email, OR: [{ stage: 'enrolled' }, { is_converted: 1 }] }] : []),
-      ],
-    },
-    orderBy: { id: 'desc' },
-    select: {
-      id: true, application_id: true, course_id: true, student_id: true, offering_id: true, certificate_combination_id: true,
-      application_final_fee: true, payment_plan: true, payment_status: true, payment_link_url: true,
-    },
-  });
-  const rank = (a: (typeof apps)[number]): number => (a.student_id === student.id ? 0 : a.id === student.application_id ? 1 : 2);
-  const appByCourse = new Map<number, (typeof apps)[number]>();
-  for (const a of apps) {
-    if (a.course_id == null) continue;
-    const cur = appByCourse.get(a.course_id);
-    if (!cur || rank(a) < rank(cur)) appByCourse.set(a.course_id, a);
-  }
-
-  const appOfferingIds = [...new Set([...appByCourse.values()].map((a) => a.offering_id).filter((v): v is number => v != null && v > 0))];
-  const offerings = await db.offerings.findMany({
-    where: { deleted_at: null, OR: [{ id: { in: appOfferingIds } }, { course_id: { in: courseIds } }] },
-    select: { id: true, course_id: true, title: true, offering_code: true, fee_category: true, base_fee: true, discount: true, offered_fee: true, pricing_amount: true },
-  });
-  const packages = offerings.length > 0
-    ? await db.offering_certificate_packages.findMany({
-        where: { deleted_at: null, offering_id: { in: offerings.map((o) => o.id) } },
-        orderBy: [{ position: 'asc' }, { id: 'asc' }],
-        select: { offering_id: true, combination_id: true, fee_category: true, base_fee: true, discount: true, offered_fee: true, gst_percent: true },
-      })
-    : [];
-  const packagesByOffering = new Map<number, PackagePricing[]>();
-  for (const p of packages) {
-    const list = packagesByOffering.get(p.offering_id) ?? [];
-    list.push({
-      combination_id: p.combination_id,
-      fee_category: p.fee_category,
-      base_fee: toNum(p.base_fee),
-      discount: toNum(p.discount),
-      offered_fee: toNum(p.offered_fee),
-      gst_percent: toNum(p.gst_percent),
-    });
-    packagesByOffering.set(p.offering_id, list);
-  }
-  const pricingById = new Map<number, OfferingPricing>(offerings.map((o) => [o.id, {
-    id: o.id,
-    course_id: o.course_id,
-    title: o.title ?? o.offering_code ?? '',
-    fee_category: o.fee_category,
-    base_fee: toNum(o.base_fee),
-    discount: toNum(o.discount),
-    offered_fee: toNum(o.offered_fee),
-    pricing_amount: toNum(o.pricing_amount),
-    packages: packagesByOffering.get(o.id) ?? [],
-  }]));
-
-  const combinationIds = opts.withCourseFacts
-    ? [...new Set([...appByCourse.values()].map((a) => a.certificate_combination_id).filter((v): v is number => v != null && v > 0))]
-    : [];
-  const [courseFees, courses, combinations] = opts.withCourseFacts
-    ? await Promise.all([
-        db.course_fees.findMany({ where: { course_id: { in: courseIds }, deleted_at: null }, select: { course_id: true, base_fee: true, discount: true } }),
-        db.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, total_amount: true, sale_price: true } }),
-        combinationIds.length > 0
-          ? db.certificate_combinations.findMany({ where: { id: { in: combinationIds } }, select: { id: true, gst_applicable: true, gst_percent: true } })
-          : Promise.resolve([]),
-      ])
-    : [[], [], []];
-
-  for (const courseId of courseIds) {
-    const app = appByCourse.get(courseId) ?? null;
-    const own = app?.offering_id ? pricingById.get(app.offering_id) ?? null : null;
-    const combo = app?.certificate_combination_id ? combinations.find((c) => c.id === app.certificate_combination_id) : undefined;
-    const fee = courseFees.find((f) => f.course_id === courseId);
-    const course = courses.find((c) => c.id === courseId);
-    out.set(courseId, {
-      application: app
-        ? {
-            id: app.id,
-            applicationCode: app.application_id ?? '',
-            courseId,
-            offeringId: app.offering_id,
-            combinationId: app.certificate_combination_id,
-            finalFee: toNum(app.application_final_fee),
-            paymentPlan: app.payment_plan,
-            paymentStatus: app.payment_status,
-            paymentLinkUrl: app.payment_link_url,
-          }
-        : null,
-      enrolmentOffering: own,
-      combinationId: app?.certificate_combination_id ?? null,
-      combinationGst: combo ? (combo.gst_applicable ? toNum(combo.gst_percent) ?? 0 : 0) : null,
-      courseOfferings: [...pricingById.values()].filter((o) => o.course_id === courseId),
-      courseFee: fee ? { base_fee: toNum(fee.base_fee), discount: toNum(fee.discount) } : null,
-      course: course ? { title: course.title ?? '', total_amount: toNum(course.total_amount), sale_price: toNum(course.sale_price) } : null,
-    });
-  }
-  return out;
-}
-
-/** Courses (of those given) whose enrolment is genuinely free for this student. */
-export async function findFreeCourseIds(
-  db: Db,
-  student: Pick<StudentRef, 'id' | 'user_email' | 'application_id'>,
-  courseIds: number[],
-): Promise<Set<number>> {
-  const pricing = await loadCoursePricing(db, student, courseIds, { withCourseFacts: false });
-  const free = new Set<number>();
-  for (const [courseId, p] of pricing) {
-    if (isFreeByPricing({ enrolmentOffering: p.enrolmentOffering, combinationId: p.combinationId, courseOfferings: p.courseOfferings })) {
-      free.add(courseId);
+  let plan: Record<string, unknown> = {};
+  if (app.paymentPlan) {
+    try {
+      const parsed: unknown = JSON.parse(app.paymentPlan);
+      if (parsed && typeof parsed === 'object') plan = parsed as Record<string, unknown>;
+    } catch {
+      plan = {};
     }
   }
-  return free;
-}
-
-interface RawScheduleRow {
-  id: number;
-  installment_details: string | null;
-  amount: number | null;
-  status: string | null;
-  payment_mode: string | null;
-  reference_number: string | null;
-  receipt_url: string | null;
-  due_date: Date | string | null;
-  paid_date: Date | string | null;
-}
-
-/** The live schedule for (user, course). $queryRaw + NULLIF: legacy rows hold
- *  '0000-00-00' dates that crash Prisma's findMany. `lock` takes row locks for
- *  the save transaction. */
-async function readSchedule(db: Db, userId: number, courseId: number, lock: boolean): Promise<ScheduleRow[]> {
-  const rows = lock
-    ? await db.$queryRaw<RawScheduleRow[]>`
-        SELECT id, installment_details, amount, status, payment_mode, reference_number, receipt_url,
-               NULLIF(due_date, '0000-00-00') AS due_date,
-               NULLIF(paid_date, '0000-00-00') AS paid_date
-        FROM student_payments
-        WHERE user_id = ${userId} AND course_id = ${courseId} AND deleted_at IS NULL
-        ORDER BY id ASC
-        FOR UPDATE`
-    : await db.$queryRaw<RawScheduleRow[]>`
-        SELECT id, installment_details, amount, status, payment_mode, reference_number, receipt_url,
-               NULLIF(due_date, '0000-00-00') AS due_date,
-               NULLIF(paid_date, '0000-00-00') AS paid_date
-        FROM student_payments
-        WHERE user_id = ${userId} AND course_id = ${courseId} AND deleted_at IS NULL
-        ORDER BY id ASC`;
-  return rows.map((r) => ({
-    id: Number(r.id),
-    label: str(r.installment_details),
-    amount: toNum(r.amount) ?? 0,
-    status: str(r.status),
-    dueDate: ymd(r.due_date),
-    paidDate: ymd(r.paid_date),
-    paymentMode: str(r.payment_mode),
-    referenceNumber: str(r.reference_number),
-    receiptUrl: str(r.receipt_url),
-  }));
-}
-
-/** Rows a checkout is paying: a completed order, or a pending one young enough
- *  to still be paid. Only `notes` is read, so no legacy date is hydrated. */
-async function checkoutHeldRowIds(db: Db, userId: number, courseId: number, now: Date): Promise<Set<number>> {
-  const orders = await db.create_order.findMany({
-    where: {
-      user_id: userId,
-      course_id: courseId,
-      deleted_at: null,
-      OR: [
-        { order_status: 'completed' },
-        { order_status: 'pending', created_at: { gte: new Date(now.getTime() - CHECKOUT_HOLD_MS) } },
-      ],
-    },
-    select: { notes: true },
-  });
-  return checkoutRowIdsFromNotes(orders.map((o) => o.notes));
-}
-
-interface ApplicationReceipt {
-  applicationCode: string;
-  received: number;
-  paid: boolean;
-  pendingApproval: boolean;
-  linkSent: boolean;
-}
-
-/**
- * Money recorded on the enrolment's own application (an Add Enrolment payment
- * link or a Finance-approved manual payment). Those flows never write
- * student_payments, so the plan must not be generated over them blind.
- */
-function applicationReceipt(app: EnrolmentApplication | null, now: Date): ApplicationReceipt | null {
-  if (!app) return null;
-  // A dry run of the conversion mapping, only to total what was received.
-  const rows = buildStudentPaymentRowsFromPlan(app.paymentPlan, app.paymentStatus, { studentUserId: 0, courseId: app.courseId, actorUserId: null, now });
-  const received = rows.filter((r) => r.status === 'Paid').reduce((sum, r) => sum + (r.amount ?? 0), 0);
+  const ledger = readInstalmentLedger(plan, app.paymentStatus ?? undefined);
+  const received = buildStudentPaymentRowsFromPlan(app.paymentPlan, app.paymentStatus, { studentUserId: 0, courseId: app.courseId, actorUserId: null, now })
+    .filter((r) => r.status === 'Paid')
+    .reduce((sum, r) => sum + (r.amount ?? 0), 0);
+  // The link charges the instalment its link_targets entry names, else index 0.
+  const targets = plan.link_targets && typeof plan.link_targets === 'object' ? (plan.link_targets as Record<string, unknown>) : {};
+  const targetIndex = app.paymentLinkId ? Number(targets[app.paymentLinkId]) : Number.NaN;
+  const linkIndex = Number.isInteger(targetIndex) && targetIndex > 0 ? targetIndex : 0;
+  const linkSettled = ledger.some((e) => e.index === linkIndex && e.status === 'approved');
+  const expires = app.paymentLinkExpiresAt;
+  const linkLive = (app.paymentLinkUrl ?? '').trim() !== '' && (!expires || expires.getTime() > now.getTime());
   return {
+    application: received,
+    applicationPaidUnknown: received === 0 && ((app.paymentStatus ?? '') === 'paid' || ledger.some((e) => e.status === 'approved')),
     applicationCode: app.applicationCode || `#${app.id}`,
-    received,
-    paid: received > 0 || (app.paymentStatus ?? '') === 'paid',
-    pendingApproval: (app.paymentStatus ?? '') === 'pending_approval',
-    linkSent: (app.paymentLinkUrl ?? '') !== '',
+    pendingApproval: (app.paymentStatus ?? '') === 'pending_approval' || ledger.some((e) => e.status === 'pending_approval'),
+    linkOutstanding: linkLive && !linkSettled,
+    linkExpiresOn: expires ? istToday(expires) : '',
   };
 }
 
@@ -361,11 +123,11 @@ export class EnrolmentFeePlanService {
       select: { id: true, name: true, user_email: true, application_id: true },
     });
     if (!student) return { ok: false, message: 'Student not found.' };
-    const retained = await retainedApplication(this.prisma, student);
-    if (retained && retained.course_id === enrol.course_id) {
+    const original = await originalApplication(this.prisma, student);
+    if (!usesOwnFeePlan(enrol.course_id, original)) {
       return {
         ok: false,
-        message: "This is the student's original course. Its fee is planned with Generate / Edit Payment Plan on the student's application.",
+        message: "This is the student's original course and its application payment plan has a schedule. Plan its fee with Generate / Edit Payment Plan on the student's application.",
       };
     }
     const pricing = (await loadCoursePricing(this.prisma, student, [enrol.course_id], { withCourseFacts: true })).get(enrol.course_id);
@@ -374,26 +136,24 @@ export class EnrolmentFeePlanService {
   }
 
   /** Everything the plan dialog needs: the current schedule with each row's
-   *  lock, the prefill, and any money recorded outside the schedule. */
+   *  lock, the prefill, the money recorded outside the schedule and whether it
+   *  blocks a save. */
   async getPlan(enrolId: string): Promise<Record<string, unknown>> {
     const loaded = await this.loadContext(enrolId);
     if (!loaded.ok) return { status: 0, message: loaded.message };
     const { enrol, student, pricing } = loaded.ctx;
     const now = new Date();
-    const [rows, held] = await Promise.all([
+    const [rows, held, online] = await Promise.all([
       readSchedule(this.prisma, enrol.user_id, enrol.course_id, false),
       checkoutHeldRowIds(this.prisma, enrol.user_id, enrol.course_id, now),
+      onlinePaidTotal(this.prisma, enrol.user_id, enrol.course_id),
     ]);
     const classified = rows.map((r) => classifyScheduleRow(r, held));
-    const prefill = resolveFeePrefill({
-      enrolmentOffering: pricing.enrolmentOffering,
-      combinationId: pricing.combinationId,
-      combinationGst: pricing.combinationGst,
-      courseOfferings: pricing.courseOfferings,
-      courseFee: pricing.courseFee,
-      course: pricing.course,
-    });
-    const receipt = applicationReceipt(pricing.application, now);
+    const paidRowsTotal = sumPaid(classified);
+    const money = { ...applicationMoney(pricing.application, now), online };
+    const prefill = prefillFor(pricing);
+    const today = istToday(now);
+    const window = dueDateWindow(today);
     return {
       status: 1,
       message: 'success',
@@ -417,15 +177,16 @@ export class EnrolmentFeePlanService {
           combinationId: pricing.combinationId,
           courseOfferings: pricing.courseOfferings,
         }),
-        application_payment: receipt
-          ? {
-              application_code: receipt.applicationCode,
-              received: receipt.received,
-              paid: receipt.paid,
-              pending_approval: receipt.pendingApproval,
-              link_sent: receipt.linkSent,
-            }
-          : null,
+        money: {
+          application_code: money.applicationCode,
+          application: money.application,
+          online: money.online,
+          schedule_paid: paidRowsTotal,
+          pending_approval: money.pendingApproval,
+          link_outstanding: money.linkOutstanding,
+          link_expires_on: money.linkExpiresOn,
+        },
+        block_reason: planBlockReason(money, paidRowsTotal),
         rows: classified.map((r) => ({
           id: r.id,
           label: r.label,
@@ -437,16 +198,22 @@ export class EnrolmentFeePlanService {
           locked: r.locked,
           lock_reason: r.lockReason,
         })),
+        today,
+        due_from: window.from,
+        due_to: window.to,
         checkout_hold_hours: CHECKOUT_HOLD_MS / 3_600_000,
       },
     };
   }
 
   /**
-   * Save the plan in ONE transaction: lock the schedule, keep every Paid row
-   * (and every row with a payment against it) exactly, refuse totals that do
-   * not add up, soft-delete only the replaceable Pending rows (guarded, so a
-   * row that changed meanwhile aborts the save) and insert the new rows.
+   * Save the plan in ONE transaction: lock the schedule; refuse while money
+   * recorded outside it (checkout, application payments) is not covered by Paid
+   * rows or is still in flight; keep every Paid row (and every row with a
+   * payment against it) exactly; refuse totals that do not add up; soft-delete
+   * only the replaceable Pending rows (guarded, so a row that changed aborts
+   * the save); insert the new rows; and, last, refuse if a checkout started on
+   * a replaced row meanwhile.
    */
   async savePlan(actorUserId: string, input: SaveEnrolmentPlanInput): Promise<Record<string, unknown>> {
     const actor = toPositiveInt(actorUserId);
@@ -460,25 +227,21 @@ export class EnrolmentFeePlanService {
     const userId = enrol.user_id;
     const courseId = enrol.course_id;
     const now = new Date();
-    const receipt = applicationReceipt(pricing.application, now);
+    const appMoney = applicationMoney(pricing.application, now);
 
     try {
       const result = await this.prisma.$transaction(async (tx) => {
-        const rows = await readSchedule(tx, userId, courseId, true);
+        const rows: ScheduleRow[] = await readSchedule(tx, userId, courseId, true);
         const held = await checkoutHeldRowIds(tx, userId, courseId, now);
+        const online = await onlinePaidTotal(tx, userId, courseId);
         const classified = rows.map((r) => classifyScheduleRow(r, held));
         const kept = classified.filter((r) => r.locked);
         const replaceable = classified.filter((r) => !r.locked);
 
-        if (receipt?.paid && !kept.some((r) => r.lockReason === 'paid')) {
-          const amount = receipt.received > 0 ? ` of ₹${receipt.received.toLocaleString('en-IN')}` : '';
-          throw new PlanRefusal(
-            `A payment${amount} is recorded on this enrolment's application (${receipt.applicationCode}) but is not in its fee schedule yet. `
-            + 'Add it as a Paid instalment first (Payments → Add Instalment) so the student is not charged twice, then save the plan.',
-          );
-        }
+        const blocked = planBlockReason({ ...appMoney, online }, sumPaid(classified));
+        if (blocked) throw new PlanRefusal(blocked);
 
-        const plan = validateEnrolmentPlan(input.plan, kept);
+        const plan = validateEnrolmentPlan(input.plan, kept, istToday(now));
         if (!plan.ok) throw new PlanRefusal(plan.message);
         if (replaceable.length === 0 && plan.rows.length === 0) {
           throw new PlanRefusal('Nothing to change: the kept instalments already cover the payable total.');
@@ -523,6 +286,16 @@ export class EnrolmentFeePlanService {
               updated_at: now,
             })),
           });
+        }
+
+        // Last statement before commit: a checkout started on a replaced row
+        // while this ran could no longer be recorded against it. A LOCKING read
+        // sees orders committed after this transaction's snapshot.
+        if (replaceable.length > 0) {
+          const heldNow = await checkoutHeldRowIdsNow(tx, userId, courseId, now);
+          if (replaceable.some((r) => heldNow.has(r.id))) {
+            throw new PlanRefusal('A payment for one of the instalments being replaced started while the plan was saving. Nothing was changed; reload and try again.');
+          }
         }
         return { created: plan.rows.length, replaced: replaceable.length, kept: kept.length, payable: plan.breakdown.payable };
       });

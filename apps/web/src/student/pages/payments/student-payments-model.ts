@@ -7,7 +7,8 @@ import { asNumber, asString } from '../../../admin/shared/utils/admin-data-utils
 // Enrolment, whose fee was not set up yet, was shown as free. Free now comes
 // only from the API's fee_status ('free' = a free offering); a paid course
 // with no fee yet is `feePending` — "Fee details will be shared soon", no Pay
-// Now.
+// Now — and a fully paid schedule on a course that costs more is
+// `balancePending` — "Balance to be scheduled by TTII", never "Cleared".
 
 export interface CourseInstallment {
   id: string;
@@ -31,6 +32,9 @@ export interface CourseAccount {
   isFree: boolean;
   /** A paid course whose fee and schedule are not set up yet. */
   feePending: boolean;
+  /** Everything scheduled is paid but the course costs more: TTII still has to
+   *  schedule the balance, so it is never "Cleared" and cannot be paid yet. */
+  balancePending: boolean;
   installments: CourseInstallment[];
   paidCount: number;
   pendingCount: number;
@@ -83,6 +87,7 @@ export function normalizeCourse(raw: Record<string, unknown>): CourseAccount {
     status: asString(raw.status),
     isFree,
     feePending,
+    balancePending: feeStatus === 'balance_pending',
     installments,
     paidCount,
     pendingCount: installments.length - paidCount,
@@ -95,14 +100,15 @@ export type StatusPillTone = 'muted' | 'success' | 'danger';
 export function courseStatusPill(acc: CourseAccount): { label: string; tone: StatusPillTone } {
   if (acc.isFree) return { label: 'N/A', tone: 'muted' };
   if (acc.feePending) return { label: 'Awaiting fee', tone: 'muted' };
+  if (acc.balancePending) return { label: 'Balance pending', tone: 'muted' };
   if (acc.balance <= 0) return { label: 'Cleared', tone: 'success' };
   if (acc.status.toLowerCase() === 'overdue') return { label: 'Overdue', tone: 'danger' };
   return { label: 'On Track', tone: 'success' };
 }
 
-/** Pay Now only for a priced course with something left to pay. */
+/** Pay Now only for a priced course with a scheduled instalment left to pay. */
 export function canPayCourse(acc: CourseAccount): boolean {
-  return !acc.isFree && !acc.feePending && acc.balance > 0;
+  return !acc.isFree && !acc.feePending && !acc.balancePending && acc.balance > 0;
 }
 
 export function filterAccounts(accounts: CourseAccount[], tab: CourseTab, search: string): CourseAccount[] {

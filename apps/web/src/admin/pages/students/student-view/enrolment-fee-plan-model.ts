@@ -1,10 +1,10 @@
 import { asNumber, asString, toRecords } from '../../../shared/utils/admin-data-utils.js';
 
-// Per-enrolment payment plan for an ADDITIONAL enrolment (TTII 2026-10-16):
-// a course added after the student's original application. The plan is saved
-// straight into that enrolment's student_payments rows (what the student sees
-// and Pay Now charges). The server re-checks everything; these helpers mirror
-// its rules so the dialog can explain a problem before saving.
+// Per-enrolment payment plan (TTII 2026-10-16) for an enrolment on its own
+// plan — see usesOwnFeePlan. The plan is saved straight into that enrolment's
+// student_payments rows (what the student sees and Pay Now charges). The
+// server re-checks everything; these helpers mirror its rules so the dialog can
+// explain a problem before saving.
 
 export const MAX_PLAN_INSTALMENTS = 24;
 
@@ -30,7 +30,13 @@ export interface EnrolmentPlanData {
   prefill: { totalFee: number | null; discount: number; gstPercent: number; sourceLabel: string };
   agreedFee: number | null;
   freeOffering: boolean;
-  applicationPayment: { code: string; received: number; paid: boolean; pendingApproval: boolean; linkSent: boolean } | null;
+  /** Money recorded outside the schedule (the server's view). */
+  money: { code: string; application: number; online: number; schedulePaid: number; pendingApproval: boolean; linkOutstanding: boolean };
+  /** Why the server will refuse a save right now, or null. */
+  blockReason: string | null;
+  /** Due dates must fall inside this window (YYYY-MM-DD). */
+  dueFrom: string;
+  dueTo: string;
   rows: PlanScheduleRow[];
 }
 
@@ -60,7 +66,8 @@ const numOrNull = (v: unknown): number | null => (v == null || v === '' ? null :
 
 export function parsePlanData(raw: Record<string, unknown>): EnrolmentPlanData {
   const prefill = obj(raw.prefill);
-  const payment = raw.application_payment ? obj(raw.application_payment) : null;
+  const money = obj(raw.money);
+  const blockReason = asString(raw.block_reason);
   return {
     enrolId: asString(raw.enrol_id),
     courseTitle: asString(raw.course_title),
@@ -74,15 +81,17 @@ export function parsePlanData(raw: Record<string, unknown>): EnrolmentPlanData {
     },
     agreedFee: numOrNull(raw.agreed_fee),
     freeOffering: raw.free_offering === true,
-    applicationPayment: payment
-      ? {
-          code: asString(payment.application_code),
-          received: asNumber(payment.received),
-          paid: payment.paid === true,
-          pendingApproval: payment.pending_approval === true,
-          linkSent: payment.link_sent === true,
-        }
-      : null,
+    money: {
+      code: asString(money.application_code),
+      application: asNumber(money.application),
+      online: asNumber(money.online),
+      schedulePaid: asNumber(money.schedule_paid),
+      pendingApproval: money.pending_approval === true,
+      linkOutstanding: money.link_outstanding === true,
+    },
+    blockReason: blockReason || null,
+    dueFrom: asString(raw.due_from),
+    dueTo: asString(raw.due_to),
     rows: toRecords(raw.rows).map((r) => {
       const reason = asString(r.lock_reason);
       return {
@@ -229,12 +238,16 @@ export interface DraftSummary {
 
 const inr = (n: number): string => `₹${n.toLocaleString('en-IN')}`;
 
+const dmy = (ymd: string): string => `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}/${ymd.slice(0, 4)}`;
+
 /** What the save would send, and the first thing the server would refuse.
- *  `replaceableCount` = current rows the save would replace. */
+ *  `replaceableCount` = current rows the save would replace; `window` = the
+ *  server's due-date bounds (YYYY-MM-DD). */
 export function summarizeDraft(
   draft: PlanDraft,
   kept: ReadonlyArray<Pick<PlanScheduleRow, 'amount'>>,
   replaceableCount = 0,
+  window: { from: string; to: string } | null = null,
 ): DraftSummary {
   const keptTotal = kept.reduce((sum, r) => sum + r.amount, 0);
   const pay = payableOf(Number(draft.totalFee), Number(draft.discount || 0), Number(draft.gstPercent || 0));
@@ -257,6 +270,9 @@ export function summarizeDraft(
   for (const [i, r] of rows.entries()) {
     if (!Number.isInteger(r.amount) || r.amount < 1) return { ...base, problem: `Row ${i + 1}: the amount must be a whole number of rupees, at least ₹1.` };
     if (!isValidYmd(r.dueDate)) return { ...base, problem: `Row ${i + 1}: enter a valid due date.` };
+    if (window && window.from && window.to && (r.dueDate < window.from || r.dueDate > window.to)) {
+      return { ...base, problem: `Row ${i + 1}: the due date must be between ${dmy(window.from)} and ${dmy(window.to)}.` };
+    }
   }
   if (planned !== remaining) {
     return { ...base, problem: `The rows add up to ${inr(planned)} but ${inr(remaining)} is left to schedule.` };
@@ -286,18 +302,13 @@ export function toSaveBody(enrolId: string, draft: PlanDraft, remaining: number)
 }
 
 /**
- * An enrolment is ADDITIONAL — planned per enrolment — when it is a real enrol
- * row and either the student has no application or its course is not the
- * application's course (the one the application-wide plan covers).
+ * Whether this enrolment's fee is planned on its own. The server decides
+ * (own_fee_plan): every enrolment except the course of the application
+ * users.application_id names, while that application's plan has a schedule.
+ * The display-only enrolment (id 0) has no row to plan against.
  */
-export function isAdditionalEnrolment(
-  enrolment: Record<string, unknown>,
-  applicationId: string,
-  applicationCourseId: number,
-): boolean {
-  if (asNumber(enrolment.id) <= 0) return false;
-  if (!applicationId) return true;
-  return asNumber(enrolment.course_id) !== applicationCourseId;
+export function usesOwnFeePlan(enrolment: Record<string, unknown>): boolean {
+  return asNumber(enrolment.id) > 0 && enrolment.own_fee_plan === true;
 }
 
 /** The selected enrolment's own fee rows (falls back to all rows when its course is unknown). */

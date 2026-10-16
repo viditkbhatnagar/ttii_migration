@@ -428,7 +428,9 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
             ) : viewAccount ? (
               <p className="mt-0.5 text-sm text-student-muted">
                 {formatCurrency(viewAccount.amountPaid)} paid of {formatCurrency(viewAccount.totalFee)}
-                {viewAccount.balance > 0 ? ` · ${formatCurrency(viewAccount.balance)} balance` : ' · cleared'}
+                {viewAccount.balancePending
+                  ? ` · ${formatCurrency(viewAccount.balance)} balance to be scheduled by TTII`
+                  : viewAccount.balance > 0 ? ` · ${formatCurrency(viewAccount.balance)} balance` : ' · cleared'}
               </p>
             ) : null}
           </DialogHeader>
@@ -615,8 +617,14 @@ function CourseAccountCard({
             </div>
           </div>
 
-          {/* Next due */}
-          {acc.nextDue ? (
+          {/* Next due — or, when everything scheduled is paid but the course
+              costs more, the balance TTII still has to schedule. */}
+          {acc.balancePending ? (
+            <div className="mt-3 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <CalendarClock aria-hidden="true" className="size-3.5 shrink-0" />
+              <span>Balance to be scheduled by TTII</span>
+            </div>
+          ) : acc.nextDue ? (
             <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-3 py-2 text-xs">
               <span className="font-medium text-amber-800">
                 Next due <span className="font-bold">{formatCurrency(acc.nextDue.amount)}</span>

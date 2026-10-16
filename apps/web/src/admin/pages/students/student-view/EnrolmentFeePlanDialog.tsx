@@ -29,12 +29,14 @@ import {
 } from './enrolment-fee-plan-model.js';
 import { rupees } from './student-view-model.js';
 
-// Generate / Edit Payment Plan for an ADDITIONAL enrolment (TTII 2026-10-16) —
-// a course added after the student's original application. Saved straight to
-// that enrolment's fee schedule (student_payments), which the student sees and
-// Pay Now charges. Paid rows, and rows with a payment against them, are kept
-// exactly; only Pending rows with no payment are replaced. The server re-checks
-// every rule in one transaction.
+// Generate / Edit Payment Plan for an enrolment on its own plan (TTII
+// 2026-10-16) — a course added after the student's application, any course of a
+// student with no linked application, or the original course when its
+// application plan holds no schedule. Saved straight to that enrolment's fee
+// schedule (student_payments), which the student sees and Pay Now charges.
+// Paid rows, and rows with a payment against them, are kept exactly; only
+// Pending rows with no payment are replaced. The server re-checks every rule in
+// one transaction and refuses while money outside the schedule is unrecorded.
 
 export interface EnrolmentFeePlanTarget {
   enrolId: string;
@@ -44,6 +46,12 @@ export interface EnrolmentFeePlanTarget {
 
 const WIDTH = 'min(760px, calc(100vw - 2rem))';
 const inputCls = 'h-9';
+
+/** Picker years for due dates: the server accepts a year back to three ahead. */
+function dueYears(): { minYear: number; maxYear: number } {
+  const year = new Date().getFullYear();
+  return { minYear: year - 1, maxYear: year + 3 };
+}
 
 function KeptRows({ rows }: { rows: PlanScheduleRow[] }) {
   if (rows.length === 0) return null;
@@ -74,32 +82,30 @@ function KeptRows({ rows }: { rows: PlanScheduleRow[] }) {
   );
 }
 
-function Notices({ data, unrecordedPayment }: { data: EnrolmentPlanData; unrecordedPayment: boolean }) {
-  const pay = data.applicationPayment;
-  const notes: string[] = [];
-  if (pay && unrecordedPayment) {
-    const amount = pay.received > 0 ? ` of ${rupees(pay.received)}` : '';
-    notes.push(`A payment${amount} is recorded on this enrolment's application (${pay.code}) but is not in its fee schedule yet. Add it with Add Instalment as a Paid row first — saving is blocked until then so the student is not charged twice.`);
-  } else if (pay?.pendingApproval) {
-    notes.push(`A manual payment on this enrolment's application (${pay.code}) is waiting for Finance approval. It will not appear in this schedule by itself.`);
-  } else if (pay?.linkSent && !pay.paid) {
-    notes.push(`A payment link was sent from this enrolment's application (${pay.code}). If the student pays it, that payment will not appear in this schedule by itself.`);
-  }
-  if (data.freeOffering) notes.push("This enrolment's course offering is marked Free.");
-  if (notes.length === 0) return null;
+function Notices({ data }: { data: EnrolmentPlanData }) {
   return (
-    <div role="status" className="space-y-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
-      {notes.map((n) => (
-        <p key={n} className="flex gap-2"><AlertTriangle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />{n}</p>
-      ))}
-    </div>
+    <>
+      {/* Money recorded outside the schedule (checkout on the course price, a
+          payment on the enrolment's application, a pending approval or an
+          open link): the server refuses a save until it is settled. */}
+      {data.blockReason ? (
+        <div role="alert" className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-medium text-rose-800">
+          <AlertTriangle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+          <p>{data.blockReason} Saving is blocked until then, so the student is not charged twice.</p>
+        </div>
+      ) : null}
+      {data.freeOffering ? (
+        <p role="status" className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+          <AlertTriangle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />This enrolment&apos;s course offering is marked Free.
+        </p>
+      ) : null}
+    </>
   );
 }
 
 function RowEditor({
   rows, onChange, onRemove,
 }: { rows: DraftRow[]; onChange: (key: string, patch: Partial<DraftRow>) => void; onRemove: (key: string) => void }) {
-  const thisYear = new Date().getFullYear();
   return (
     <ul className="space-y-2">
       {rows.map((r, i) => (
@@ -115,7 +121,7 @@ function RowEditor({
             value={r.amount}
             onChange={(e) => onChange(r.key, { amount: e.target.value })}
           />
-          <DmyDateInput id={`plan-row-due-${r.key}`} value={r.dueDate} onChange={(v) => onChange(r.key, { dueDate: v })} minYear={thisYear - 1} maxYear={thisYear + 5} />
+          <DmyDateInput id={`plan-row-due-${r.key}`} value={r.dueDate} onChange={(v) => onChange(r.key, { dueDate: v })} {...dueYears()} />
           <Button type="button" variant="ghost" size="icon" aria-label={`Remove row ${i + 1}`} onClick={() => onRemove(r.key)}>
             <Trash2 aria-hidden="true" className="size-4" />
           </Button>
@@ -175,9 +181,9 @@ export function EnrolmentFeePlanDialog({
 
   const kept = useMemo(() => (data ? data.rows.filter((r) => r.locked) : []), [data]);
   const replaceable = useMemo(() => (data ? data.rows.filter((r) => !r.locked) : []), [data]);
-  const summary = useMemo(() => (draft ? summarizeDraft(draft, kept, replaceable.length) : null), [draft, kept, replaceable.length]);
-  const unrecordedPayment = Boolean(data?.applicationPayment?.paid) && !kept.some((r) => r.lockReason === 'paid');
-  const canSave = Boolean(target && data && draft && summary && !summary.problem && summary.remaining !== null) && !unrecordedPayment && !saving;
+  const dueWindow = useMemo(() => (data?.dueFrom && data.dueTo ? { from: data.dueFrom, to: data.dueTo } : null), [data]);
+  const summary = useMemo(() => (draft ? summarizeDraft(draft, kept, replaceable.length, dueWindow) : null), [draft, kept, replaceable.length, dueWindow]);
+  const canSave = Boolean(target && data && draft && summary && !summary.problem && summary.remaining !== null && !data.blockReason) && !saving;
 
   const patch = (p: Partial<PlanDraft>) => setDraft((d) => (d ? { ...d, ...p } : d));
   const setMode = (mode: PlanMode) => setDraft((d) => {
@@ -240,7 +246,7 @@ export function EnrolmentFeePlanDialog({
           {!loadError && (!data || !draft) ? <p className="py-8 text-center text-sm text-muted-foreground">Loading the fee schedule…</p> : null}
           {data && draft && summary ? (
             <>
-              <Notices data={data} unrecordedPayment={unrecordedPayment} />
+              <Notices data={data} />
 
               <section className="rounded-xl border border-border p-3">
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Fee</p>
@@ -314,7 +320,7 @@ export function EnrolmentFeePlanDialog({
                     </div>
                     <div>
                       <Label htmlFor="plan-full-due" className="mb-1 text-xs">Due date *</Label>
-                      <DmyDateInput id="plan-full-due" value={draft.rows[0]?.dueDate ?? ''} onChange={(v) => changeRow(draft.rows[0]?.key ?? 'full', { dueDate: v })} />
+                      <DmyDateInput id="plan-full-due" value={draft.rows[0]?.dueDate ?? ''} onChange={(v) => changeRow(draft.rows[0]?.key ?? 'full', { dueDate: v })} {...dueYears()} />
                     </div>
                     <p className="text-xs text-muted-foreground sm:col-span-2">
                       One payment of {summary.remaining != null && summary.remaining > 0 ? rupees(summary.remaining) : '—'}.
@@ -329,7 +335,7 @@ export function EnrolmentFeePlanDialog({
                       </div>
                       <div>
                         <Label htmlFor="plan-first-due" className="mb-1 text-xs">First due date</Label>
-                        <DmyDateInput id="plan-first-due" value={firstDue} onChange={setFirstDue} />
+                        <DmyDateInput id="plan-first-due" value={firstDue} onChange={setFirstDue} {...dueYears()} />
                       </div>
                       <Button type="button" variant="outline" onClick={splitRows}>Split evenly</Button>
                     </div>

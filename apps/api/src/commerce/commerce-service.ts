@@ -4,8 +4,13 @@ import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
 import type { IntegrationRegistry, PaymentGateway } from '../integrations/contracts.js';
 import { createIntegrationRegistry } from '../integrations/registry.js';
-import { studentCourseFeeStatus } from '../operations/enrolment-fee-model.js';
-import { findFreeCourseIds } from '../operations/enrolment-fee-plan-service.js';
+import { ownPlanFee, studentCourseFeeStatus, usesOwnFeePlan } from '../operations/enrolment-fee-model.js';
+import { findFreeCourseIds, knownPayableByCourse, originalApplication } from '../operations/enrolment-fee-data.js';
+
+/** Pay Now on a schedule with nothing left to pay. */
+const ALL_INSTALMENTS_PAID = 'All instalments for this course are already paid. Please contact support if you believe a balance is due.';
+/** ...when the offering pricing says the course costs more than the schedule. */
+const BALANCE_TO_BE_SCHEDULED = 'Balance to be scheduled by TTII. You can pay it here once your instalments are set up.';
 
 const EASEBUZZ_PAYMENT_URL = 'https://project.trogon.info/easebuzz/index.php';
 
@@ -347,6 +352,49 @@ export class CommerceService {
     return rows > 0;
   }
 
+  /** Whether the instalment an order is about to pay is still live and unpaid. */
+  private async isInstallmentStillPayable(installmentId: number, userIntId: number, courseIntId: number): Promise<boolean> {
+    const rows = await this.prisma.$queryRaw<Array<{ id: number }>>`
+      SELECT id FROM student_payments
+      WHERE id = ${installmentId}
+        AND user_id = ${userIntId}
+        AND course_id = ${courseIntId}
+        AND deleted_at IS NULL
+        AND (status IS NULL OR LOWER(TRIM(status)) <> 'paid')
+        AND NULLIF(paid_date, '0000-00-00') IS NULL
+      LIMIT 1`;
+    return rows.length > 0;
+  }
+
+  /**
+   * What to tell a student whose schedule has nothing left to pay. When the
+   * enrolment is on its own plan and the offering pricing says the course costs
+   * more than the schedule, the rest is still to be scheduled by TTII — never
+   * "all paid" (TTII 2026-10-16).
+   */
+  private async settledScheduleMessage(userIntId: number, courseIntId: number): Promise<string> {
+    try {
+      const user = await this.prisma.users.findFirst({
+        where: { id: userIntId },
+        select: { id: true, application_id: true, user_email: true },
+      });
+      if (!user) return ALL_INSTALMENTS_PAID;
+      if (!usesOwnFeePlan(courseIntId, await originalApplication(this.prisma, user))) return ALL_INSTALMENTS_PAID;
+      const [known, scheduled] = await Promise.all([
+        knownPayableByCourse(this.prisma, user, [courseIntId]),
+        this.prisma.student_payments.aggregate({
+          where: { user_id: userIntId, course_id: courseIntId, deleted_at: null },
+          _sum: { amount: true },
+        }),
+      ]);
+      const knownPayable = known.get(courseIntId) ?? null;
+      return knownPayable != null && knownPayable > Number(scheduled._sum.amount ?? 0) ? BALANCE_TO_BE_SCHEDULED : ALL_INSTALMENTS_PAID;
+    } catch (err) {
+      console.error(`[createOrder] fee lookup failed for user ${userIntId}, course ${courseIntId}:`, err instanceof Error ? err.message : err);
+      return ALL_INSTALMENTS_PAID;
+    }
+  }
+
   private async ensureEnrolment(
     tx: TxClient,
     userId: string,
@@ -637,7 +685,7 @@ export class CommerceService {
       // TTII 2026-10-16 — a schedule with nothing left to pay must never fall
       // through to course.sale_price: a student whose only row was a Paid
       // registration was offered the whole course fee again.
-      throw new Error('All instalments for this course are already paid. Please contact support if you believe a balance is due.');
+      throw new Error(await this.settledScheduleMessage(userIntId, courseIntId));
     } else if (salePriceMinor < RAZORPAY_MIN_ORDER_MINOR) {
       // No schedule AND no usable sale price — nothing legitimate to charge.
       throw new Error('No pending installment found to pay for this course.');
@@ -665,6 +713,13 @@ export class CommerceService {
       receipt,
       notes: orderNotes,
     });
+
+    // TTII 2026-10-16 — the instalment chosen above may have been replaced by a
+    // new payment plan while Razorpay created the order. Re-check it right
+    // before recording the order; the unused Razorpay order is never opened.
+    if (targetInstallmentId !== null && !(await this.isInstallmentStillPayable(targetInstallmentId, userIntId, courseIntId))) {
+      throw new Error('Your fee schedule was just updated. Please refresh the page and try again.');
+    }
 
     const now = new Date();
 
@@ -891,6 +946,8 @@ export class CommerceService {
       targetInstallmentId, userIntId, courseIntId, userId, courseId,
     } = params;
 
+    // Set inside the transaction when the payment matched no instalment.
+    const tracker: { unreconciled: { amountRupees: number } | null } = { unreconciled: null };
     const completed = await this.prisma.$transaction(async (tx) => {
       const now = new Date();
 
@@ -954,7 +1011,7 @@ export class CommerceService {
         // guarded on not-already-paid so a re-fire — or an admin having marked
         // it meanwhile — can't double-apply. Raw SQL: student_payments carries
         // legacy zero-dates and NULL/mixed-case status.
-        await tx.$executeRaw`
+        const marked = await tx.$executeRaw`
           UPDATE student_payments
           SET status = 'Paid', paid_date = ${toDateOnlyString(now)}, payment_mode = 'Online',
               updated_by = ${userIntId}, updated_at = ${now}
@@ -963,13 +1020,92 @@ export class CommerceService {
             AND course_id = ${courseIntId}
             AND deleted_at IS NULL
             AND (status IS NULL OR LOWER(TRIM(status)) <> 'paid')`;
+        if (marked === 0) {
+          // TTII 2026-10-16 — that row is gone or already paid (replaced by a new
+          // plan, a second checkout on the same row, a late webhook on an old
+          // order). Never drop the money.
+          const credited = await this.creditMatchingInstallment(tx, {
+            userIntId, courseIntId, amountRupees: Math.round(amountPaid), now,
+          });
+          tracker.unreconciled = credited === null ? { amountRupees: Math.round(amountPaid) } : null;
+          if (credited !== null) {
+            console.warn(`[recordOrderPayment] order ${orderId} (payment ${paymentId}) for user ${userIntId}, course ${courseIntId}: instalment ${targetInstallmentId} was no longer payable; credited instalment ${credited} of the same amount (Rs.${Math.round(amountPaid)}).`);
+          }
+        }
       }
 
       await this.ensureEnrolment(tx, userId, courseId, null, false);
       return true;
     });
 
+    const missed = tracker.unreconciled;
+    if (completed && missed) {
+      await this.reportUnreconciledPayment({
+        orderId, paymentId, userIntId, courseIntId, targetInstallmentId, amountRupees: missed.amountRupees,
+      });
+    }
     return completed;
+  }
+
+  /**
+   * Credit an order's payment to the earliest-due unpaid live instalment of the
+   * SAME amount for the same student and course. Returns its id, or null when
+   * none matches.
+   */
+  private async creditMatchingInstallment(
+    tx: TxClient,
+    p: { userIntId: number; courseIntId: number; amountRupees: number; now: Date },
+  ): Promise<number | null> {
+    const candidates = await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT id FROM student_payments
+      WHERE user_id = ${p.userIntId}
+        AND course_id = ${p.courseIntId}
+        AND deleted_at IS NULL
+        AND (status IS NULL OR LOWER(TRIM(status)) <> 'paid')
+        AND NULLIF(paid_date, '0000-00-00') IS NULL
+        AND amount = ${p.amountRupees}
+      ORDER BY NULLIF(due_date, '0000-00-00') ASC, id ASC
+      LIMIT 1
+      FOR UPDATE`;
+    const candidate = candidates[0];
+    if (!candidate) return null;
+    const credited = await tx.$executeRaw`
+      UPDATE student_payments
+      SET status = 'Paid', paid_date = ${toDateOnlyString(p.now)}, payment_mode = 'Online',
+          updated_by = ${p.userIntId}, updated_at = ${p.now}
+      WHERE id = ${candidate.id}
+        AND deleted_at IS NULL
+        AND (status IS NULL OR LOWER(TRIM(status)) <> 'paid')`;
+    return credited > 0 ? Number(candidate.id) : null;
+  }
+
+  /**
+   * A payment that matched no instalment: it is in payment_info only. Logged as
+   * an error and, when the student has an application, as an event on its
+   * timeline so Finance can reconcile the schedule. Best-effort: the payment is
+   * already recorded.
+   */
+  private async reportUnreconciledPayment(p: {
+    orderId: string; paymentId: string; userIntId: number; courseIntId: number; targetInstallmentId: number | null; amountRupees: number;
+  }): Promise<void> {
+    const description = `Online payment of Rs.${p.amountRupees} (order ${p.orderId}, payment ${p.paymentId}) for course ${p.courseIntId} paid instalment ${p.targetInstallmentId ?? '-'}, which is no longer payable, and no unpaid instalment of the same amount exists. Record it in the fee schedule.`;
+    console.error(`[recordOrderPayment] UNRECONCILED PAYMENT for user ${p.userIntId}: ${description}`);
+    try {
+      const user = await this.prisma.users.findFirst({ where: { id: p.userIntId }, select: { application_id: true } });
+      if (user?.application_id) {
+        await this.prisma.application_events.create({
+          data: {
+            application_id: user.application_id,
+            event_type: 'payment_unreconciled',
+            description: description.slice(0, 500),
+            actor_user_id: p.userIntId,
+            metadata: JSON.stringify({ ...p }),
+          },
+        });
+      }
+    } catch (err) {
+      console.error('[recordOrderPayment] could not record the unreconciled-payment event:', err instanceof Error ? err.message : err);
+    }
   }
 
   async applyCoupon(userId: string, input: ApplyCouponInput): Promise<Record<string, unknown>> {
@@ -1161,7 +1297,7 @@ export class CommerceService {
     const output: Array<Record<string, unknown>> = [];
     // Per output row: whether the student's own schedule or a legacy course
     // total priced it, for the fee_status worked out after the loop.
-    const totals: Array<{ courseId: number; scheduleTotal: number; legacyTotal: number }> = [];
+    const totals: Array<{ courseId: number; scheduleTotal: number; legacyTotal: number; amountPaid: number }> = [];
 
     for (const enrolRow of enrolments) {
       const courseId = enrolRow.course_id;
@@ -1240,26 +1376,52 @@ export class CommerceService {
         payment_percentage: paymentPercentage,
         status,
       });
-      totals.push({ courseId, scheduleTotal, legacyTotal: discountedPrice });
+      totals.push({ courseId, scheduleTotal, legacyTotal: discountedPrice, amountPaid });
     }
 
     // TTII 2026-10-16 — a zero total used to read as "Free / No Payment
     // Required" on the Payments page, which is how a PAID course added through
     // Add Enrolment (course 25, no fee rows yet) was shown as free. Report the
     // state explicitly: free only on a free offering, otherwise 'pending'.
-    const unpriced = totals.filter((t) => t.scheduleTotal <= 0 && t.legacyTotal <= 0).map((t) => t.courseId);
+    // And a fully paid schedule on a course whose offering costs more is not
+    // "cleared": the balance is still to be scheduled ('balance_pending').
+    const unpriced = [...new Set(totals.filter((t) => t.scheduleTotal <= 0 && t.legacyTotal <= 0).map((t) => t.courseId))];
+    const settled = [...new Set(totals.filter((t) => t.scheduleTotal > 0 && t.amountPaid >= t.scheduleTotal).map((t) => t.courseId))];
     let freeCourseIds = new Set<number>();
-    if (unpriced.length > 0 && userRecord) {
+    let knownPayable = new Map<number, number | null>();
+    if (userRecord && unpriced.length > 0) {
       try {
-        freeCourseIds = await findFreeCourseIds(this.prisma, userRecord, [...new Set(unpriced)]);
+        freeCourseIds = await findFreeCourseIds(this.prisma, userRecord, unpriced);
       } catch (err) {
         // Safe default: an unknown course is shown as awaiting its fee, never as free.
         console.error(`[getStudentCourses] free-course lookup failed for user ${userIntId}:`, err instanceof Error ? err.message : err);
       }
     }
+    if (userRecord && settled.length > 0) {
+      try {
+        const original = await originalApplication(this.prisma, userRecord);
+        const own = settled.filter((courseId) => usesOwnFeePlan(courseId, original));
+        if (own.length > 0) knownPayable = await knownPayableByCourse(this.prisma, userRecord, own);
+      } catch (err) {
+        console.error(`[getStudentCourses] offering pricing lookup failed for user ${userIntId}:`, err instanceof Error ? err.message : err);
+      }
+    }
     return output.map((row, i) => {
       const t = totals[i];
-      const feeStatus = t ? studentCourseFeeStatus(t.scheduleTotal, t.legacyTotal, freeCourseIds.has(t.courseId)) : 'pending';
+      if (!t) return { ...row, fee_status: 'pending', is_free: 0 };
+      const own = ownPlanFee({ scheduleTotal: t.scheduleTotal, paidTotal: t.amountPaid, knownPayable: knownPayable.get(t.courseId) ?? null });
+      if (own.balancePending) {
+        return {
+          ...row,
+          total_fee: own.fee,
+          balance: Math.max(0, own.fee - t.amountPaid),
+          payment_percentage: Math.round(((t.amountPaid / own.fee) * 100) * 100) / 100,
+          status: 'Pending',
+          fee_status: 'balance_pending',
+          is_free: 0,
+        };
+      }
+      const feeStatus = studentCourseFeeStatus(t.scheduleTotal, t.legacyTotal, freeCourseIds.has(t.courseId));
       return { ...row, fee_status: feeStatus, is_free: feeStatus === 'free' ? 1 : 0 };
     });
   }

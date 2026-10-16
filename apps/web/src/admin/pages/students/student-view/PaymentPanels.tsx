@@ -222,17 +222,20 @@ function PaymentPlanCard({ p }: { p: PaymentData }) {
 }
 
 /** Fee Summary for an enrolment priced by its own plan (TTII 2026-10-16): the
- *  plan already holds any discount and GST, so only its totals are shown. */
+ *  plan already holds any discount and GST, so only its totals are shown. When
+ *  the plan is fully paid but the offering fee is larger, the course fee is
+ *  the offering's and the balance is still to be scheduled. */
 function ScheduleFeeSummary({ fee }: { fee: Record<string, unknown> }) {
+  const balancePending = asString(fee.fee_source) === 'balance_pending';
   return (
     <div className="grid gap-x-8 md:grid-cols-2">
       <div>
-        <InfoRow label="Fee set by" value="This enrolment's payment plan" />
-        <InfoRow label="Course Fee (per plan)" value={rupees(asNumber(fee.total_fee))} />
+        <InfoRow label="Fee set by" value={balancePending ? 'Course offering (plan fully paid)' : "This enrolment's payment plan"} />
+        <InfoRow label={balancePending ? 'Course Fee (offering)' : 'Course Fee (per plan)'} value={rupees(asNumber(fee.total_fee))} />
       </div>
       <div>
         <InfoRow label="Fee Paid" value={rupees(asNumber(fee.paid_amount))} />
-        <InfoRow label="Balance" value={rupees(asNumber(fee.pending_amount))} />
+        <InfoRow label="Balance" value={balancePending ? `${rupees(asNumber(fee.pending_amount))} — to be scheduled` : rupees(asNumber(fee.pending_amount))} />
       </div>
     </div>
   );
@@ -246,7 +249,7 @@ export function EnrollmentPaymentsPanel({
   canEdit: boolean;
   applicationId: string;
   onOpenPlan: () => void;
-  /** Set for an ADDITIONAL enrolment: its own plan replaces the application-wide one. */
+  /** Set for an enrolment on its own plan: it replaces the application-wide one. */
   enrolmentPlan?: { hasPlan: boolean; onOpen: () => void } | null;
   /** null when no enrolment is selected (the Add button is then hidden). */
   onAddInstalment: (() => void) | null;
@@ -262,7 +265,7 @@ export function EnrollmentPaymentsPanel({
       {canEdit ? (
         <div className="flex justify-end">
           {enrolmentPlan ? (
-            <Button size="sm" onClick={enrolmentPlan.onOpen} title="This course was added after the student's application, so it has its own fee plan.">
+            <Button size="sm" onClick={enrolmentPlan.onOpen} title="This enrolment's fee is planned on its own, in its fee schedule.">
               {enrolmentPlan.hasPlan ? 'Edit Payment Plan' : 'Generate Payment Plan'}
             </Button>
           ) : (
@@ -275,7 +278,8 @@ export function EnrollmentPaymentsPanel({
           <SectionHeader icon={Wallet} title="Fee Summary" />
           <div className="space-y-4">
             {p.studentFees.map((fee, idx) => {
-              if (asString(fee.fee_source) === 'schedule') return <ScheduleFeeSummary key={idx} fee={fee} />;
+              const source = asString(fee.fee_source);
+              if (source === 'schedule' || source === 'balance_pending') return <ScheduleFeeSummary key={idx} fee={fee} />;
               const discount = asNumber(fee.discount);
               const gstAmount = asNumber(fee.gst_amount);
               return (

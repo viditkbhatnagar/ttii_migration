@@ -5,7 +5,6 @@ import {
   generateRows,
   initialDraft,
   instalmentLabelOffset,
-  isAdditionalEnrolment,
   isValidYmd,
   lockReasonLabel,
   parsePlanData,
@@ -15,13 +14,14 @@ import {
   summarizeDraft,
   toSaveBody,
   todayYmd,
+  usesOwnFeePlan,
   type EnrolmentPlanData,
   type PlanDraft,
 } from '../src/admin/pages/students/student-view/enrolment-fee-plan-model';
 
-// Per-enrolment payment plan for an ADDITIONAL enrolment (TTII 2026-10-16).
-// The server re-checks everything; these mirror its rules so the dialog can
-// explain a problem before Save.
+// Per-enrolment payment plan (TTII 2026-10-16). The server re-checks
+// everything; these mirror its rules so the dialog can explain a problem
+// before Save.
 
 const RAW = {
   enrol_id: 253,
@@ -31,26 +31,37 @@ const RAW = {
   prefill: { total_fee: 20000, discount: 2000, gst_percent: 18, source: 'offering', source_label: 'the course offering "AI Educator - Oct 2026"' },
   agreed_fee: 15000,
   free_offering: false,
-  application_payment: { application_code: 'TTII260300', received: 0, paid: false, pending_approval: false, link_sent: true },
+  money: { application_code: 'TTII260300', application: 0, online: 0, schedule_paid: 0, pending_approval: false, link_outstanding: false, link_expires_on: '' },
+  block_reason: null,
+  today: '2026-10-16',
+  due_from: '2025-10-16',
+  due_to: '2029-10-16',
   rows: [],
 };
 
 const withRows = (rows: Array<Record<string, unknown>>): EnrolmentPlanData => parsePlanData({ ...RAW, rows });
 
 describe('reading the plan payload', () => {
-  test('parses prefill, references and rows', () => {
+  test('parses prefill, references, money, the block reason, the due window and rows', () => {
     const data = parsePlanData({
       ...RAW,
+      money: { ...RAW.money, online: 18000 },
+      block_reason: 'This student has already paid ₹18,000 online for this course, but the schedule shows ₹0 paid; record it as a Paid instalment first.',
       rows: [{ id: 1001, label: 'Registration Fee', amount: 2000, due_date: '2026-10-01', paid_date: '2026-10-01', status: 'Paid', locked: true, lock_reason: 'paid' }],
     });
     expect(data).toMatchObject({
       enrolId: '253',
       prefill: { totalFee: 20000, discount: 2000, gstPercent: 18 },
       agreedFee: 15000,
-      applicationPayment: { code: 'TTII260300', paid: false, linkSent: true },
+      money: { code: 'TTII260300', online: 18000, pendingApproval: false, linkOutstanding: false },
+      blockReason: expect.stringContaining('₹18,000 online'),
+      dueFrom: '2025-10-16',
+      dueTo: '2029-10-16',
       rows: [{ id: '1001', amount: 2000, locked: true, lockReason: 'paid' }],
     });
-    expect(parsePlanData({ ...RAW, prefill: { total_fee: null }, agreed_fee: null, application_payment: null }).prefill.totalFee).toBeNull();
+    const blank = parsePlanData({ ...RAW, prefill: { total_fee: null }, agreed_fee: null, block_reason: '' });
+    expect(blank.prefill.totalFee).toBeNull();
+    expect(blank.blockReason).toBeNull();
     expect(lockReasonLabel('checkout')).toBe('Checkout in progress');
   });
 });
@@ -155,15 +166,23 @@ describe('checking a draft before Save', () => {
   test('a missing fee is reported first', () => {
     expect(summarizeDraft(full({ totalFee: '' }), []).problem).toBe('Enter the total fee.');
   });
+
+  test("due dates outside the server's window are reported like the server does", () => {
+    const window = { from: '2025-10-16', to: '2029-10-16' };
+    expect(summarizeDraft(full(), [], 0, window).problem).toBeNull();
+    expect(summarizeDraft(full({ rows: [{ key: 'full', label: 'Course Fee', amount: '', dueDate: '2030-01-01' }] }), [], 0, window).problem).toBe(
+      'Row 1: the due date must be between 16/10/2025 and 16/10/2029.',
+    );
+  });
 });
 
 describe('which enrolments get their own plan', () => {
-  test('additional = a real enrolment whose course is not the application course (or no application)', () => {
-    expect(isAdditionalEnrolment({ id: 253, course_id: 25 }, '100', 16)).toBe(true);
-    expect(isAdditionalEnrolment({ id: 252, course_id: 16 }, '100', 16)).toBe(false);
-    expect(isAdditionalEnrolment({ id: 252, course_id: 16 }, '', 0)).toBe(true);
+  test('the server decides (own_fee_plan); a display-only enrolment never does', () => {
+    expect(usesOwnFeePlan({ id: 253, course_id: 25, own_fee_plan: true })).toBe(true);
+    expect(usesOwnFeePlan({ id: 252, course_id: 16, own_fee_plan: false })).toBe(false);
+    expect(usesOwnFeePlan({ id: 252, course_id: 16 })).toBe(false);
     // The display-only enrolment synthesised when a student has no enrol row.
-    expect(isAdditionalEnrolment({ id: 0, course_id: 25 }, '', 0)).toBe(false);
+    expect(usesOwnFeePlan({ id: 0, course_id: 25, own_fee_plan: true })).toBe(false);
   });
 
   test('the Payments sub-tab shows only the selected enrolment course', () => {

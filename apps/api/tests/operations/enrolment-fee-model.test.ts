@@ -1,21 +1,33 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  NO_MONEY_ELSEWHERE,
   checkoutRowIdsFromNotes,
   classifyScheduleRow,
   computePayable,
+  dueDateWindow,
   feeWithScheduleFallback,
   isFreeByPricing,
   isPaidRow,
+  istToday,
+  knownPayableFromPrefill,
+  ownPlanFee,
   pickPricingPackage,
+  planBlockReason,
+  planHasSchedule,
   resolveFeePrefill,
   studentCourseFeeStatus,
+  usesOwnFeePlan,
   validateEnrolmentPlan,
   ymdToUtcMidnight,
   type OfferingPricing,
   type PackagePricing,
+  type PlanInput,
   type ScheduleRow,
 } from '../../src/operations/enrolment-fee-model.js';
+
+const TODAY = '2026-10-16';
+const validate = (input: PlanInput, kept: ReadonlyArray<{ amount: number }>) => validateEnrolmentPlan(input, kept, TODAY);
 
 const row = (over: Partial<ScheduleRow>): ScheduleRow => ({
   id: 1, label: 'Installment 1', amount: 5000, status: 'Pending', dueDate: '2026-11-01', paidDate: '',
@@ -78,7 +90,7 @@ describe('validating a per-enrolment plan', () => {
   const base = { totalFee: 10000, discount: 0, gstPercent: 0 };
 
   test('full payment: one row for the whole payable total, labelled Course Fee by default', () => {
-    const v = validateEnrolmentPlan({ ...base, mode: 'full', rows: [{ label: '  ', amount: 10000, dueDate: '2026-11-01' }] }, []);
+    const v = validate({ ...base, mode: 'full', rows: [{ label: '  ', amount: 10000, dueDate: '2026-11-01' }] }, []);
     expect(v).toMatchObject({ ok: true, remaining: 10000, keptTotal: 0 });
     if (!v.ok) throw new Error('expected ok');
     expect(v.rows).toEqual([{ label: 'Course Fee', amount: 10000, dueDate: new Date(Date.UTC(2026, 10, 1)) }]);
@@ -86,7 +98,7 @@ describe('validating a per-enrolment plan', () => {
 
   test('kept (paid) rows count toward the total; the new rows cover only the rest', () => {
     const kept = [{ amount: 2000 }];
-    const v = validateEnrolmentPlan({
+    const v = validate({
       ...base,
       mode: 'installment',
       rows: [
@@ -98,45 +110,45 @@ describe('validating a per-enrolment plan', () => {
   });
 
   test('totals that do not add up to the rupee are refused', () => {
-    const v = validateEnrolmentPlan({ ...base, mode: 'installment', rows: [{ label: 'A', amount: 4000, dueDate: '2026-11-01' }, { label: 'B', amount: 5999, dueDate: '2026-12-01' }] }, []);
+    const v = validate({ ...base, mode: 'installment', rows: [{ label: 'A', amount: 4000, dueDate: '2026-11-01' }, { label: 'B', amount: 5999, dueDate: '2026-12-01' }] }, []);
     expect(v).toEqual({ ok: false, message: 'The rows add up to ₹9,999 but ₹10,000 is left to schedule (payable ₹10,000).' });
-    const withKept = validateEnrolmentPlan({ ...base, mode: 'full', rows: [{ label: '', amount: 8001, dueDate: '2026-11-01' }] }, [{ amount: 2000 }]);
+    const withKept = validate({ ...base, mode: 'full', rows: [{ label: '', amount: 8001, dueDate: '2026-11-01' }] }, [{ amount: 2000 }]);
     expect(withKept).toEqual({ ok: false, message: 'The rows add up to ₹8,001 but ₹8,000 is left to schedule (payable ₹10,000 after ₹2,000 already kept).' });
   });
 
   test('kept rows above the new total are refused', () => {
-    expect(validateEnrolmentPlan({ ...base, mode: 'full', rows: [] }, [{ amount: 12000 }])).toEqual({
+    expect(validate({ ...base, mode: 'full', rows: [] }, [{ amount: 12000 }])).toEqual({
       ok: false, message: 'The instalments that must be kept already total ₹12,000, more than the payable ₹10,000.',
     });
   });
 
   test('when the kept rows already cover the total, no new rows are allowed', () => {
-    expect(validateEnrolmentPlan({ ...base, mode: 'full', rows: [] }, [{ amount: 10000 }])).toMatchObject({ ok: true, remaining: 0, rows: [] });
-    expect(validateEnrolmentPlan({ ...base, mode: 'full', rows: [{ label: '', amount: 1, dueDate: '2026-11-01' }] }, [{ amount: 10000 }])).toMatchObject({ ok: false });
+    expect(validate({ ...base, mode: 'full', rows: [] }, [{ amount: 10000 }])).toMatchObject({ ok: true, remaining: 0, rows: [] });
+    expect(validate({ ...base, mode: 'full', rows: [{ label: '', amount: 1, dueDate: '2026-11-01' }] }, [{ amount: 10000 }])).toMatchObject({ ok: false });
   });
 
   test('amounts are whole rupees of at least 1; due dates must be real calendar dates', () => {
-    expect(validateEnrolmentPlan({ ...base, mode: 'full', rows: [{ label: '', amount: 9999.5, dueDate: '2026-11-01' }] }, [])).toEqual({
+    expect(validate({ ...base, mode: 'full', rows: [{ label: '', amount: 9999.5, dueDate: '2026-11-01' }] }, [])).toEqual({
       ok: false, message: 'Row 1: the amount must be a whole number of rupees, at least ₹1.',
     });
-    expect(validateEnrolmentPlan({ ...base, mode: 'installment', rows: [{ label: '', amount: 10000, dueDate: '2026-02-30' }] }, [])).toEqual({
+    expect(validate({ ...base, mode: 'installment', rows: [{ label: '', amount: 10000, dueDate: '2026-02-30' }] }, [])).toEqual({
       ok: false, message: 'Row 1: enter a valid due date.',
     });
-    expect(validateEnrolmentPlan({ ...base, mode: 'installment', rows: [{ label: '', amount: 10000, dueDate: '01/11/2026' }] }, [])).toMatchObject({ ok: false });
-    expect(validateEnrolmentPlan({ ...base, mode: 'installment', rows: [{ label: '', amount: 0, dueDate: '2026-11-01' }, { label: '', amount: 10000, dueDate: '2026-11-01' }] }, [])).toMatchObject({ ok: false });
+    expect(validate({ ...base, mode: 'installment', rows: [{ label: '', amount: 10000, dueDate: '01/11/2026' }] }, [])).toMatchObject({ ok: false });
+    expect(validate({ ...base, mode: 'installment', rows: [{ label: '', amount: 0, dueDate: '2026-11-01' }, { label: '', amount: 10000, dueDate: '2026-11-01' }] }, [])).toMatchObject({ ok: false });
   });
 
   test('shape limits: full payment is one row, at most 24 instalments, rows are required', () => {
-    expect(validateEnrolmentPlan({ ...base, mode: 'full', rows: [{ label: '', amount: 5000, dueDate: '2026-11-01' }, { label: '', amount: 5000, dueDate: '2026-12-01' }] }, [])).toEqual({
+    expect(validate({ ...base, mode: 'full', rows: [{ label: '', amount: 5000, dueDate: '2026-11-01' }, { label: '', amount: 5000, dueDate: '2026-12-01' }] }, [])).toEqual({
       ok: false, message: 'Full payment has exactly one row.',
     });
     const many = Array.from({ length: 25 }, () => ({ label: '', amount: 400, dueDate: '2026-11-01' }));
-    expect(validateEnrolmentPlan({ ...base, mode: 'installment', rows: many }, [])).toEqual({ ok: false, message: 'A plan can have at most 24 instalments.' });
-    expect(validateEnrolmentPlan({ ...base, mode: 'installment', rows: [] }, [])).toEqual({ ok: false, message: 'Add the instalments for the remaining ₹10,000.' });
+    expect(validate({ ...base, mode: 'installment', rows: many }, [])).toEqual({ ok: false, message: 'A plan can have at most 24 instalments.' });
+    expect(validate({ ...base, mode: 'installment', rows: [] }, [])).toEqual({ ok: false, message: 'Add the instalments for the remaining ₹10,000.' });
   });
 
   test('labels are trimmed, capped at 200 characters and default to Installment N', () => {
-    const v = validateEnrolmentPlan({
+    const v = validate({
       ...base,
       mode: 'installment',
       rows: [{ label: ` ${'x'.repeat(250)} `, amount: 5000, dueDate: '2026-11-01' }, { label: '', amount: 5000, dueDate: '2026-12-01' }],
@@ -237,5 +249,95 @@ describe('prefill from the course offering or fee structure', () => {
     expect(resolveFeePrefill({ ...none, course: { total_amount: null, sale_price: 0 } })).toEqual({
       totalFee: null, discount: 0, gstPercent: 0, source: null, sourceLabel: '',
     });
+  });
+
+  test('the known fee is the offering pricing only (package 105: 2,999 + 18% GST = 3,539); list prices are not', () => {
+    const offeringPrefill = resolveFeePrefill({ ...none, enrolmentOffering: offering({ packages: [pkg({ base_fee: 2999, offered_fee: 2999, discount: null, gst_percent: 18 })] }) });
+    expect(knownPayableFromPrefill(offeringPrefill)).toBe(3539);
+    expect(knownPayableFromPrefill(resolveFeePrefill({ ...none, course: { total_amount: null, sale_price: 25000 } }))).toBeNull();
+    expect(knownPayableFromPrefill(resolveFeePrefill(none))).toBeNull();
+  });
+});
+
+describe('due dates', () => {
+  test('a year back to three years ahead of today (IST), clamping 29 Feb', () => {
+    expect(dueDateWindow('2026-10-16')).toEqual({ from: '2025-10-16', to: '2029-10-16' });
+    expect(dueDateWindow('2028-02-29')).toEqual({ from: '2027-02-28', to: '2031-02-28' });
+    // 20:00 UTC on 15 Oct is already 16 Oct in India.
+    expect(istToday(new Date('2026-10-15T20:00:00.000Z'))).toBe('2026-10-16');
+  });
+
+  test('rows outside the window are refused', () => {
+    const plan = (dueDate: string): PlanInput => ({ mode: 'full', totalFee: 1000, discount: 0, gstPercent: 0, rows: [{ label: '', amount: 1000, dueDate }] });
+    expect(validate(plan('2025-10-16'), [])).toMatchObject({ ok: true });
+    expect(validate(plan('2029-10-16'), [])).toMatchObject({ ok: true });
+    expect(validate(plan('2025-10-15'), [])).toEqual({ ok: false, message: 'Row 1: the due date must be between 16/10/2025 and 16/10/2029.' });
+    expect(validate(plan('2029-10-17'), [])).toMatchObject({ ok: false });
+  });
+});
+
+describe('which plan governs an enrolment', () => {
+  const INSTALMENT_PLAN = JSON.stringify({ mode: 'installment', installments: [{ label: 'Reg', amountMinor: 100000 }] });
+  const LEDGER_ONLY = JSON.stringify({ instalment_payments: [{ index: 0, status: 'approved', amount_minor: 1888000 }] });
+
+  test('a plan has a schedule when it holds instalments, full mode or a total', () => {
+    expect(planHasSchedule(INSTALMENT_PLAN)).toBe(true);
+    expect(planHasSchedule(JSON.stringify({ mode: 'full' }))).toBe(true);
+    expect(planHasSchedule(JSON.stringify({ total_amount_minor: 100 }))).toBe(true);
+    expect(planHasSchedule(LEDGER_ONLY)).toBe(false);
+    expect(planHasSchedule(null)).toBe(false);
+    expect(planHasSchedule('not json')).toBe(false);
+    expect(planHasSchedule('42')).toBe(false);
+  });
+
+  test("only the users.application_id course with a scheduled plan keeps the application-wide plan", () => {
+    const original = { course_id: 16, payment_plan: INSTALMENT_PLAN };
+    expect(usesOwnFeePlan(16, original)).toBe(false);
+    expect(usesOwnFeePlan(25, original)).toBe(true);
+    // Jayasree S: her original course 16 holds only a recorded payment — plan it here.
+    expect(usesOwnFeePlan(16, { course_id: 16, payment_plan: LEDGER_ONLY })).toBe(true);
+    expect(usesOwnFeePlan(16, { course_id: 16, payment_plan: null })).toBe(true);
+    // users.application_id = 0: no original course at all.
+    expect(usesOwnFeePlan(16, null)).toBe(true);
+  });
+
+  test('a fully paid own-plan schedule below the offering fee leaves a balance to schedule', () => {
+    expect(ownPlanFee({ scheduleTotal: 18880, paidTotal: 18880, knownPayable: 23600 })).toEqual({ fee: 23600, balancePending: true });
+    // Something is still scheduled and unpaid: the schedule is the fee.
+    expect(ownPlanFee({ scheduleTotal: 20000, paidTotal: 18880, knownPayable: 23600 })).toEqual({ fee: 20000, balancePending: false });
+    expect(ownPlanFee({ scheduleTotal: 23600, paidTotal: 23600, knownPayable: 23600 })).toEqual({ fee: 23600, balancePending: false });
+    expect(ownPlanFee({ scheduleTotal: 18880, paidTotal: 18880, knownPayable: null })).toEqual({ fee: 18880, balancePending: false });
+  });
+});
+
+describe('money recorded outside the schedule blocks a plan', () => {
+  const money = (over: Partial<typeof NO_MONEY_ELSEWHERE>) => ({ ...NO_MONEY_ELSEWHERE, applicationCode: 'TTII260300', ...over });
+
+  test('nothing elsewhere: no block', () => {
+    expect(planBlockReason(NO_MONEY_ELSEWHERE, 0)).toBeNull();
+  });
+
+  test('an online checkout paid on the course price must be covered by Paid rows', () => {
+    expect(planBlockReason(money({ online: 25000 }), 0)).toBe(
+      'This student has already paid ₹25,000 online for this course, but the schedule shows ₹0 paid; record it as a Paid instalment first.',
+    );
+    expect(planBlockReason(money({ online: 25000 }), 25000)).toBeNull();
+  });
+
+  test('application money is compared by amount, not just existence; both sources add up', () => {
+    expect(planBlockReason(money({ application: 15000 }), 5000)).toContain('₹15,000 on this enrolment\'s application (TTII260300)');
+    expect(planBlockReason(money({ application: 15000, online: 5000 }), 15000)).toBe(
+      "This student has already paid ₹5,000 online and ₹15,000 on this enrolment's application (TTII260300) for this course, but the schedule shows ₹15,000 paid; record it as a Paid instalment first.",
+    );
+    expect(planBlockReason(money({ application: 15000, online: 5000 }), 20000)).toBeNull();
+    expect(planBlockReason(money({ applicationPaidUnknown: true }), 0)).toContain('is marked paid');
+    expect(planBlockReason(money({ applicationPaidUnknown: true }), 100)).toBeNull();
+  });
+
+  test('a payment awaiting Finance or an open payment link blocks until it settles', () => {
+    expect(planBlockReason(money({ pendingApproval: true }), 99999)).toContain('waiting for Finance approval');
+    expect(planBlockReason(money({ linkOutstanding: true, linkExpiresOn: '2026-10-23' }), 99999)).toBe(
+      "A payment link from this enrolment's application (TTII260300) can still be paid until 23/10/2026. Save the plan once it is paid (record it as a Paid instalment) or has expired.",
+    );
   });
 });
