@@ -182,7 +182,7 @@ export function EnrolmentFeePlanDialog({
   const kept = useMemo(() => (data ? data.rows.filter((r) => r.locked) : []), [data]);
   const replaceable = useMemo(() => (data ? data.rows.filter((r) => !r.locked) : []), [data]);
   const dueWindow = useMemo(() => (data?.dueFrom && data.dueTo ? { from: data.dueFrom, to: data.dueTo } : null), [data]);
-  const summary = useMemo(() => (draft ? summarizeDraft(draft, kept, replaceable.length, dueWindow) : null), [draft, kept, replaceable.length, dueWindow]);
+  const summary = useMemo(() => (draft ? summarizeDraft(draft, kept, replaceable.length, dueWindow, data) : null), [draft, kept, replaceable.length, dueWindow, data]);
   const canSave = Boolean(target && data && draft && summary && !summary.problem && summary.remaining !== null && !data.blockReason) && !saving;
 
   const patch = (p: Partial<PlanDraft>) => setDraft((d) => (d ? { ...d, ...p } : d));
@@ -280,7 +280,7 @@ export function EnrolmentFeePlanDialog({
                   ) : null}
                   {data.agreedFee != null ? (
                     <Button type="button" size="sm" variant="outline" onClick={() => applyFee(data.agreedFee ?? 0, 0, 0)}>
-                      Use the fee entered at Add Enrolment: {rupees(data.agreedFee)}
+                      Use the agreed fee: {rupees(data.agreedFee)}
                     </Button>
                   ) : null}
                 </div>
@@ -358,6 +358,11 @@ export function EnrolmentFeePlanDialog({
               {replaceable.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
                   Saving replaces {replaceable.length} pending instalment{replaceable.length === 1 ? '' : 's'} with no payment against {replaceable.length === 1 ? 'it' : 'them'}.
+                </p>
+              ) : null}
+              {summary.agreedChanges && summary.payable != null ? (
+                <p className="text-xs text-muted-foreground">
+                  Saving records {rupees(summary.payable)} as this enrolment&apos;s agreed fee{data.agreedFee != null ? ` (currently ${rupees(data.agreedFee)})` : ''}.
                 </p>
               ) : null}
             </>

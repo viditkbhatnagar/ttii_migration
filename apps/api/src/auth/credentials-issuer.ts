@@ -63,15 +63,23 @@ function buildEmailHtml(ctx: CredentialEmailContext, tempPassword: string): stri
   });
 }
 
-export async function issueAndEmailCredentials(
-  ctx: CredentialEmailContext,
-): Promise<IssueCredentialsResult> {
+/**
+ * Generate a temp password and its hash WITHOUT sending anything. Callers that
+ * create the user inside a transaction that may lose a race (Admin Approve,
+ * Convert) issue first, commit, and only then email — so a losing request
+ * never mails a password that was never saved (TTII 2026-10-17).
+ */
+export async function issueCredentials(): Promise<{ tempPassword: string; hashedPassword: string }> {
   const tempPassword = generateTempPassword();
-  const hashedPassword = await hashPassword(tempPassword);
+  return { tempPassword, hashedPassword: await hashPassword(tempPassword) };
+}
 
-  let emailDelivered = false;
-  let emailError: string | undefined;
-
+/** Email credentials issued by issueCredentials — the same message
+ *  issueAndEmailCredentials sends. Best-effort: never throws. */
+export async function emailIssuedCredentials(
+  ctx: CredentialEmailContext,
+  tempPassword: string,
+): Promise<{ emailDelivered: boolean; emailError?: string }> {
   try {
     const { createIntegrationRegistry } = await import('../integrations/registry.js');
     const registry = createIntegrationRegistry();
@@ -80,18 +88,25 @@ export async function issueAndEmailCredentials(
       subject: 'Your TTII LMS Account Has Been Created',
       html: buildEmailHtml(ctx, tempPassword),
     });
-    emailDelivered = true;
+    return { emailDelivered: true };
   } catch (err) {
-    emailError = err instanceof Error ? err.message : String(err);
+    return { emailDelivered: false, emailError: err instanceof Error ? err.message : String(err) };
   }
+}
+
+export async function issueAndEmailCredentials(
+  ctx: CredentialEmailContext,
+): Promise<IssueCredentialsResult> {
+  const { tempPassword, hashedPassword } = await issueCredentials();
+  const sent = await emailIssuedCredentials(ctx, tempPassword);
 
   const result: IssueCredentialsResult = {
     hashedPassword,
     tempPassword,
-    emailDelivered,
+    emailDelivered: sent.emailDelivered,
   };
-  if (emailError !== undefined) {
-    result.emailError = emailError;
+  if (sent.emailError !== undefined) {
+    result.emailError = sent.emailError;
   }
   return result;
 }

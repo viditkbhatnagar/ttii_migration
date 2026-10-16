@@ -21,7 +21,7 @@ import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 import { allocateEnrollmentId } from './enrolment-id.js';
 import { feeWithScheduleFallback, ownPlanFee, usesOwnFeePlan } from './enrolment-fee-model.js';
-import { knownPayableByCourse } from './enrolment-fee-data.js';
+import { agreedPayableByCourse, agreedPayableByStudentCourse } from './enrolment-fee-data.js';
 // Type-only — the runtime modules stay lazily imported so MSAL is never loaded
 // on non-Teams paths.
 // Naji UAT 2026-08-10 — the Graph meeting payload and the student join gate must
@@ -2123,27 +2123,20 @@ export class OperationsService {
       };
     }
 
-    // Issue login credentials (a unique random password) and email them, matching
-    // the admin Approve fan-out — a converted student must receive their own
-    // sign-in details, not a shared hardcoded password (Naji 2026-07-09). Runs
-    // before the transaction; the email send inside issueAndEmailCredentials is
-    // best-effort and never throws.
+    // Issue login credentials (a unique random password), matching the admin
+    // Approve fan-out — a converted student must receive their own sign-in
+    // details, not a shared hardcoded password (Naji 2026-07-09). Generated
+    // here, but EMAILED only after the conversion commits (TTII 2026-10-17): a
+    // double submit that loses the claim below must not mail a password that
+    // was never saved.
     const applicationEmail = toNullableString(application.user_email) ?? toNullableString(application.email) ?? '';
-    let issuedHashedPassword: string | null = null;
-    if (applicationEmail) {
-      const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
-      const creds = await issueAndEmailCredentials({
-        name: toStringValue(application.name) || applicationEmail,
-        email: applicationEmail,
-        roleLabel: 'Student',
-      });
-      issuedHashedPassword = creds.hashedPassword;
-    }
+    const credentials = await import('../auth/credentials-issuer.js');
+    const issued = applicationEmail ? await credentials.issueCredentials() : null;
 
-    // Use the issued (emailed) password hash; fall back to a default only for
-    // the rare application with no email on file. Hashed before the
-    // transaction so it stays short.
-    const hashedPassword = issuedHashedPassword ?? await hashPassword('Temp@1234');
+    // Use the issued password hash; fall back to a default only for the rare
+    // application with no email on file. Hashed before the transaction so it
+    // stays short.
+    const hashedPassword = issued?.hashedPassword ?? await hashPassword('Temp@1234');
 
     let created: { studentUserId: number; studentCode: string };
     try {
@@ -2230,6 +2223,16 @@ export class OperationsService {
         return { status: 0, message: 'Another conversion was being saved at the same moment. Nothing was changed; please try again.' };
       }
       throw error;
+    }
+
+    // The student now exists with the issued password: email it (best-effort,
+    // never throws) — the same message, recipient and greeting as before.
+    if (issued) {
+      await credentials.emailIssuedCredentials({
+        name: toStringValue(application.name) || applicationEmail,
+        email: applicationEmail,
+        roleLabel: 'Student',
+      }, issued.tempPassword);
     }
 
     // Materialize the application-stage payment plan into student_payments so the
@@ -8119,6 +8122,9 @@ export class OperationsService {
         appByEmailCourse.set(key, { offering_id: a.offering_id, combination_id: a.certificate_combination_id });
       }
     }
+    // TTII 2026-10-17 — the AGREED payable per (student, course), read from
+    // the same application the student portal and the plan tool use.
+    const agreedByUserCourse = await agreedPayableByStudentCourse(this.prisma, users, courseIds);
     const appByUserCourse = new Map<string, { offering_id: number | null; combination_id: number | null }>();
     for (const u of users) {
       const e = (u.user_email ?? u.email ?? '').toLowerCase();
@@ -8242,12 +8248,12 @@ export class OperationsService {
       const overdue = pay?.overdue ?? 0;
       // TTII 2026-10-16 — an enrolment on its own plan is billed by its
       // schedule (as the student portal shows it), unless that is fully paid
-      // and the offering pricing says the course costs more; any other course
-      // with no resolvable price falls back to its schedule.
+      // and the AGREED payable (never the package list price) is larger; any
+      // other course with no resolvable price falls back to its schedule.
       const scheduleTotal = pay?.total ?? 0;
       const original = u?.application_id ? originalAppById.get(u.application_id) ?? null : null;
       courseFee = usesOwnFeePlan(e.course_id, original) && scheduleTotal > 0
-        ? ownPlanFee({ scheduleTotal, paidTotal: paid, knownPayable: courseFee > 0 ? courseFee : null }).fee
+        ? ownPlanFee({ scheduleTotal, paidTotal: paid, agreedPayable: agreedByUserCourse.get(`${e.user_id}:${e.course_id}`) ?? null }).fee
         : feeWithScheduleFallback(courseFee, scheduleTotal).fee;
       const balance = Math.max(0, courseFee - paid);
 
@@ -13539,18 +13545,14 @@ export class OperationsService {
     const appEmail = app.user_email;
     const courseId = app.course_id;
 
-    // Credentials are issued (and emailed) before the transaction, as in
-    // convertApplication; the send inside is best-effort and never throws.
-    let issuedHashedPassword: string | null = null;
-    if (!existingStudent) {
-      const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
-      const creds = await issueAndEmailCredentials({
-        name: app.name ?? appEmail,
-        email: appEmail,
-        roleLabel: 'Student',
-      });
-      issuedHashedPassword = creds.hashedPassword;
-    }
+    // Credentials are generated before the transaction but EMAILED only after it
+    // commits, and only when this request created the student (TTII
+    // 2026-10-17): a double submit that loses the claim must not mail a
+    // password that was never saved.
+    const credentials = await import('../auth/credentials-issuer.js');
+    const issued = existingStudent ? null : await credentials.issueCredentials();
+    // Set inside the transaction; read after it commits.
+    const outcome: { createdStudent: boolean } = { createdStudent: false };
 
     // TTII 2026-10-16 — the student row and its TTS code, the enrol row and the
     // application link commit together, mirroring convertApplication. This
@@ -13581,6 +13583,7 @@ export class OperationsService {
         if (claimed.count === 0) throw new EnrolmentClaimLost();
 
         let row = existingStudent;
+        outcome.createdStudent = false;
         if (!row) {
           const studentCode = await this.nextStudentCode(tx);
           const created = await tx.users.create({
@@ -13590,7 +13593,7 @@ export class OperationsService {
               user_email: appEmail,
               email: appEmail,
               phone: app.phone || '',
-              password: issuedHashedPassword,
+              password: issued?.hashedPassword ?? null,
               role_id: 2,
               status: 1,
               gender: '',
@@ -13606,6 +13609,7 @@ export class OperationsService {
             },
           });
           row = { id: created.id, name: created.name, user_email: created.user_email };
+          outcome.createdStudent = true;
         }
 
         // Enrol if not already.
@@ -13644,6 +13648,12 @@ export class OperationsService {
         return { status: 0, message: 'Another approval was being saved at the same moment. Nothing was changed; please try again.' };
       }
       throw error;
+    }
+
+    // Committed: email the new student's credentials (best-effort, never
+    // throws) — the same message, recipient and greeting as before.
+    if (outcome.createdStudent && issued) {
+      await credentials.emailIssuedCredentials({ name: app.name ?? appEmail, email: appEmail, roleLabel: 'Student' }, issued.tempPassword);
     }
 
     // Materialize the application-stage payment plan into student_payments so the
@@ -14945,8 +14955,8 @@ export class OperationsService {
       if (!courseId || !Number.isFinite(amt) || amt <= 0) continue;
       scheduleTotalByCourse.set(courseId, (scheduleTotalByCourse.get(courseId) ?? 0) + amt);
     }
-    // When such a schedule is fully paid but the offering pricing says the
-    // course costs more, the rest is still to be scheduled — never "cleared".
+    // When such a schedule is fully paid but the AGREED payable (never a list
+    // price) is larger, the rest is still to be scheduled — never "cleared".
     const settledOwnCourses = [...new Set(enrichedEnrolments
       .filter((e) => e.own_fee_plan && e.course_id != null)
       .map((e) => e.course_id as number)
@@ -14954,12 +14964,12 @@ export class OperationsService {
         const total = scheduleTotalByCourse.get(c) ?? 0;
         return total > 0 && (paidByCourse.get(c) ?? 0) >= total;
       }))];
-    let knownPayable = new Map<number, number | null>();
+    let agreedPayable = new Map<number, number | null>();
     if (settledOwnCourses.length > 0) {
       try {
-        knownPayable = await knownPayableByCourse(this.prisma, { id: uid, user_email: user.user_email, application_id: user.application_id }, settledOwnCourses);
+        agreedPayable = await agreedPayableByCourse(this.prisma, { id: uid, user_email: user.user_email, application_id: user.application_id }, settledOwnCourses);
       } catch (err) {
-        console.error(`[getStudentDetail] offering pricing lookup failed for user ${uid}:`, err instanceof Error ? err.message : err);
+        console.error(`[getStudentDetail] agreed-fee lookup failed for user ${uid}:`, err instanceof Error ? err.message : err);
       }
     }
 
@@ -15008,7 +15018,7 @@ export class OperationsService {
       // back to its schedule.
       let scheduled: { fee: number; source: 'schedule' | 'balance_pending' } | null = null;
       if (e.own_fee_plan && scheduleTotal > 0) {
-        const own = ownPlanFee({ scheduleTotal, paidTotal: paid, knownPayable: e.course_id ? knownPayable.get(e.course_id) ?? null : null });
+        const own = ownPlanFee({ scheduleTotal, paidTotal: paid, agreedPayable: e.course_id ? agreedPayable.get(e.course_id) ?? null : null });
         scheduled = { fee: own.fee, source: own.balancePending ? 'balance_pending' : 'schedule' };
       } else if (!feeSrc) {
         const fallback = feeWithScheduleFallback(courseFeeIncGst, scheduleTotal);

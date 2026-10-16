@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   NO_MONEY_ELSEWHERE,
+  agreedPayableOf,
   checkoutRowIdsFromNotes,
   classifyScheduleRow,
   computePayable,
@@ -10,7 +11,6 @@ import {
   isFreeByPricing,
   isPaidRow,
   istToday,
-  knownPayableFromPrefill,
   ownPlanFee,
   pickPricingPackage,
   planBlockReason,
@@ -251,11 +251,11 @@ describe('prefill from the course offering or fee structure', () => {
     });
   });
 
-  test('the known fee is the offering pricing only (package 105: 2,999 + 18% GST = 3,539); list prices are not', () => {
-    const offeringPrefill = resolveFeePrefill({ ...none, enrolmentOffering: offering({ packages: [pkg({ base_fee: 2999, offered_fee: 2999, discount: null, gst_percent: 18 })] }) });
-    expect(knownPayableFromPrefill(offeringPrefill)).toBe(3539);
-    expect(knownPayableFromPrefill(resolveFeePrefill({ ...none, course: { total_amount: null, sale_price: 25000 } }))).toBeNull();
-    expect(knownPayableFromPrefill(resolveFeePrefill(none))).toBeNull();
+  test('the agreed payable is the recorded final fee in whole rupees, else nothing', () => {
+    expect(agreedPayableOf(15000)).toBe(15000);
+    expect(agreedPayableOf(3538.82)).toBe(3539);
+    expect(agreedPayableOf(null)).toBeNull();
+    expect(agreedPayableOf(0)).toBeNull();
   });
 });
 
@@ -301,12 +301,18 @@ describe('which plan governs an enrolment', () => {
     expect(usesOwnFeePlan(16, null)).toBe(true);
   });
 
-  test('a fully paid own-plan schedule below the offering fee leaves a balance to schedule', () => {
-    expect(ownPlanFee({ scheduleTotal: 18880, paidTotal: 18880, knownPayable: 23600 })).toEqual({ fee: 23600, balancePending: true });
+  test('a fully paid own-plan schedule below the AGREED payable leaves a balance to schedule', () => {
+    expect(ownPlanFee({ scheduleTotal: 18880, paidTotal: 18880, agreedPayable: 23600 })).toEqual({ fee: 23600, balancePending: true });
     // Something is still scheduled and unpaid: the schedule is the fee.
-    expect(ownPlanFee({ scheduleTotal: 20000, paidTotal: 18880, knownPayable: 23600 })).toEqual({ fee: 20000, balancePending: false });
-    expect(ownPlanFee({ scheduleTotal: 23600, paidTotal: 23600, knownPayable: 23600 })).toEqual({ fee: 23600, balancePending: false });
-    expect(ownPlanFee({ scheduleTotal: 18880, paidTotal: 18880, knownPayable: null })).toEqual({ fee: 18880, balancePending: false });
+    expect(ownPlanFee({ scheduleTotal: 20000, paidTotal: 18880, agreedPayable: 23600 })).toEqual({ fee: 20000, balancePending: false });
+    expect(ownPlanFee({ scheduleTotal: 23600, paidTotal: 23600, agreedPayable: 23600 })).toEqual({ fee: 23600, balancePending: false });
+  });
+
+  test('the probe: a Rs.15,000 plan, fully paid, against a Rs.21,240 package (20,000 - 2,000 + 18%) shows NO balance without an agreed fee', () => {
+    // The package list price is never an input; with no agreed fee the schedule is the fee.
+    expect(ownPlanFee({ scheduleTotal: 15000, paidTotal: 15000, agreedPayable: null })).toEqual({ fee: 15000, balancePending: false });
+    // An agreed fee equal to the plan (what a plan save records) shows none either.
+    expect(ownPlanFee({ scheduleTotal: 15000, paidTotal: 15000, agreedPayable: agreedPayableOf(15000) })).toEqual({ fee: 15000, balancePending: false });
   });
 });
 

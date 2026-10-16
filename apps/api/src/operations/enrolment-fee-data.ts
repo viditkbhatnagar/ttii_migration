@@ -2,9 +2,9 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 
 import {
   CHECKOUT_HOLD_MS,
+  agreedPayableOf,
   checkoutRowIdsFromNotes,
   isFreeByPricing,
-  knownPayableFromPrefill,
   resolveFeePrefill,
   type FeePrefill,
   type OfferingPricing,
@@ -239,14 +239,80 @@ export async function findFreeCourseIds(
   return free;
 }
 
-/** The payable fee the offering pricing implies per course (null = unknown). */
-export async function knownPayableByCourse(
+/**
+ * The AGREED payable per course: the payable the per-enrolment plan tool saved,
+ * else the fee entered on the enrolment's application — both are
+ * application_final_fee. Null when none is recorded; a list price is never
+ * used, so with no agreed fee the schedule alone is the fee.
+ */
+export async function agreedPayableByCourse(
   db: Db,
   student: Pick<StudentRef, 'id' | 'user_email' | 'application_id'>,
   courseIds: number[],
 ): Promise<Map<number, number | null>> {
-  const pricing = await loadCoursePricing(db, student, courseIds, { withCourseFacts: true });
-  return new Map([...pricing].map(([courseId, p]) => [courseId, knownPayableFromPrefill(prefillFor(p))]));
+  const pricing = await loadCoursePricing(db, student, courseIds, { withCourseFacts: false });
+  return new Map([...pricing].map(([courseId, p]) => [courseId, agreedPayableOf(p.application?.finalFee)]));
+}
+
+/**
+ * agreedPayableByCourse for many students in ONE query (the admin Fee Summary
+ * lists every enrolment). Each enrolment's application is the one
+ * loadCoursePricing picks — linked to the student, else the one
+ * users.application_id names, else an enrolled/converted application under the
+ * student's email; the newest within a rank — so every screen reads the agreed
+ * fee from the application the plan tool writes it to. Keyed
+ * `${userId}:${courseId}`; absent = no application.
+ */
+export async function agreedPayableByStudentCourse(
+  db: Db,
+  students: ReadonlyArray<Pick<StudentRef, 'id' | 'user_email' | 'application_id'>>,
+  courseIds: number[],
+): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (students.length === 0 || courseIds.length === 0) return out;
+  const emailKey = (v: string | null): string => (v ?? '').trim().toLowerCase();
+  const appIds = [...new Set(students.map((s) => s.application_id ?? 0).filter((v) => v > 0))];
+  const emails = [...new Set(students.map((s) => (s.user_email ?? '').trim()).filter((e) => e !== ''))];
+  const apps = await db.applications.findMany({
+    where: {
+      deleted_at: null,
+      course_id: { in: courseIds },
+      OR: [
+        { student_id: { in: students.map((s) => s.id) } },
+        ...(appIds.length > 0 ? [{ id: { in: appIds } }] : []),
+        ...(emails.length > 0 ? [{ user_email: { in: emails }, OR: [{ stage: 'enrolled' }, { is_converted: 1 }] }] : []),
+      ],
+    },
+    orderBy: { id: 'desc' },
+    select: { id: true, course_id: true, student_id: true, user_email: true, stage: true, is_converted: true, application_final_fee: true },
+  });
+  type App = (typeof apps)[number];
+  const byStudent = new Map<number, App[]>();
+  const byId = new Map<number, App>();
+  const byEmail = new Map<string, App[]>();
+  for (const a of apps) {
+    if (a.student_id != null) byStudent.set(a.student_id, [...(byStudent.get(a.student_id) ?? []), a]);
+    byId.set(a.id, a);
+    const enrolled = (a.stage ?? '').trim().toLowerCase() === 'enrolled' || Number(a.is_converted) === 1;
+    const key = emailKey(a.user_email);
+    if (enrolled && key !== '') byEmail.set(key, [...(byEmail.get(key) ?? []), a]);
+  }
+  for (const s of students) {
+    const original = s.application_id ? byId.get(s.application_id) : undefined;
+    const ranked: Array<{ app: App; rank: number }> = [
+      ...(byStudent.get(s.id) ?? []).map((app) => ({ app, rank: 0 })),
+      ...(original ? [{ app: original, rank: 1 }] : []),
+      ...(emailKey(s.user_email) !== '' ? (byEmail.get(emailKey(s.user_email)) ?? []).map((app) => ({ app, rank: 2 })) : []),
+    ];
+    const best = new Map<number, { app: App; rank: number }>();
+    for (const c of ranked) {
+      if (c.app.course_id == null) continue;
+      const cur = best.get(c.app.course_id);
+      if (!cur || c.rank < cur.rank || (c.rank === cur.rank && c.app.id > cur.app.id)) best.set(c.app.course_id, c);
+    }
+    for (const [courseId, { app }] of best) out.set(`${s.id}:${courseId}`, agreedPayableOf(toNum(app.application_final_fee)));
+  }
+  return out;
 }
 
 interface RawScheduleRow {

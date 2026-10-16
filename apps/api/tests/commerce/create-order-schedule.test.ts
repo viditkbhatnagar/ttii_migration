@@ -28,6 +28,8 @@ function makeService(opts: {
   replacedDuringCheckout?: boolean;
   /** The offering package of the student's own application for the course. */
   packageFee?: { base: number; gst: number } | null;
+  /** application_final_fee on that application (the agreed payable). */
+  agreedFee?: number | null;
 }) {
   const gatewayOrders: PaymentOrderRequest[] = [];
   const createdOrders: Array<Record<string, unknown>> = [];
@@ -66,7 +68,7 @@ function makeService(opts: {
     applications: {
       findFirst: () => Promise.resolve(null),
       findMany: () => Promise.resolve(opts.packageFee
-        ? [{ id: 300, application_id: 'TTII260300', course_id: 25, student_id: 353, offering_id: 70, certificate_combination_id: 4, application_final_fee: null, payment_plan: null, payment_status: null, payment_link_url: null, payment_link_id: null, payment_link_expires_at: null }]
+        ? [{ id: 300, application_id: 'TTII260300', course_id: 25, student_id: 353, offering_id: 70, certificate_combination_id: 4, application_final_fee: opts.agreedFee ?? null, payment_plan: null, payment_status: null, payment_link_url: null, payment_link_id: null, payment_link_expires_at: null }]
         : []),
     },
     offerings: { findMany: () => Promise.resolve(opts.packageFee ? [{ id: 70, course_id: 25, title: 'AI Educator', offering_code: null, fee_category: 'paid', base_fee: null, discount: null, offered_fee: null, pricing_amount: null }] : []) },
@@ -134,14 +136,24 @@ describe('createOrder against a student fee schedule', () => {
     expect(createdOrders).toHaveLength(0);
   });
 
-  test('...and told the balance is to be scheduled when the offering fee is larger than the schedule', async () => {
+  test('...and told the balance is to be scheduled when the AGREED fee is larger than the schedule', async () => {
     const { service, gatewayOrders } = makeService({
       salePrice: 25000,
       rows: [{ id: 950, amount: 2999, status: 'Paid', paid: true, due: null }],
-      packageFee: { base: 2999, gst: 18 }, // payable 3,539
+      packageFee: { base: 2999, gst: 18 },
+      agreedFee: 3539,
     });
     await expect(service.createOrder('353', ORDER)).rejects.toThrow('Balance to be scheduled by TTII. You can pay it here once your instalments are set up.');
     expect(gatewayOrders).toHaveLength(0);
+  });
+
+  test('a larger package LIST price alone never claims a balance', async () => {
+    const { service } = makeService({
+      salePrice: 25000,
+      rows: [{ id: 950, amount: 2999, status: 'Paid', paid: true, due: null }],
+      packageFee: { base: 2999, gst: 18 }, // 3,539 list price, no agreed fee
+    });
+    await expect(service.createOrder('353', ORDER)).rejects.toThrow('All instalments for this course are already paid.');
   });
 
   test('normal full-payment checkout is unchanged: no schedule at all charges sale_price', async () => {

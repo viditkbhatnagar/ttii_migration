@@ -30,6 +30,7 @@ const RAW = {
   student_name: 'VIDHYA SHANKAR KS',
   prefill: { total_fee: 20000, discount: 2000, gst_percent: 18, source: 'offering', source_label: 'the course offering "AI Educator - Oct 2026"' },
   agreed_fee: 15000,
+  has_application: true,
   free_offering: false,
   money: { application_code: 'TTII260300', application: 0, online: 0, schedule_paid: 0, pending_approval: false, link_outstanding: false, link_expires_on: '' },
   block_reason: null,
@@ -53,6 +54,7 @@ describe('reading the plan payload', () => {
       enrolId: '253',
       prefill: { totalFee: 20000, discount: 2000, gstPercent: 18 },
       agreedFee: 15000,
+      hasApplication: true,
       money: { code: 'TTII260300', online: 18000, pendingApproval: false, linkOutstanding: false },
       dueFrom: '2025-10-16',
       dueTo: '2029-10-16',
@@ -61,7 +63,9 @@ describe('reading the plan payload', () => {
     expect(data.blockReason).toContain('₹18,000 online');
     const blank = parsePlanData({ ...RAW, prefill: { total_fee: null }, agreed_fee: null, block_reason: '' });
     expect(blank.prefill.totalFee).toBeNull();
+    expect(blank.agreedFee).toBeNull();
     expect(blank.blockReason).toBeNull();
+    expect(parsePlanData({ ...RAW, has_application: undefined }).hasApplication).toBe(false);
     expect(lockReasonLabel('checkout')).toBe('Checkout in progress');
   });
 });
@@ -133,7 +137,7 @@ describe('checking a draft before Save', () => {
   });
 
   test('full payment is one row for exactly what is left', () => {
-    expect(summarizeDraft(full(), [])).toEqual({ payable: 11800, afterDiscount: 10000, gstAmount: 1800, keptTotal: 0, remaining: 11800, planned: 11800, problem: null });
+    expect(summarizeDraft(full(), [])).toEqual({ payable: 11800, afterDiscount: 10000, gstAmount: 1800, keptTotal: 0, remaining: 11800, planned: 11800, agreedChanges: false, problem: null });
     expect(summarizeDraft(full(), [{ amount: 1800 }])).toMatchObject({ remaining: 10000, planned: 10000, problem: null });
     expect(toSaveBody('253', full(), 10000)).toEqual({
       enrol_id: '253', mode: 'full', total_fee: 10000, discount: 0, gst_percent: 18,
@@ -161,6 +165,31 @@ describe('checking a draft before Save', () => {
     expect(summarizeDraft(full({ gstPercent: '0' }), [{ amount: 10000 }], 0).problem).toBe('Nothing to change: the kept instalments already cover the payable total.');
     expect(summarizeDraft(full({ gstPercent: '0' }), [{ amount: 10000 }], 2).problem).toBeNull();
     expect(toSaveBody('253', full({ gstPercent: '0' }), 0).installments).toEqual([]);
+  });
+
+  // The probe (TTII 2026-10-17): a Rs.15,000 plan fully paid, no agreed fee on
+  // file. A save must be able to record (or correct) the agreed fee even though
+  // no instalment changes — the server does the same — and is "Nothing to
+  // change" only once the agreed fee already matches.
+  test('setting or correcting the agreed fee is a change even when no row moves', () => {
+    const fromSchedule: PlanDraft = { mode: 'installment', totalFee: '15000', discount: '0', gstPercent: '0', fromSchedule: true, rows: [] };
+    const paid = [{ amount: 15000 }];
+    expect(summarizeDraft(fromSchedule, paid, 0, null, { agreedFee: null, hasApplication: true })).toMatchObject({
+      payable: 15000, remaining: 0, agreedChanges: true, problem: null,
+    });
+    expect(toSaveBody('253', fromSchedule, 0).installments).toEqual([]);
+    // A wrong agreed fee (a phantom balance) can be corrected down to the plan.
+    expect(summarizeDraft(fromSchedule, paid, 0, null, { agreedFee: 21240, hasApplication: true })).toMatchObject({ agreedChanges: true, problem: null });
+    // Already agreed: nothing to change.
+    expect(summarizeDraft(fromSchedule, paid, 0, null, { agreedFee: 15000, hasApplication: true })).toMatchObject({
+      agreedChanges: false, problem: 'Nothing to change: the kept instalments already cover the payable total.',
+    });
+    // No application to keep it on: nothing to change, as before.
+    expect(summarizeDraft(fromSchedule, paid, 0, null, { agreedFee: null, hasApplication: false })).toMatchObject({
+      agreedChanges: false, problem: 'Nothing to change: the kept instalments already cover the payable total.',
+    });
+    // Full payment mode behaves the same.
+    expect(summarizeDraft(full({ gstPercent: '0' }), [{ amount: 10000 }], 0, null, { agreedFee: null, hasApplication: true }).problem).toBeNull();
   });
 
   test('a missing fee is reported first', () => {
