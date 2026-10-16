@@ -1,0 +1,17 @@
+-- TTII 2026-10-16: 32 live students had NO student_id. adminApproveApplication
+-- (lead pipeline "Admin Approve & Enrol", the path every new student takes since
+-- May) never called nextStudentCode. Code fix ships separately.
+--
+-- APPLIED 2026-10-16 via a Prisma transaction: codes continue from the highest
+-- TTS number across ALL users (deleted included, so no code is ever reused),
+-- assigned in users.id order. DO NOT re-run (it is idempotent on NULLs anyway).
+--
+-- Assigned: 275=TTS0091 317=TTS0092 318=TTS0093 319=TTS0094 320=TTS0095
+-- 321=TTS0096 322=TTS0097 323=TTS0098 326=TTS0099 327=TTS0100 328=TTS0101
+-- 329=TTS0102 331=TTS0103 332=TTS0104 333=TTS0105 334=TTS0106 335=TTS0107
+-- 337=TTS0108 338=TTS0109 339=TTS0110 340=TTS0111 341=TTS0112 343=TTS0113
+-- 344=TTS0114 345=TTS0115 346=TTS0116 347=TTS0117 348=TTS0118 349=TTS0119
+-- 353=TTS0120 354=TTS0121 357=TTS0122
+-- Skipped: 283 "Test New" (disposable test email).
+-- Verified: 0 duplicate codes among live students; only 283 still without an ID.
+SELECT 1;
