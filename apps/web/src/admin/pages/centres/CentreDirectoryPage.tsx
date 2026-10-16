@@ -260,7 +260,7 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
                     </TableCell>
                     <TableCell className="text-sm">{c.contact || '—'}</TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{c.phone || '—'}</TableCell>
-                    <TableCell className="max-w-[240px] truncate text-sm text-muted-foreground">{c.email || '—'}</TableCell>
+                    <TableCell className="max-w-[240px] truncate text-sm text-muted-foreground" title={c.email || undefined}>{c.email || '—'}</TableCell>
                     <TableCell className="text-right text-sm tabular-nums">{c.students}</TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
                       {!hasTallies ? '—' : (

@@ -167,7 +167,7 @@ export default function TeamsPage({ api, session, onNavigate }: AdminPageProps) 
                     <TableCell>
                       <button type="button" onClick={() => view(t.id)} className="flex items-center gap-3 text-left hover:text-primary">
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><UsersRound aria-hidden="true" className="size-4" /></span>
-                        <span className="max-w-[200px] truncate text-sm font-semibold">{t.name}</span>
+                        <span className="max-w-[200px] truncate text-sm font-semibold" title={t.name}>{t.name}</span>
                       </button>
                     </TableCell>
                     <TableCell className="text-sm">{t.leaderName || '—'}</TableCell>

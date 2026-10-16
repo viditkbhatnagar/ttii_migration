@@ -262,7 +262,7 @@ export function ApplicationsTab({ apps, total, onView }: { apps: ProfileApplicat
                       <p className="text-sm font-medium">{dash(a.name)}</p>
                       <p className="text-[11px] text-muted-foreground">{dash(a.phone)}</p>
                     </TableCell>
-                    <TableCell className="max-w-[220px] text-sm"><span className="line-clamp-2">{dash(a.course)}</span></TableCell>
+                    <TableCell className="max-w-[220px] text-sm"><span className="line-clamp-2" title={a.course || undefined}>{dash(a.course)}</span></TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(a.created) || '—'}</TableCell>
                     <TableCell><StageBadge stage={a.stage} /></TableCell>
                     <TableCell className="text-sm text-muted-foreground">{a.paymentStatus ? humanize(a.paymentStatus) : '—'}</TableCell>
@@ -313,7 +313,7 @@ export function StudentsTab({ apps, total, enrolled, onView }: { apps: ProfileAp
                     <p className="text-sm font-medium">{dash(s.name)}</p>
                     <p className="text-[11px] text-muted-foreground">{dash(s.email || s.phone)}</p>
                   </TableCell>
-                  <TableCell className="max-w-[220px] text-sm"><span className="line-clamp-2">{dash(s.course)}</span></TableCell>
+                  <TableCell className="max-w-[220px] text-sm"><span className="line-clamp-2" title={s.course || undefined}>{dash(s.course)}</span></TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(s.converted || s.created) || '—'}</TableCell>
                   <TableCell>
                     <Pill tone={/active/i.test(s.enrollmentStatus) || !s.enrollmentStatus ? 'emerald' : 'slate'}>{s.enrollmentStatus ? humanize(s.enrollmentStatus) : 'Enrolled'}</Pill>

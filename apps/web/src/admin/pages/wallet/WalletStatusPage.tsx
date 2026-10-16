@@ -123,7 +123,7 @@ export default function WalletStatusPage({ api, session }: AdminPageProps) {
                   <TableCell className="whitespace-nowrap text-right text-sm font-medium tabular-nums">{rupees(w.balance)}</TableCell>
                   <TableCell className="text-right text-sm tabular-nums">{w.transactions}</TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{w.phone || '—'}</TableCell>
-                  <TableCell className="max-w-[260px] truncate text-sm text-muted-foreground">{w.email || '—'}</TableCell>
+                  <TableCell className="max-w-[260px] truncate text-sm text-muted-foreground" title={w.email || undefined}>{w.email || '—'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -219,7 +219,7 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
                       </Avatar>
                     </TableCell>
                     <TableCell className="text-sm font-medium">
-                      <button type="button" className="max-w-[220px] truncate text-left hover:text-primary hover:underline" onClick={() => view(r.id)}>
+                      <button type="button" title={r.name || undefined} className="max-w-[220px] truncate text-left hover:text-primary hover:underline" onClick={() => view(r.id)}>
                         {r.name || 'N/A'}
                       </button>
                     </TableCell>

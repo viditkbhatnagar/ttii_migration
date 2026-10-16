@@ -216,8 +216,8 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
                         <div className="flex items-center gap-2.5">
                           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{initialsOf(t.counsellor)}</span>
                           <div className="min-w-0">
-                            <p className="max-w-[200px] truncate text-sm font-semibold">{t.counsellor || '—'}</p>
-                            <p className="max-w-[200px] truncate text-[11px] text-muted-foreground">{t.counsellorEmail}</p>
+                            <p className="max-w-[200px] truncate text-sm font-semibold" title={t.counsellor || undefined}>{t.counsellor || '—'}</p>
+                            <p className="max-w-[200px] truncate text-[11px] text-muted-foreground" title={t.counsellorEmail || undefined}>{t.counsellorEmail}</p>
                           </div>
                         </div>
                       </TableCell>

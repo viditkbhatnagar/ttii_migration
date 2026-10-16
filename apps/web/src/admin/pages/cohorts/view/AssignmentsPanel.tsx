@@ -213,7 +213,7 @@ export function AssignmentsPanel({
                           </td>
                           <td className="px-2 py-2">{formatDate(sub.submitted_at) || '-'}</td>
                           <td className="px-2 py-2">{asString(sub.marks) || '-'}</td>
-                          <td className="max-w-[150px] truncate px-2 py-2">{asString(sub.remarks) || '-'}</td>
+                          <td className="max-w-[150px] truncate px-2 py-2" title={asString(sub.remarks) || undefined}>{asString(sub.remarks) || '-'}</td>
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-center">
                               <IconBtn icon={Pencil} tone="info" label="Grade submission" onClick={() => setGrading(sub)} />

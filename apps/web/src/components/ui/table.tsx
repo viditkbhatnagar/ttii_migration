@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { tableCellLayout } from "@/lib/table-cell-wrap"
 import { cn } from "@/lib/utils"
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
@@ -65,29 +66,50 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   )
 }
 
-function TableHead({ className, ...props }: React.ComponentProps<"th">) {
+// Children of a cell. A capped cell (max-w-*) gets a box that asks the table
+// for the full one-line width, which the cap clamps as before, and then fills
+// the cell so the text wraps inside it. Every other cell passes its children
+// through untouched. See tableCellLayout.
+function cellChildren(contentClass: string | null, children: React.ReactNode): React.ReactNode {
+  if (contentClass === null) return children
+  return (
+    <div data-slot="table-cell-content" className={contentClass}>
+      {children}
+    </div>
+  )
+}
+
+function TableHead({ className, children, ...props }: React.ComponentProps<"th">) {
+  const layout = tableCellLayout(className)
   return (
     <th
       data-slot="table-head"
       className={cn(
-        "text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "text-foreground h-10 px-2 text-left align-middle font-medium [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        layout.whitespace,
         className
       )}
       {...props}
-    />
+    >
+      {cellChildren(layout.contentClass, children)}
+    </th>
   )
 }
 
-function TableCell({ className, ...props }: React.ComponentProps<"td">) {
+function TableCell({ className, children, ...props }: React.ComponentProps<"td">) {
+  const layout = tableCellLayout(className)
   return (
     <td
       data-slot="table-cell"
       className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "p-2 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        layout.whitespace,
         className
       )}
       {...props}
-    />
+    >
+      {cellChildren(layout.contentClass, children)}
+    </td>
   )
 }
 

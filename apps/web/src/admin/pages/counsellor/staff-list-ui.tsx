@@ -208,10 +208,10 @@ function StaffTableRow({ row: r, index, selected, onToggle, target, onView, onEd
             <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initialsOf(r.name)}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <button type="button" className="block max-w-[220px] truncate text-left text-sm font-semibold leading-tight hover:text-primary hover:underline" onClick={onView}>
+            <button type="button" title={r.name || undefined} className="block max-w-[220px] truncate text-left text-sm font-semibold leading-tight hover:text-primary hover:underline" onClick={onView}>
               {r.name || 'N/A'}
             </button>
-            <p className="max-w-[220px] truncate text-[11px] text-muted-foreground">{r.email || 'No email'}</p>
+            <p className="max-w-[220px] truncate text-[11px] text-muted-foreground" title={r.email || undefined}>{r.email || 'No email'}</p>
           </div>
         </div>
       </TableCell>

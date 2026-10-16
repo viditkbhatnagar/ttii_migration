@@ -228,7 +228,8 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
                     </button>
                     <div className="text-xs text-muted-foreground">{s.code || 'No code'}</div>
                   </TableCell>
-                  <TableCell className="max-w-[260px]">
+                  {/* Each course chip caps itself, so the cell keeps its own one-line sizing. */}
+                  <TableCell className="max-w-[260px] whitespace-nowrap">
                     {s.courses.length === 0 ? (
                       <span className="text-xs text-muted-foreground">Not linked</span>
                     ) : (

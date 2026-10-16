@@ -137,10 +137,10 @@ export function UpcomingCard({
               {shown.map((u) => (
                 <TableRow key={u.key} className="cursor-pointer hover:bg-muted/30" onClick={() => onOpen(u)}>
                   <TableCell className="max-w-[240px]">
-                    <button type="button" className="block max-w-full truncate text-left text-sm font-medium text-foreground hover:text-primary focus-visible:outline-none focus-visible:underline" onClick={(e) => { e.stopPropagation(); onOpen(u); }}>
+                    <button type="button" title={u.title || undefined} className="block max-w-full truncate text-left text-sm font-medium text-foreground hover:text-primary focus-visible:outline-none focus-visible:underline" onClick={(e) => { e.stopPropagation(); onOpen(u); }}>
                       {u.title || 'Untitled exam'}
                     </button>
-                    {u.subject ? <span className="block truncate text-xs text-muted-foreground">{u.subject}</span> : null}
+                    {u.subject ? <span className="block truncate text-xs text-muted-foreground" title={u.subject}>{u.subject}</span> : null}
                   </TableCell>
                   <TableCell className="max-w-[180px] truncate text-sm text-muted-foreground" title={u.courses.join(', ')}>
                     {u.courses.join(', ') || '—'}

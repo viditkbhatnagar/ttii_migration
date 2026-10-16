@@ -155,8 +155,8 @@ export default function AssociateCommunicationsPage({ api, session }: AdminPageP
                       <TableCell className="text-sm">{r.direction}</TableCell>
                       <TableCell>
                         <div className="max-w-xs">
-                          <p className="truncate font-medium text-foreground">{r.subject}</p>
-                          <p className="truncate text-xs text-muted-foreground">{r.message}</p>
+                          <p className="truncate font-medium text-foreground" title={r.subject || undefined}>{r.subject}</p>
+                          <p className="truncate text-xs text-muted-foreground" title={r.message || undefined}>{r.message}</p>
                         </div>
                       </TableCell>
                       <TableCell className="text-sm">{r.createdByName || '—'}</TableCell>

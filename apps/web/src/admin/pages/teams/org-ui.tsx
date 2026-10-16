@@ -176,7 +176,7 @@ export function OrgApplicationsTable({ apps, total, onView, studentsOnly = false
                       <p className="text-[11px] text-muted-foreground">{dash(a.phone)}</p>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{dash(a.counsellor)}</TableCell>
-                    <TableCell className="max-w-[220px] text-sm"><span className="line-clamp-2">{dash(a.course)}</span></TableCell>
+                    <TableCell className="max-w-[220px] text-sm"><span className="line-clamp-2" title={a.course || undefined}>{dash(a.course)}</span></TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(studentsOnly ? a.converted || a.created : a.created) || '—'}</TableCell>
                     {studentsOnly ? null : <TableCell><StageBadge stage={a.stage} /></TableCell>}
                     <TableCell className="text-right">

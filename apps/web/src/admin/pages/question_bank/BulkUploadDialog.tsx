@@ -311,7 +311,7 @@ function PreviewTable({
               <TableRow key={`${row.line}-${i}`}>
                 <TableCell className="text-xs text-muted-foreground">{row.line}</TableCell>
                 <TableCell className="whitespace-nowrap text-xs">{KIND_LABEL[kindOf(q.qType, q.options)]}</TableCell>
-                <TableCell className="max-w-[320px] text-xs"><p className="line-clamp-2">{q.title}</p></TableCell>
+                <TableCell className="max-w-[320px] text-xs"><p className="line-clamp-2" title={q.title}>{q.title}</p></TableCell>
                 <TableCell className="max-w-[160px] truncate text-xs text-muted-foreground" title={answer}>{answer}</TableCell>
                 <TableCell className="max-w-[240px] text-xs">
                   {status ? (

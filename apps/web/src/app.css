@@ -351,6 +351,23 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* A truncating element inside a table cell is never wider than the cell.
+     A button or other inline-block with truncate otherwise keeps its full
+     text width and paints over the next columns (Exams list, 2026-10-16).
+     Base layer, so a max-w class on the element itself still wins. */
+  :where([data-slot=table-cell], [data-slot=table-head]) .truncate {
+    max-width: 100%;
+  }
+  /* Inside a capped cell that wraps (see lib/table-cell-wrap.ts), a button or
+     link is never wider than the cell and breaks an unbroken token such as a
+     file name. Otherwise it keeps the full token width, because a shrink-to-fit
+     box never goes below its longest word, and paints over the next columns
+     (review 2026-10-16). Scoped to that box, whose requested width stays the
+     full one-line width, so no column is resized. */
+  :where([data-slot=table-cell-content]) :is(button, a) {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Student Portal Scoped Styles */

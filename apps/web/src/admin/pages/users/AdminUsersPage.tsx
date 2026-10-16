@@ -288,10 +288,10 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
                           <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initialsOf(r.name)}</AvatarFallback>
                         </Avatar>
                         <div className="min-w-0">
-                          <button type="button" className="block max-w-[220px] truncate text-left text-sm font-semibold text-foreground hover:text-primary hover:underline" onClick={() => setViewing(r)}>
+                          <button type="button" title={r.name || undefined} className="block max-w-[220px] truncate text-left text-sm font-semibold text-foreground hover:text-primary hover:underline" onClick={() => setViewing(r)}>
                             {r.name || '—'}
                           </button>
-                          <p className="max-w-[220px] truncate text-xs text-muted-foreground">{r.email || 'No email'}</p>
+                          <p className="max-w-[220px] truncate text-xs text-muted-foreground" title={r.email || undefined}>{r.email || 'No email'}</p>
                         </div>
                       </div>
                     </TableCell>

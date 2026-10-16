@@ -97,10 +97,10 @@ export function ExamResultsList({ rows, onOpen }: { rows: ExamResultsRow[]; onOp
                 <TableRow key={r.examId}>
                   <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
                   <TableCell className="max-w-[280px]">
-                    <div className="truncate text-sm font-medium text-foreground">{r.title}</div>
+                    <div className="truncate text-sm font-medium text-foreground" title={r.title}>{r.title}</div>
                     <div className="text-[11px] text-muted-foreground">{r.examCode || `ID ${r.examId}`}</div>
                   </TableCell>
-                  <TableCell className="max-w-[220px] truncate text-xs text-foreground">{r.courses.join(', ') || '—'}</TableCell>
+                  <TableCell className="max-w-[220px] truncate text-xs text-foreground" title={r.courses.join(', ')}>{r.courses.join(', ') || '—'}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs">{formatPeriod(r.fromDate, r.toDate)}</TableCell>
                   <TableCell className="text-sm tabular-nums">{r.subjects}</TableCell>
                   <TableCell className="text-sm tabular-nums">{r.totals.students}</TableCell>
