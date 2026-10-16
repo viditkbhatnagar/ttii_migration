@@ -17,6 +17,7 @@ import { StudentDirectoryService } from '../operations/student-directory-service
 import { StaffProfileNotFoundError, StaffProfileService, type StaffRole } from '../operations/staff-profile-service.js';
 import { PeopleAdminService } from '../operations/people-admin-service.js';
 import { AuditLogService, parseAuditLogQuery } from '../operations/audit-log-service.js';
+import { EnrolmentFeePlanService } from '../operations/enrolment-fee-plan-service.js';
 import type { CounsellorTeamsService } from '../operations/counsellor-teams-service.js';
 import type { CounsellorGroupsService } from '../operations/counsellor-groups-service.js';
 import { registerCounsellorTeamsRoutes } from './counsellor-teams-routes.js';
@@ -84,6 +85,7 @@ interface RegisterOperationsRoutesOptions {
   counsellorGroupsService?: CounsellorGroupsService;
   associateAdminService?: AssociateAdminService;
   associateCommunicationsService?: AssociateCommunicationsService;
+  enrolmentFeePlanService?: EnrolmentFeePlanService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -439,6 +441,7 @@ export function registerOperationsRoutes(
   const auditLogService = options.auditLogService ?? new AuditLogService();
   const associateAdminService = options.associateAdminService ?? new AssociateAdminService();
   const associateCommunicationsService = options.associateCommunicationsService ?? new AssociateCommunicationsService();
+  const enrolmentFeePlanService = options.enrolmentFeePlanService ?? new EnrolmentFeePlanService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -5251,6 +5254,42 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const result = await operationsService.deleteInstallment(requestUserId(request), toStringValue(payload.installment_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // TTII 2026-10-16 — payment plan for an ADDITIONAL enrolment (a course added
+  // after the student's original application), written to student_payments.
+  // Admin/Subadmin only, like every other student_payments write above.
+  app.get('/admin/students/enrolment-fee-plan', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await enrolmentFeePlanService.getPlan(toStringValue(payload.enrol_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/students/enrolment-fee-plan/save', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const mode = toStringValue(payload.mode);
+      if (mode !== 'full' && mode !== 'installment') {
+        reply.code(200).send({ status: 0, message: 'Choose full payment or instalments.' });
+        return;
+      }
+      const rows = (Array.isArray(payload.installments) ? payload.installments : [])
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .map((r) => ({ label: toStringValue(r.label), amount: Number(r.amount), dueDate: toStringValue(r.due_date) }));
+      const result = await enrolmentFeePlanService.savePlan(requestUserId(request), {
+        enrolId: toStringValue(payload.enrol_id),
+        plan: {
+          mode,
+          totalFee: Number(payload.total_fee),
+          discount: Number(payload.discount ?? 0),
+          gstPercent: Number(payload.gst_percent ?? 0),
+          rows,
+        },
+      });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });

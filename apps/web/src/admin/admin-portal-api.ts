@@ -2808,6 +2808,18 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/student-payments/delete', authToken, { installment_id: installmentId });
   }
 
+  // TTII 2026-10-16 — payment plan for an ADDITIONAL enrolment (a course added
+  // after the student's original application), saved to its student_payments
+  // rows. Admin/Subadmin only.
+  async getEnrolmentFeePlan(authToken: string, enrolId: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/students/enrolment-fee-plan', authToken, { enrol_id: enrolId });
+    return payload.data ?? {};
+  }
+
+  async saveEnrolmentFeePlan(authToken: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/students/enrolment-fee-plan/save', authToken, body);
+  }
+
   async loadAssignmentEvaluations(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/assignment/evaluations', authToken);
     return toRecords(payload.data);
