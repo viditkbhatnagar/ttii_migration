@@ -4,6 +4,8 @@ import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
 import type { IntegrationRegistry, PaymentGateway } from '../integrations/contracts.js';
 import { createIntegrationRegistry } from '../integrations/registry.js';
+import { studentCourseFeeStatus } from '../operations/enrolment-fee-model.js';
+import { findFreeCourseIds } from '../operations/enrolment-fee-plan-service.js';
 
 const EASEBUZZ_PAYMENT_URL = 'https://project.trogon.info/easebuzz/index.php';
 
@@ -330,6 +332,21 @@ export class CommerceService {
     return { id: row.id, amountMinor: Math.round(toDbNumber(row.amount) * 100) };
   }
 
+  /**
+   * Whether the student has a real fee schedule for the course: any live row
+   * of at least Rs.1, paid or not. A count reads no date column, so the
+   * legacy zero-dates cannot crash it.
+   */
+  private async hasFeeSchedule(userIntId: number, courseIntId: number): Promise<boolean> {
+    if (!userIntId || !courseIntId) {
+      return false;
+    }
+    const rows = await this.prisma.student_payments.count({
+      where: { user_id: userIntId, course_id: courseIntId, deleted_at: null, amount: { gte: 1 } },
+    });
+    return rows > 0;
+  }
+
   private async ensureEnrolment(
     tx: TxClient,
     userId: string,
@@ -616,6 +633,11 @@ export class CommerceService {
     if (nextInstallment) {
       amountMinor = nextInstallment.amountMinor;
       targetInstallmentId = nextInstallment.id;
+    } else if (await this.hasFeeSchedule(userIntId, courseIntId)) {
+      // TTII 2026-10-16 — a schedule with nothing left to pay must never fall
+      // through to course.sale_price: a student whose only row was a Paid
+      // registration was offered the whole course fee again.
+      throw new Error('All instalments for this course are already paid. Please contact support if you believe a balance is due.');
     } else if (salePriceMinor < RAZORPAY_MIN_ORDER_MINOR) {
       // No schedule AND no usable sale price — nothing legitimate to charge.
       throw new Error('No pending installment found to pay for this course.');
@@ -1132,11 +1154,14 @@ export class CommerceService {
 
     const userRecord = await this.prisma.users.findFirst({
       where: { id: userIntId },
-      select: { id: true },
+      select: { id: true, application_id: true, user_email: true },
     });
 
     const currentDate = toDateOnlyString(new Date());
     const output: Array<Record<string, unknown>> = [];
+    // Per output row: whether the student's own schedule or a legacy course
+    // total priced it, for the fee_status worked out after the loop.
+    const totals: Array<{ courseId: number; scheduleTotal: number; legacyTotal: number }> = [];
 
     for (const enrolRow of enrolments) {
       const courseId = enrolRow.course_id;
@@ -1215,9 +1240,28 @@ export class CommerceService {
         payment_percentage: paymentPercentage,
         status,
       });
+      totals.push({ courseId, scheduleTotal, legacyTotal: discountedPrice });
     }
 
-    return output;
+    // TTII 2026-10-16 — a zero total used to read as "Free / No Payment
+    // Required" on the Payments page, which is how a PAID course added through
+    // Add Enrolment (course 25, no fee rows yet) was shown as free. Report the
+    // state explicitly: free only on a free offering, otherwise 'pending'.
+    const unpriced = totals.filter((t) => t.scheduleTotal <= 0 && t.legacyTotal <= 0).map((t) => t.courseId);
+    let freeCourseIds = new Set<number>();
+    if (unpriced.length > 0 && userRecord) {
+      try {
+        freeCourseIds = await findFreeCourseIds(this.prisma, userRecord, [...new Set(unpriced)]);
+      } catch (err) {
+        // Safe default: an unknown course is shown as awaiting its fee, never as free.
+        console.error(`[getStudentCourses] free-course lookup failed for user ${userIntId}:`, err instanceof Error ? err.message : err);
+      }
+    }
+    return output.map((row, i) => {
+      const t = totals[i];
+      const feeStatus = t ? studentCourseFeeStatus(t.scheduleTotal, t.legacyTotal, freeCourseIds.has(t.courseId)) : 'pending';
+      return { ...row, fee_status: feeStatus, is_free: feeStatus === 'free' ? 1 : 0 };
+    });
   }
 
   async getPaymentDetails(userId: string, courseId: string): Promise<Record<string, unknown>> {

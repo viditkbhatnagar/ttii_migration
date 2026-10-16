@@ -11,6 +11,8 @@ import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-uti
 import { GeneratePaymentLinkDialog } from '../applications/GeneratePaymentLinkDialog.js';
 import { AddEnrolmentDialog } from './student-view/AddEnrolmentDialog.js';
 import { EditEnrolmentDialog } from './student-view/EditEnrolmentDialog.js';
+import { EnrolmentFeePlanDialog, type EnrolmentFeePlanTarget } from './student-view/EnrolmentFeePlanDialog.js';
+import { isAdditionalEnrolment, scopeToCourse } from './student-view/enrolment-fee-plan-model.js';
 import { DocumentsTab } from './student-view/DocumentsTab.js';
 import {
   ApplicationDetails, AssignmentTable, CohortCards, ExaminationTable, LearningProgress, LiveClassAttendance, QuizHistory,
@@ -59,6 +61,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const [editEnrolRow, setEditEnrolRow] = useState<Record<string, unknown> | null>(null);
   const [instTarget, setInstTarget] = useState<InstallmentTarget | null>(null);
   const [payPlanOpen, setPayPlanOpen] = useState(false);
+  const [feePlanTarget, setFeePlanTarget] = useState<EnrolmentFeePlanTarget | null>(null);
   const [deepLinkApplied, setDeepLinkApplied] = useState(false);
 
   const studentId = useMemo(() => {
@@ -194,18 +197,37 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       case 'cohort': return <CohortCards enrolment={selected} />;
       case 'assignment': return <AssignmentTable rows={toRecords(data?.assignmentSubmissions)} />;
       case 'exam': return <ExaminationTable rows={toRecords(data?.examAttempts)} />;
-      case 'payments':
+      case 'payments': {
+        // TTII 2026-10-16 — the sub-tab shows THIS enrolment's fee rows. A
+        // course added after the student's application (an ADDITIONAL
+        // enrolment) gets its own plan; the original course keeps the
+        // application-wide one.
+        const courseId = asNumber(selected.course_id);
+        const scoped: PaymentData = {
+          ...payment,
+          studentFees: scopeToCourse(payment.studentFees, courseId),
+          scopedSchedule: scopeToCourse(payment.scopedSchedule, courseId),
+        };
+        const hasOwnPlan = scoped.scopedSchedule.length > 0;
+        const additional = isAdditionalEnrolment(selected, applicationId, asNumber(student.application_course_id));
         return (
           <EnrollmentPaymentsPanel
-            p={payment}
+            p={scoped}
             canEdit={canEditStudent}
             applicationId={applicationId}
             onOpenPlan={() => setPayPlanOpen(true)}
+            enrolmentPlan={additional
+              ? {
+                  hasPlan: hasOwnPlan,
+                  onOpen: () => setFeePlanTarget({ enrolId: asString(selected.id), courseTitle: asString(selected.course_title), hasPlan: hasOwnPlan }),
+                }
+              : null}
             onAddInstalment={() => setInstTarget({ mode: 'add', userId: asString(selected.user_id), courseId: asString(selected.course_id) })}
             onEditInstalment={(row) => setInstTarget({ mode: 'edit', row })}
             onDeleteInstalment={(row) => { void deleteInstalment(row); }}
           />
         );
+      }
       default: return null;
     }
   };
@@ -310,6 +332,15 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         initialSavedPlan={payment.applicationPaymentPlan}
         paymentStatus={payment.paymentStatus}
         onSent={() => reload()}
+      />
+
+      <EnrolmentFeePlanDialog
+        target={feePlanTarget}
+        studentName={asString(student.name) || 'this student'}
+        onClose={() => setFeePlanTarget(null)}
+        onSaved={reload}
+        api={api}
+        token={session.token}
       />
 
       <InstallmentDialog target={instTarget} onClose={() => setInstTarget(null)} onSaved={reload} api={api} token={session.token} />

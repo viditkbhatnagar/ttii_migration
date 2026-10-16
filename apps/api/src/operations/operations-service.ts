@@ -8,6 +8,8 @@ import { questionBankCourseScope, questionUsage, type QuestionUsage } from './qu
 import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
+import { allocateEnrollmentId } from './enrolment-id.js';
+import { feeWithScheduleFallback } from './enrolment-fee-model.js';
 // Type-only — the runtime modules stay lazily imported so MSAL is never loaded
 // on non-Teams paths.
 // Naji UAT 2026-08-10 — the Graph meeting payload and the student join gate must
@@ -1187,12 +1189,65 @@ function istCalendarDayUtc(value: string | Date | null | undefined): Date | null
   return ymdToUtcDate(ist);
 }
 
+interface PlanRowsContext {
+  studentUserId: number;
+  courseId: number;
+  actorUserId: number | null;
+  now: Date;
+  settledAt?: Date | string | null;
+}
+
+/** Label for a recorded payment with no schedule row, following the ledger's
+ *  own convention (index 0 is the registration milestone, see
+ *  listPaymentApprovals). */
+function ledgerOnlyRowLabel(index: number): string {
+  return index === 0 ? 'Registration Fee' : `Instalment ${index}`;
+}
+
+/** One Paid student_payments row per APPROVED ledger entry, for plans that hold
+ *  recorded payments but no schedule. Pending and rejected entries are money
+ *  not yet received, and an approved entry without an amount has nothing to
+ *  record, so neither produces a row. */
+function buildPaidRowsFromApprovedLedger(
+  planObj: Record<string, unknown>,
+  paymentStatus: string | null | undefined,
+  ctx: PlanRowsContext,
+): Prisma.student_paymentsCreateManyInput[] {
+  const { studentUserId, courseId, actorUserId, now, settledAt } = ctx;
+  return readInstalmentLedger(planObj, paymentStatus ?? undefined)
+    .filter((e) => e.status === 'approved' && e.amount_minor != null && Number.isFinite(e.amount_minor) && e.amount_minor > 0)
+    .map((e): Prisma.student_paymentsCreateManyInput => ({
+      user_id: studentUserId,
+      course_id: courseId,
+      installment_details: ledgerOnlyRowLabel(e.index),
+      amount: Math.round((e.amount_minor ?? 0) / 100),
+      payment_mode: (e.mode || '').slice(0, 20) || null,
+      status: 'Paid',
+      due_date: null,
+      // Same precedence as the scheduled rows: the day it was paid, then the
+      // approval, then the application's settled moment, then now — each as
+      // the IST calendar day.
+      paid_date: istCalendarDayUtc(e.paid_date ?? e.decided_at ?? null)
+        ?? istCalendarDayUtc(settledAt ?? null)
+        ?? istCalendarDayUtc(now),
+      reference_number: (e.reference || '').slice(0, 100) || null,
+      receipt_url: (e.receipt_url || '').slice(0, 500) || null,
+      payment_to: 'ttii',
+      created_by: actorUserId,
+      updated_by: actorUserId,
+      created_at: now,
+      updated_at: now,
+    }));
+}
+
 /** Build the student_payments rows that mirror an application-stage payment plan.
  *  Pure (no DB) so both the conversion write-path and the backfill script reuse
  *  the exact same mapping. One row per installments[] entry, index-aligned to the
  *  instalment ledger so each row's Paid/Pending status + paid metadata matches
  *  readInstalmentLedger() exactly. amountMinor (paise) -> whole INR, because
- *  student_payments.amount is stored in whole rupees (NOT minor units). */
+ *  student_payments.amount is stored in whole rupees (NOT minor units). A plan
+ *  with no schedule and no total that is not full mode yields one Paid row per
+ *  approved ledger entry (buildPaidRowsFromApprovedLedger). */
 export function buildStudentPaymentRowsFromPlan(
   paymentPlanJson: string | null | undefined,
   paymentStatus: string | null | undefined,
@@ -1218,7 +1273,13 @@ export function buildStudentPaymentRowsFromPlan(
     : Number.isFinite(totalMinor) && totalMinor > 0
       ? [{ label: 'Course Fee', amountMinor: totalMinor, dueDate: '' }]
       : [];
-  if (installments.length === 0) return [];
+  if (installments.length === 0) {
+    // TTII 2026-10-16 — a plan holding ONLY recorded payments (no schedule, no
+    // total) used to materialise nothing, so students whose payment Finance had
+    // approved enrolled with an empty fee ledger. Record each approved payment
+    // as a Paid row. Full mode keeps its old output.
+    return planObj.mode === 'full' ? [] : buildPaidRowsFromApprovedLedger(planObj, paymentStatus, ctx);
+  }
   const ledger = readInstalmentLedger(planObj, paymentStatus ?? undefined);
   const byIndex = new Map<number, InstalmentLedgerEntry>();
   for (const e of ledger) byIndex.set(e.index, e);
@@ -8012,6 +8073,9 @@ export class OperationsService {
       const pay = e.user_id && e.course_id ? payByKey.get(`${e.user_id}:${e.course_id}`) : null;
       const paid = pay?.paid ?? 0;
       const overdue = pay?.overdue ?? 0;
+      // TTII 2026-10-16 — an additional enrolment's plan lives only in its
+      // schedule; with no resolvable price, bill what the schedule says.
+      courseFee = feeWithScheduleFallback(courseFee, pay?.total ?? 0).fee;
       const balance = Math.max(0, courseFee - paid);
 
       return {
@@ -8045,8 +8109,11 @@ export class OperationsService {
     const courseIdFilter = filters.courseId ? toIntId(filters.courseId) : null;
     const userIdFilter = filters.studentId ? toIntId(filters.studentId) : null;
 
-    const paymentSums = await this.prisma.student_payments.groupBy({
-      by: ['user_id'],
+    // Summed per (user, course) so each enrolment's expected fee can fall back
+    // to its own schedule (TTII 2026-10-16); added per user is the same total
+    // as before.
+    const courseSums = await this.prisma.student_payments.groupBy({
+      by: ['user_id', 'course_id'],
       where: {
         deleted_at: null,
         ...(courseIdFilter ? { course_id: courseIdFilter } : {}),
@@ -8054,6 +8121,14 @@ export class OperationsService {
       },
       _sum: { amount: true },
     });
+    const addedByUser = new Map<number, number>();
+    const scheduleByUserCourse = new Map<string, number>();
+    for (const s of courseSums) {
+      const amount = Number(s._sum.amount ?? 0);
+      addedByUser.set(s.user_id, (addedByUser.get(s.user_id) ?? 0) + amount);
+      scheduleByUserCourse.set(`${s.user_id}:${s.course_id}`, amount);
+    }
+    const paymentSums = [...addedByUser.entries()].map(([user_id, amount]) => ({ user_id, _sum: { amount } }));
 
     const userIds = paymentSums.map(p => p.user_id).filter((x): x is number => x !== null && x !== undefined);
     if (userIds.length === 0) {
@@ -8112,7 +8187,9 @@ export class OperationsService {
         const base = Number(course.total_amount ?? 0);
         const discountPerc = e.discount_perc ? Number(e.discount_perc) : 0;
         const discounted = base - (base * (Number.isFinite(discountPerc) ? discountPerc : 0) / 100);
-        totalFee += Number.isFinite(discounted) ? discounted : 0;
+        // A course with no price (an additional enrolment) expects what its own
+        // plan says, so its rows cannot make another course look fully added.
+        totalFee += feeWithScheduleFallback(Number.isFinite(discounted) ? discounted : 0, scheduleByUserCourse.get(`${uid}:${e.course_id}`) ?? 0).fee;
         if (course.title) courseTitles.push(course.title);
       }
 
@@ -13251,7 +13328,10 @@ export class OperationsService {
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const app = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
-      select: { id: true, stage: true, name: true, user_email: true, phone: true, course_id: true, biography: true, verification: true, payment_plan: true, payment_status: true, payment_marked_paid_at: true },
+      select: {
+        id: true, stage: true, name: true, user_email: true, phone: true, course_id: true, biography: true, verification: true,
+        payment_plan: true, payment_status: true, payment_marked_paid_at: true, enrollment_status: true, mode_of_study: true,
+      },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
     // Accept legacy 'form_submitted' too — the counsellor-approve step was
@@ -13277,75 +13357,100 @@ export class OperationsService {
     }
 
     // Find or create the student `users` row.
-    let student = await this.prisma.users.findFirst({
+    const existingStudent = await this.prisma.users.findFirst({
       where: { deleted_at: null, role_id: 2, OR: [{ email: app.user_email }, { user_email: app.user_email }] },
       select: { id: true, name: true, user_email: true },
     });
-    const isNew = !student;
+    const isNew = !existingStudent;
     const now = new Date();
+    const appEmail = app.user_email;
+    const courseId = app.course_id;
 
-    let tempPasswordForEmail: string | null = null;
-    if (!student) {
+    // Credentials are issued (and emailed) before the transaction, as in
+    // convertApplication; the send inside is best-effort and never throws.
+    let issuedHashedPassword: string | null = null;
+    if (!existingStudent) {
       const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
       const creds = await issueAndEmailCredentials({
-        name: app.name ?? app.user_email,
-        email: app.user_email,
+        name: app.name ?? appEmail,
+        email: appEmail,
         roleLabel: 'Student',
       });
-      tempPasswordForEmail = creds.tempPassword;
-      void tempPasswordForEmail;
-      const created = await this.prisma.users.create({
-        data: {
-          name: app.name ?? '',
-          user_email: app.user_email,
-          email: app.user_email,
-          phone: app.phone || '',
-          password: creds.hashedPassword,
-          role_id: 2,
-          status: 1,
-          gender: '',
-          dynamic_link: '',
-          image: '',
-          profile_picture: '',
-          application_id: id,
-          created_at: now,
-          updated_at: now,
-        },
-      });
-      student = { id: created.id, name: created.name, user_email: created.user_email };
+      issuedHashedPassword = creds.hashedPassword;
     }
 
-    // Enrol if not already.
-    const existingEnrol = await this.prisma.enrol.findFirst({
-      where: { user_id: student.id, course_id: app.course_id, deleted_at: null },
-      select: { id: true },
-    });
-    if (!existingEnrol) {
-      await this.prisma.enrol.create({
+    // TTII 2026-10-16 — the student row and its TTS code, the enrol row and the
+    // application link commit together, mirroring convertApplication. This
+    // path used to create the user with no student_id, no created_by /
+    // updated_by and no course_id, and the enrol row with no status, mode or
+    // creator: 33 students enrolled since May had no student ID.
+    const student = await this.prisma.$transaction(async (tx) => {
+      let row = existingStudent;
+      if (!row) {
+        const studentCode = await this.nextStudentCode(tx);
+        const created = await tx.users.create({
+          data: {
+            student_id: studentCode,
+            name: app.name ?? '',
+            user_email: appEmail,
+            email: appEmail,
+            phone: app.phone || '',
+            password: issuedHashedPassword,
+            role_id: 2,
+            status: 1,
+            gender: '',
+            dynamic_link: '',
+            image: '',
+            profile_picture: '',
+            application_id: id,
+            course_id: courseId,
+            created_by: actor,
+            updated_by: actor,
+            created_at: now,
+            updated_at: now,
+          },
+        });
+        row = { id: created.id, name: created.name, user_email: created.user_email };
+      }
+
+      // Enrol if not already.
+      const existingEnrol = await tx.enrol.findFirst({
+        where: { user_id: row.id, course_id: courseId, deleted_at: null },
+        select: { id: true },
+      });
+      if (!existingEnrol) {
+        await tx.enrol.create({
+          data: {
+            user_id: row.id,
+            course_id: courseId,
+            enrollment_id: await allocateEnrollmentId(tx, row.id, now),
+            enrollment_date: toDateOnly(now),
+            enrollment_status: toStringValue(app.enrollment_status) || 'Active',
+            mode_of_study: toStringValue(app.mode_of_study) || 'Online',
+            created_by: actor,
+            updated_by: actor,
+            created_at: now,
+            updated_at: now,
+          },
+        });
+      }
+
+      await tx.applications.update({
+        where: { id },
         data: {
-          user_id: student.id,
-          course_id: app.course_id,
-          enrollment_id: `TIDMTT${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(student.id).padStart(4, '0')}`,
-          created_at: now,
+          stage: 'enrolled',
+          student_id: row.id,
+          admin_approved_at: now,
+          admin_approved_by: actor,
+          is_converted: 1,
+          converted_at: now,
+          converted_by: actor,
+          status: 'converted',
           updated_at: now,
+          updated_by: actor,
         },
       });
-    }
-
-    await this.prisma.applications.update({
-      where: { id },
-      data: {
-        stage: 'enrolled',
-        student_id: student.id,
-        admin_approved_at: now,
-        admin_approved_by: actor,
-        is_converted: 1,
-        converted_at: now,
-        converted_by: actor,
-        status: 'converted',
-        updated_at: now,
-        updated_by: actor,
-      },
+      return row;
     });
 
     // Materialize the application-stage payment plan into student_payments so the
@@ -14624,6 +14729,17 @@ export class OperationsService {
           }]
         : [];
 
+    // TTII 2026-10-16 — every live schedule row per course. An ADDITIONAL
+    // enrolment's fee lives only in its schedule (its per-enrolment plan), so
+    // a course with no resolvable price is billed what its schedule says.
+    const scheduleTotalByCourse = new Map<number, number>();
+    for (const sp of studentPaymentSchedule) {
+      const courseId = Number(sp.course_id ?? 0);
+      const amt = Number(sp.amount ?? 0);
+      if (!courseId || !Number.isFinite(amt) || amt <= 0) continue;
+      scheduleTotalByCourse.set(courseId, (scheduleTotalByCourse.get(courseId) ?? 0) + amt);
+    }
+
     // Per-enrolment fee aggregation for Tab 3 (Course Fee) + the
     // Payments sub-tab on the enrolment drill-down. Naji UAT 2026-05-12 —
     // expanded with the full pricing breakdown sourced from the
@@ -14658,11 +14774,39 @@ export class OperationsService {
       const gstPercent = onOfferingCourse && enrolmentPackage?.gst_percent != null ? Number(enrolmentPackage.gst_percent) : 0;
       const gstAmount = Math.round((courseFee * gstPercent) / 100);
       const courseFeeIncGst = courseFee + gstAmount;
+      const ids = { enrol_id: e.id, course_id: e.course_id };
+      // The retained application's offering and combination describe ITS course
+      // only, so another course's row no longer borrows them.
+      const offeringTitle = onOfferingCourse ? e.offering_title : null;
+      const combinationTitle = onOfferingCourse ? enrolmentCombination?.combination_code ?? null : null;
+      const scheduled = feeSrc ? null : feeWithScheduleFallback(courseFeeIncGst, e.course_id ? scheduleTotalByCourse.get(e.course_id) ?? 0 : 0);
+      if (scheduled?.fromSchedule) {
+        // Priced by its own schedule: the plan already holds discount and GST.
+        return {
+          ...ids,
+          enrollment_id: e.enrollment_id,
+          course_title: e.course_title,
+          offering_title: offeringTitle,
+          combination_title: combinationTitle,
+          fee_source: 'schedule',
+          base_fee: scheduled.fee,
+          discount: 0,
+          course_fee: scheduled.fee,
+          gst_percent: 0,
+          gst_amount: 0,
+          course_fee_inc_gst: scheduled.fee,
+          total_fee: scheduled.fee,
+          paid_amount: paid,
+          pending_amount: Math.max(0, scheduled.fee - paid),
+        };
+      }
       return {
+        ...ids,
         enrollment_id: e.enrollment_id,
         course_title: e.course_title,
-        offering_title: e.offering_title,
-        combination_title: enrolmentCombination?.combination_code ?? null,
+        offering_title: offeringTitle,
+        combination_title: combinationTitle,
+        fee_source: feeSrc ? 'offering' : 'course',
         base_fee: baseFee,
         discount,
         course_fee: courseFee,
@@ -14934,6 +15078,10 @@ export class OperationsService {
       specialization: (biographyParsed?.specialization as string | null | undefined) ?? null,
       // Application metadata for the new "Application Details" card.
       application_id: application?.id ?? null,
+      // The course the application-wide payment plan belongs to. Any other
+      // enrolment is an ADDITIONAL one with its own per-enrolment plan
+      // (TTII 2026-10-16).
+      application_course_id: application?.course_id ?? null,
       application_date: application?.created_at ?? null,
       application_status: application?.status ?? null,
       certificate_combination_id: application?.certificate_combination_id ?? null,
@@ -15585,10 +15733,10 @@ export class OperationsService {
     let enrolRow: { id: number; enrollment_id: string | null } | null = null;
     if (isAdmin) {
       // Admin path: create the enrol row immediately. Enrolment-id format
-      // matches what approveApplication uses elsewhere.
-      const yy = String(now.getFullYear()).slice(-2);
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      const enrollmentIdSeq = `TIDMTT${yy}${mm}${String(student.id).padStart(4, '0')}`;
+      // matches what approveApplication uses elsewhere; a second course in the
+      // same month gets a -2 / -3 suffix instead of reusing the first one's ID
+      // (TTII 2026-10-16).
+      const enrollmentIdSeq = await allocateEnrollmentId(this.prisma, student.id, now);
       const enrol = await this.prisma.enrol.create({
         data: {
           user_id: student.id,

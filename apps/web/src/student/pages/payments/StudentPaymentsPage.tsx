@@ -25,88 +25,26 @@ import { asString, asNumber, formatCurrency, formatDate } from '../../../admin/s
 import { openRazorpayCheckout } from '@/lib/razorpay-checkout';
 import type { StudentPortalApi } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
+import {
+  canPayCourse,
+  courseStatusPill,
+  filterAccounts,
+  normalizeCourse,
+  type CourseAccount,
+  type CourseInstallment,
+  type CourseTab,
+  type StatusPillTone,
+} from './student-payments-model.js';
 
 /* ─── Types ──────────────────────────────────────────────────── */
-
-interface CourseInstallment {
-  id: string;
-  no: number;
-  details: string;
-  amount: number;
-  dueDate: string;
-  status: string;
-  paid: boolean;
-}
-
-interface CourseAccount {
-  courseId: string;
-  title: string;
-  enrolledOn: string;
-  totalFee: number;
-  amountPaid: number;
-  balance: number;
-  percentPaid: number;
-  status: string;
-  isFree: boolean;
-  installments: CourseInstallment[];
-  paidCount: number;
-  pendingCount: number;
-  nextDue: CourseInstallment | null;
-}
 
 interface PaymentsBundle {
   payments: Awaited<ReturnType<StudentPortalApi['loadPayments']>>;
 }
 
-type CourseTab = 'all' | 'paid' | 'free' | 'active' | 'completed';
 type DueLevel = 'overdue' | 'due-soon' | 'pending';
 
 /* ─── Helpers ────────────────────────────────────────────────── */
-
-function toRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-}
-
-function normalizeInstallment(raw: Record<string, unknown>, index: number): CourseInstallment {
-  const status = asString(raw.status);
-  return {
-    id: asString(raw.id) || `inst-${index}`,
-    no: asNumber(raw.installment_no) || index + 1,
-    details: asString(raw.installment_details) || `Installment ${index + 1}`,
-    amount: asNumber(raw.amount),
-    dueDate: asString(raw.due_date),
-    status,
-    paid: status.toLowerCase() === 'paid',
-  };
-}
-
-function normalizeCourse(raw: Record<string, unknown>): CourseAccount {
-  const courseId = asString(raw.course_id) || asString(raw.id);
-  const totalFee = asNumber(raw.total_fee) || asNumber(raw.total_amount);
-  const amountPaid = asNumber(raw.amount_paid);
-  const balance = asNumber(raw.balance);
-  const rawInstallments = Array.isArray(raw.installments) ? raw.installments : [];
-  const installments = rawInstallments.map((entry, i) => normalizeInstallment(toRecord(entry), i));
-  const paidCount = installments.filter((inst) => inst.paid).length;
-  const unpaidSorted = installments
-    .filter((inst) => !inst.paid)
-    .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
-  return {
-    courseId,
-    title: asString(raw.title) || `Course ${courseId}`,
-    enrolledOn: asString(raw.enroled_on) || asString(raw.enrolled_on),
-    totalFee,
-    amountPaid,
-    balance,
-    percentPaid: asNumber(raw.payment_percentage) || (totalFee > 0 ? Math.round((amountPaid / totalFee) * 100) : 0),
-    status: asString(raw.status),
-    isFree: totalFee <= 0,
-    installments,
-    paidCount,
-    pendingCount: installments.length - paidCount,
-    nextDue: unpaidSorted[0] ?? null,
-  };
-}
 
 function dueLevel(dueDate: string): DueLevel {
   if (!dueDate) return 'pending';
@@ -124,12 +62,11 @@ const DUE_STYLE: Record<DueLevel, { label: string; className: string }> = {
   pending: { label: 'Pending', className: 'bg-slate-100 text-slate-600 border-slate-200' },
 };
 
-function courseStatusPill(acc: CourseAccount): { label: string; className: string } {
-  if (acc.isFree) return { label: 'N/A', className: 'bg-slate-100 text-slate-500 border-slate-200' };
-  if (acc.balance <= 0) return { label: 'Cleared', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
-  if (acc.status.toLowerCase() === 'overdue') return { label: 'Overdue', className: 'bg-red-50 text-red-700 border-red-200' };
-  return { label: 'On Track', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
-}
+const STATUS_PILL_CLASS: Record<StatusPillTone, string> = {
+  muted: 'bg-slate-100 text-slate-500 border-slate-200',
+  success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  danger: 'bg-red-50 text-red-700 border-red-200',
+};
 
 function isThisMonth(dueDate: string): boolean {
   if (!dueDate) return false;
@@ -185,17 +122,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
 
   const [tab, setTab] = useState<CourseTab>('all');
   const [search, setSearch] = useState('');
-  const filteredAccounts = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return accounts.filter((acc) => {
-      if (tab === 'paid' && acc.isFree) return false;
-      if (tab === 'free' && !acc.isFree) return false;
-      if (tab === 'active' && acc.balance <= 0) return false;
-      if (tab === 'completed' && acc.balance > 0) return false;
-      if (q && !acc.title.toLowerCase().includes(q)) return false;
-      return true;
-    });
-  }, [accounts, tab, search]);
+  const filteredAccounts = useMemo(() => filterAccounts(accounts, tab, search), [accounts, tab, search]);
 
   const [viewAccount, setViewAccount] = useState<CourseAccount | null>(null);
 
@@ -496,7 +423,9 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
         <DialogContent className="top-2 flex modal-maxh translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:top-[50%] sm:translate-y-[-50%] sm:max-w-lg!">
           <DialogHeader className="shrink-0 border-b border-slate-200 p-5 sm:p-6">
             <DialogTitle className="text-lg font-bold text-student-text">{viewAccount?.title ?? 'Account'}</DialogTitle>
-            {viewAccount ? (
+            {viewAccount?.feePending ? (
+              <p className="mt-0.5 text-sm text-student-muted">Fee details will be shared soon.</p>
+            ) : viewAccount ? (
               <p className="mt-0.5 text-sm text-student-muted">
                 {formatCurrency(viewAccount.amountPaid)} paid of {formatCurrency(viewAccount.totalFee)}
                 {viewAccount.balance > 0 ? ` · ${formatCurrency(viewAccount.balance)} balance` : ' · cleared'}
@@ -543,7 +472,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
           ) : null}
           <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 p-4">
             <Button variant="outline" onClick={() => setViewAccount(null)}>Close</Button>
-            {viewAccount && viewAccount.balance > 0 ? (
+            {viewAccount && canPayCourse(viewAccount) ? (
               <Button
                 className="bg-student-primary text-white hover:bg-student-primary/90"
                 onClick={() => {
@@ -621,7 +550,7 @@ function CourseAccountCard({
           {acc.isFree ? <Gift aria-hidden="true" className="size-3" /> : <CreditCard aria-hidden="true" className="size-3" />}
           {acc.isFree ? 'Free' : 'Paid'}
         </span>
-        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusPill.className}`}>
+        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_PILL_CLASS[statusPill.tone]}`}>
           {statusPill.label}
         </span>
       </div>
@@ -639,6 +568,13 @@ function CourseAccountCard({
           <Gift aria-hidden="true" className="size-7 text-student-primary" />
           <p className="mt-2 text-sm font-semibold text-student-text">No Payment Required</p>
           <p className="text-xs text-student-muted">Enjoy this course on us.</p>
+        </div>
+      ) : acc.feePending ? (
+        // A paid course whose fee is not set up yet: neutral, nothing to pay.
+        <div className="mt-4 flex flex-1 flex-col items-center justify-center rounded-xl bg-slate-50 px-4 py-6 text-center">
+          <CalendarClock aria-hidden="true" className="size-7 text-slate-400" />
+          <p className="mt-2 text-sm font-semibold text-student-text">Fee details will be shared soon</p>
+          <p className="text-xs text-student-muted">Your fee and payment schedule will appear here once they are set up.</p>
         </div>
       ) : (
         <>
@@ -702,7 +638,7 @@ function CourseAccountCard({
           <Eye aria-hidden="true" className="size-4" />
           View Account
         </Button>
-        {!acc.isFree && acc.balance > 0 ? (
+        {canPayCourse(acc) ? (
           <Button
             size="sm"
             className="flex-1 rounded-xl bg-student-primary text-white hover:bg-student-primary/90"
