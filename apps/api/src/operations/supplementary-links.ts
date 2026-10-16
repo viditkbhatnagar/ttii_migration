@@ -5,9 +5,12 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 // every exam reader can ask without depending on the supplementary service.
 //
 // Before deploy/migrations/2026-10-16-exam-supplementary.sql runs the table is
-// missing (Prisma P2021): every read here answers "no supplementary exams", so
-// lists and results load exactly as before, and creating one is refused with
-// SUPPLEMENTARY_NOT_SET_UP_MESSAGE.
+// missing (Prisma P2021). READS fail open: they answer "no supplementary
+// exams", so lists and results load exactly as before. WRITES fail CLOSED:
+// creating one, publishing an exam and saving Step 5 ask supplementaryState(),
+// which says 'not_set_up' — copying a supplementary exam's student list onto
+// every sitting because its link could not be read is the one thing that must
+// never happen (review 2026-10-16).
 
 export const SUPPLEMENTARY_NOT_SET_UP_MESSAGE =
   'Supplementary exams are not set up yet: the database migration 2026-10-16-exam-supplementary.sql has not been run.';
@@ -91,6 +94,24 @@ export async function supplementaryExamIds(db: Db, examIds: number[]): Promise<S
   return new Set((await linksForExams(db, examIds)).map((l) => l.examId));
 }
 
-export async function isSupplementaryExam(db: Db, examId: number): Promise<boolean> {
-  return (await supplementaryExamIds(db, [examId])).has(examId);
+export const SUPPLEMENTARY_WRITES_BLOCKED_MESSAGE =
+  `${SUPPLEMENTARY_NOT_SET_UP_MESSAGE} Exams cannot be published or have their students changed until it runs, because those steps must tell supplementary exams apart from regular ones.`;
+
+export type SupplementaryState = 'supplementary' | 'regular' | 'not_set_up';
+
+/**
+ * For WRITE decisions (publish, Step 5): is this exam supplementary? Fails
+ * CLOSED — a missing table or delegate is 'not_set_up', never 'regular'; any
+ * other read error is thrown.
+ */
+export async function supplementaryState(db: Db, examId: number): Promise<SupplementaryState> {
+  const d = delegate(db);
+  if (!d) return 'not_set_up';
+  try {
+    const rows = await d.findMany({ where: { exam_id: { in: [examId] } }, select: linkSelect });
+    return rows.length > 0 ? 'supplementary' : 'regular';
+  } catch (error: unknown) {
+    if (isMissingTable(error)) return 'not_set_up';
+    throw error;
+  }
 }

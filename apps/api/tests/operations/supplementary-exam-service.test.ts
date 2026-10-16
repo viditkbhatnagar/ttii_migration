@@ -98,6 +98,8 @@ function world(): MemoryDb {
     exam_questions: [
       ...[1001, 1002, 1003].map((question_id, i) => ({ id: 10 + i, exam_id: 23, question_id, question_no: i + 1, mark: 1, deleted_at: null })),
       ...[3001, 3002, 3003].map((question_id, i) => ({ id: 20 + i, exam_id: 25, question_id, question_no: i + 1, mark: 1, deleted_at: null })),
+      // The regular exam's Step 4 pool: saved on the parent, never on a paper students sat.
+      { id: 30, exam_id: SOURCE, question_id: 1005, question_no: 1, mark: 1, deleted_at: null },
     ],
     question_bank: [
       ...[1001, 1002, 1003, 1004, 1005].map((id) => ({ id, subject_id: 7, course_id: 16, q_type: 0, deleted_at: null })),
@@ -306,6 +308,101 @@ describe('creating it twice, and clashing sittings (review 2026-10-16)', () => {
     expect(links.supplementaries).toEqual([expect.objectContaining({ examId: id, subjects: 1, students: 1 })]);
     expect(links.outcomes.map((o) => o.userId)).toEqual([SHEBA]);
     expect((await create(db, [subjectInput(25, [ARCHANA], '2026-10-29')])).status).toBe(1);
+  });
+});
+
+describe('failing closed, and papers every sitting needs (review 2026-10-16, round 2)', () => {
+  const sittingOf = (db: MemoryDb, id: number, subject: string): number =>
+    exams(db).find((e) => e.parent_exam_id === id && String(e.title).endsWith(subject))?.id as number;
+
+  test('when the link cannot be read, publish and Step 5 are refused — never treated as regular', async () => {
+    const db = world();
+    const id = await createSupplementary(db);
+    const ops = services(db).operations;
+    await ops.saveExamQuestions('1', String(id), [1004, 3004].map((questionId) => ({ questionId, mark: 1 })));
+    db.missing.add('exam_supplementary');
+
+    const res = await ops.publishExam('1', String(id), { notifyEmail: true, notifyInapp: true });
+    expect(res.status).toBe(0);
+    expect(String(res.message)).toMatch(/^Supplementary exams are not set up yet/);
+    expect(exams(db).filter((e) => e.parent_exam_id === id).map((e) => e.status)).toEqual(['draft', 'draft']);
+    expect(allocationsOf(db, sittingOf(db, id, 'Montessori Methodology'))).toEqual([SHEBA]);
+    expect(sendEmail).not.toHaveBeenCalled();
+    // Step 5 waits for the migration too, whichever exam it is.
+    expect((await ops.saveExamAllocations(String(id), [ARCHANA, DIVYA])).status).toBe(0);
+    expect((await ops.saveExamAllocations(String(SOURCE), [ARCHANA])).status).toBe(0);
+    expect(allocationsOf(db, id)).toEqual([ARCHANA, SAMEERA, SHEBA]);
+  });
+
+  test('a draft that already has sittings but has lost its link is still never given one student list', async () => {
+    const db = world();
+    const id = await createSupplementary(db);
+    const ops = services(db).operations;
+    await ops.saveExamQuestions('1', String(id), [1004, 3004].map((questionId) => ({ questionId, mark: 1 })));
+    db.tables.exam_supplementary.splice(0);
+
+    const res = await ops.publishExam('1', String(id), { notifyEmail: true, notifyInapp: true });
+    expect(res.status).toBe(0);
+    expect(String(res.message)).toMatch(/^This draft exam already has subject sittings with their own students/);
+    expect((await ops.saveExamAllocations(String(id), [ARCHANA])).status).toBe(0);
+    expect(allocationsOf(db, sittingOf(db, id, 'Montessori Methodology'))).toEqual([SHEBA]);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  test('every supplementary sitting needs questions, even one whose subject had no Step 3 plan', async () => {
+    const db = world();
+    const id = await createSupplementary(db);
+    const ops = services(db).operations;
+    // The regular subject had no plan, so none was copied: the regular guard
+    // (which only refuses a PLANNED sitting with no questions) would let it through.
+    const methodology = db.tables.exam_subjects.find((r) => r.exam_id === id && r.subject_id === 7);
+    await db.prisma.exam_subject_components.deleteMany({ where: { exam_subject_id: methodology?.id as number } });
+    await ops.saveExamQuestions('1', String(id), [3004, 3005].map((questionId) => ({ questionId, mark: 1 })));
+
+    const res = await ops.publishExam('1', String(id), { notifyEmail: true, notifyInapp: true });
+    expect(res).toEqual({
+      status: 0,
+      message: 'Not published — Montessori Methodology has no questions. Every subject of a supplementary exam needs its own paper: assign its questions in Step 4 (Auto-fill from plan), then publish.',
+    });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  test('Step 5 cannot write one supplementary sitting either; a regular sitting still can', async () => {
+    const db = world();
+    const id = await createSupplementary(db);
+    const ops = services(db).operations;
+    const development = sittingOf(db, id, 'Child Development');
+    const res = await ops.saveExamAllocations(String(development), [ARCHANA, DIVYA]);
+    expect(res.status).toBe(0);
+    expect(String(res.message)).toMatch(/^This is a supplementary exam/);
+    expect(allocationsOf(db, development)).toEqual([ARCHANA, SAMEERA]);
+    expect((await ops.saveExamAllocations('25', [ARCHANA])).status).toBe(1);
+    expect(allocationsOf(db, 25)).toEqual([ARCHANA]);
+  });
+
+  test('a supplementary sitting reaches only its own students\' exam list and calendar; regular exams list as before', async () => {
+    const db = world();
+    db.tables.users.push({ id: 105, name: 'NEW STUDENT', role_id: 2, student_id: 'TTS0099', user_email: 'new@example.com', email: null, deleted_at: null, course_id: 16 });
+    const id = await createSupplementary(db);
+    await publishSupplementary(db, id);
+    const methodology = sittingOf(db, id, 'Montessori Methodology');
+    const development = sittingOf(db, id, 'Child Development');
+    const assessment = new AssessmentService({ prisma: db.prisma, integrations: { email: { name: 'test', sendEmail } } });
+    // Everything the server returns, before the portal greys out unallocated cards.
+    const listed = async (userId: number): Promise<number[]> => {
+      const list = await assessment.listExams(String(userId), { courseId: '16' });
+      return [...(list.upcoming_exams as Array<{ id: number }>), ...(list.expired_exams as Array<{ id: number }>)].map((e) => e.id).sort((a, b) => a - b);
+    };
+    expect(await listed(DIVYA)).toEqual([23, 24, 25]);
+    expect(await listed(ARCHANA)).toEqual([23, 24, 25, development]);
+    expect(await listed(SHEBA)).toEqual([23, 24, 25, methodology]);
+    // A regular exam's sittings still reach every student of the course, allocated or not.
+    expect(await listed(105)).toEqual([23, 24, 25]);
+
+    const calendarEnd = async (userId: number) => (await assessment.getExamCalendar(String(userId), '16')).end_date;
+    expect(await calendarEnd(DIVYA)).toBe('12-08-2026');
+    expect(await calendarEnd(105)).toBe('12-08-2026');
+    expect(await calendarEnd(ARCHANA)).toBe('28-10-2026');
   });
 });
 

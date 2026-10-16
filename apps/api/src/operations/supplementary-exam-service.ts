@@ -336,20 +336,25 @@ export class SupplementaryExamService {
     const [link] = await linksForExams(this.prisma, [examId]);
     if (!link) return none;
     const [source, schedule, children, sourceSittings] = await Promise.all([
-      this.prisma.exam.findFirst({ where: { id: link.sourceExamId }, select: { title: true, exam_code: true } }),
+      this.prisma.exam.findFirst({ where: { id: link.sourceExamId }, select: { title: true, exam_code: true, status: true } }),
       this.prisma.exam_subjects.findMany({ where: { exam_id: examId }, orderBy: [{ position: 'asc' }, { id: 'asc' }], select: { id: true, subject_title: true } }),
       this.prisma.exam.findMany({ where: { parent_exam_id: examId, deleted_at: null }, select: { id: true, exam_subject_id: true } }),
-      this.prisma.exam.findMany({ where: { parent_exam_id: link.sourceExamId, deleted_at: null }, select: { id: true } }),
+      this.prisma.exam.findMany({ where: { parent_exam_id: link.sourceExamId, deleted_at: null, status: 'published' }, select: { id: true } }),
     ]);
+    // The papers students actually sat: the regular exam's PUBLISHED sittings
+    // (the exam itself when it had none). Its Step 4 pool is not a paper.
+    // Matched by question id only: a re-uploaded copy is a different question.
+    const paperIds = sourceSittings.length > 0
+      ? sourceSittings.map((s) => s.id)
+      : source?.status === 'published' ? [link.sourceExamId] : [];
     const childIds = children.map((c) => c.id);
     const [allocations, papers] = await Promise.all([
       childIds.length > 0
         ? this.prisma.exam_student_allocations.findMany({ where: { exam_id: { in: childIds } }, select: { exam_id: true, user_id: true } })
         : Promise.resolve([]),
-      this.prisma.exam_questions.findMany({
-        where: { exam_id: { in: [link.sourceExamId, ...sourceSittings.map((s) => s.id)] }, deleted_at: null },
-        select: { question_id: true },
-      }),
+      paperIds.length > 0
+        ? this.prisma.exam_questions.findMany({ where: { exam_id: { in: paperIds }, deleted_at: null }, select: { question_id: true } })
+        : Promise.resolve([]),
     ]);
     const users = allocations.length > 0
       ? await this.prisma.users.findMany({ where: { id: { in: [...new Set(allocations.map((a) => a.user_id))] } }, select: { id: true, name: true, student_id: true } })

@@ -202,7 +202,11 @@ describe('publishing a subject-wise exam', () => {
   }): OperationsService {
     const prisma = {
       exam: {
-        findFirst: () => Promise.resolve({ id: 28, title: 'PG exam', exam_code: 'TTIIEXM2600008', course_id: PG, published_at: null, instructions: null }),
+        // An exam that already has a sitting with attempts was published.
+        findFirst: () => Promise.resolve({
+          id: 28, title: 'PG exam', exam_code: 'TTIIEXM2600008', course_id: PG, instructions: null,
+          ...(opts.attemptedChildFor59 ? { status: 'published', published_at: new Date('2026-10-01T10:00:00Z') } : { status: 'draft', published_at: null }),
+        }),
         findMany: () => Promise.resolve(opts.attemptedChildFor59 ? [{ id: 300, title: 'sitting', exam_subject_id: 59 }] : []),
       },
       exam_subjects: { findMany: () => Promise.resolve(schedule) },
@@ -222,6 +226,8 @@ describe('publishing a subject-wise exam', () => {
       exam_subject_components: {
         findMany: () => Promise.resolve(opts.plan ?? [{ exam_subject_id: 53, num_questions: 70 }, { exam_subject_id: 59, num_questions: 70 }]),
       },
+      // TTII 2026-10-16 — the supplementary link table exists (migration run); exam 28 is not one.
+      exam_supplementary: { findMany: () => Promise.resolve([]) },
       // Reaching the write transaction means the guard let the publish through.
       $transaction: () => Promise.reject(new Error('REACHED_TRANSACTION')),
     } as unknown as PrismaClient;

@@ -8,7 +8,14 @@ import { questionBankCourseScope, questionUsage, type QuestionUsage } from './qu
 import { nextExamCode } from './exam-code.js';
 import { isNotDraftSitting } from './exam-phase.js';
 import { supplementaryPublishProblem } from './supplementary-exam.js';
-import { isSupplementaryExam } from './supplementary-links.js';
+import { SUPPLEMENTARY_WRITES_BLOCKED_MESSAGE, supplementaryState } from './supplementary-links.js';
+
+// TTII 2026-10-16 — Step 5 and publish refuse to give a supplementary exam's
+// sittings one shared student list (see saveExamAllocations / publishExam).
+const SUPPLEMENTARY_STUDENTS_LOCKED_MESSAGE =
+  'This is a supplementary exam: its students were chosen subject by subject when it was created, so they cannot be changed here. To change them, delete this exam and create the supplementary exam again from the Result page.';
+const UNLINKED_DRAFT_SITTINGS_MESSAGE =
+  'This draft exam already has subject sittings with their own students, which only a supplementary exam has before it is published, but its supplementary link is missing. To keep each sitting\'s students it cannot be published or have its students changed: delete it and create the supplementary exam again from the Result page.';
 import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
@@ -6181,14 +6188,10 @@ export class OperationsService {
     const id = toNullableIntId(examId);
     if (!id) return { status: 0, message: 'Invalid exam id.' };
     // TTII 2026-10-16 — a supplementary exam's students are entered per
-    // subject. One list written onto every sitting (below) would enter every
-    // student for every subject, so this step cannot change them.
-    if (await isSupplementaryExam(this.prisma, id)) {
-      return {
-        status: 0,
-        message: 'This is a supplementary exam: its students were chosen subject by subject when it was created, so they cannot be changed here. To change them, delete this exam and create the supplementary exam again from the Result page.',
-      };
-    }
+    // subject. One list written onto every sitting (below) — or onto one of its
+    // sittings — would enter students for subjects they passed.
+    const refusal = await this.supplementaryAllocationRefusal(id);
+    if (refusal) return { status: 0, message: refusal };
     await this.prisma.exam_student_allocations.deleteMany({ where: { exam_id: id } });
     if (userIds.length > 0) {
       await this.prisma.exam_student_allocations.createMany({
@@ -6212,6 +6215,26 @@ export class OperationsService {
       }
     }
     return { status: 1, message: 'Allocations saved.' };
+  }
+
+  /**
+   * Why Step 5 may not write this exam's — or this sitting's — students, or
+   * null. Fails closed: an unreadable link refuses, and so does a draft that
+   * already has sittings (only creating a supplementary exam makes those).
+   */
+  private async supplementaryAllocationRefusal(examId: number): Promise<string | null> {
+    const select = { id: true, parent_exam_id: true, status: true } as const;
+    const target = await this.prisma.exam.findFirst({ where: { id: examId }, select });
+    const parentId = target?.parent_exam_id ?? examId;
+    const state = await supplementaryState(this.prisma, parentId);
+    if (state === 'not_set_up') return SUPPLEMENTARY_WRITES_BLOCKED_MESSAGE;
+    if (state === 'supplementary') return SUPPLEMENTARY_STUDENTS_LOCKED_MESSAGE;
+    const parent = parentId === examId ? target : await this.prisma.exam.findFirst({ where: { id: parentId }, select });
+    if (parent && parent.status !== 'published') {
+      const sittings = await this.prisma.exam.count({ where: { parent_exam_id: parentId, deleted_at: null } });
+      if (sittings > 0) return UNLINKED_DRAFT_SITTINGS_MESSAGE;
+    }
+    return null;
   }
 
   // Naji 2026-05-09 — Step 5: instruction templates library + publish.
@@ -6315,7 +6338,15 @@ export class OperationsService {
     // their own students (only those who failed or missed that subject).
     // Publishing must keep them: copying the parent's list onto every sitting,
     // as below for a regular exam, would enter every student for every subject.
-    const supplementary = await isSupplementaryExam(this.prisma, id);
+    // Fails closed: an unreadable link must never fall through to the regular
+    // copy below, and a draft that already has sittings is a supplementary
+    // exam (only its creation makes sittings before the first publish).
+    const linkState = await supplementaryState(this.prisma, id);
+    if (linkState === 'not_set_up') return { status: 0, message: SUPPLEMENTARY_WRITES_BLOCKED_MESSAGE };
+    if (linkState === 'regular' && parent.status !== 'published' && existingChildren.length > 0) {
+      return { status: 0, message: UNLINKED_DRAFT_SITTINGS_MESSAGE };
+    }
+    const supplementary = linkState === 'supplementary';
     const supplementaryStudents = new Map<number, number[]>();
     if (supplementary) {
       const childIds = existingChildren.map((c) => c.id);
@@ -6423,6 +6454,27 @@ export class OperationsService {
         );
       }
       return { status: 0, message: parts.join(' ') };
+    }
+
+    // TTII 2026-10-16 (review) — a supplementary sitting with no questions
+    // would open empty after its students were emailed the date. Unlike a
+    // regular exam's, every supplementary sitting needs a paper, plan or no
+    // plan (create copies the plan only when the source subject had one).
+    if (supplementary) {
+      const bare = schedule.filter((row) => {
+        const childId = childBySubjectRow.get(row.id);
+        if (childId !== undefined && attemptedChildIds.has(childId)) return false;
+        return !sliceFor(row).some((q) => {
+          const bank = q.question_id !== null && q.question_id !== undefined ? bankMap.get(q.question_id) : undefined;
+          return bank !== undefined && bank.deleted_at === null;
+        });
+      }).map((row) => row.subject_title || `Subject ${row.id}`);
+      if (bare.length > 0) {
+        return {
+          status: 0,
+          message: `Not published — ${bare.join(', ')} ${bare.length === 1 ? 'has' : 'have'} no questions. Every subject of a supplementary exam needs its own paper: assign its questions in Step 4 (Auto-fill from plan), then publish.`,
+        };
+      }
     }
 
     // Writes are ordered children-first, parent-publish-last, and wrapped so a
