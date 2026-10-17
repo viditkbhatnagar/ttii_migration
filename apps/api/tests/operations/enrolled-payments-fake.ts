@@ -168,17 +168,20 @@ export function makeFakePrisma(world: World): { prisma: PrismaClient; calls: Fak
         const userId = Number(values[0]);
         const courseId = Number(values[1]);
         const mine = state.rows.filter((r) => r.user_id === userId && r.course_id === courseId);
+        const liveRows = mine.filter((r) => r.deleted_at === null);
         if (text.includes('reference_number = ?')) {
-          return Promise.resolve(mine.filter((r) => r.reference_number === String(values[2])).slice(0, 1).map((r) => ({ id: r.id })));
+          return Promise.resolve(liveRows
+            .filter((r) => r.reference_number === String(values[2]))
+            .sort((a, b) => a.id - b.id)
+            .map((r) => ({ id: r.id, amount: r.amount })));
         }
-        if (text.includes('amount = ?')) {
-          const amount = Number(values[2]);
-          const hit = mine
-            .filter((r) => r.deleted_at === null && UNPAID.has((r.status ?? '').trim().toLowerCase()) && r.paid_date === null
-              && (r.reference_number ?? '').trim() === '' && (r.receipt_url ?? '').trim() === '' && r.amount === amount)
+        if (text.includes('LOWER(TRIM(status)) IN')) {
+          // Open instalments: unpaid, no paid date; earliest due first, undated last.
+          return Promise.resolve(liveRows
+            .filter((r) => UNPAID.has((r.status ?? '').trim().toLowerCase()) && r.paid_date === null)
             .sort((a, b) => (a.due_date === null ? 1 : 0) - (b.due_date === null ? 1 : 0)
-              || (a.due_date?.getTime() ?? 0) - (b.due_date?.getTime() ?? 0) || a.id - b.id);
-          return Promise.resolve(hit.slice(0, 1).map((r) => ({ id: r.id })));
+              || (a.due_date?.getTime() ?? 0) - (b.due_date?.getTime() ?? 0) || a.id - b.id)
+            .map((r) => ({ id: r.id, amount: r.amount, reference_number: r.reference_number, receipt_url: r.receipt_url })));
         }
         // The schedule read.
         return Promise.resolve(mine.filter((r) => r.deleted_at === null).sort((a, b) => a.id - b.id).map((r) => ({ ...r })));

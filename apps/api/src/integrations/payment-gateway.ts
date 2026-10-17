@@ -95,6 +95,9 @@ export interface RazorpayPaymentGatewayConfig {
   apiBaseUrl: string;
 }
 
+/** TTII 2026-10-17 — a payment-link read or cancel that takes longer fails. */
+export const PAYMENT_LINK_TIMEOUT_MS = 15_000;
+
 export class RazorpayPaymentGateway implements PaymentGateway {
   readonly name = 'razorpay';
 
@@ -102,6 +105,8 @@ export class RazorpayPaymentGateway implements PaymentGateway {
     private readonly config: RazorpayPaymentGatewayConfig,
     private readonly logger: IntegrationLogger,
     private readonly fetchImpl: typeof fetch = fetch,
+    /** Fetch / cancel a payment link: give up after this long (nothing changes). */
+    private readonly linkTimeoutMs: number = PAYMENT_LINK_TIMEOUT_MS,
   ) {}
 
   async createOrder(input: PaymentOrderRequest): Promise<PaymentOrder> {
@@ -244,19 +249,27 @@ export class RazorpayPaymentGateway implements PaymentGateway {
 
   private async paymentLinkRequest(method: 'GET' | 'POST', path: string, action: string): Promise<Record<string, unknown>> {
     const basicAuth = Buffer.from(`${this.config.apiKeyId}:${this.config.apiKeySecret}`).toString('base64');
-    const response = await this.fetchImpl(`${this.config.apiBaseUrl.replace(/\/+$/, '')}${path}`, {
-      method,
-      headers: {
-        authorization: `Basic ${basicAuth}`,
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-      ...(method === 'POST' ? { body: '{}' } : {}),
-    });
-    if (!response.ok) {
-      const responseBody = await response.text();
-      throw new Error(`Razorpay ${action} failed (${response.status}): ${responseBody.slice(0, 256)}`);
+    try {
+      const response = await this.fetchImpl(`${this.config.apiBaseUrl.replace(/\/+$/, '')}${path}`, {
+        method,
+        headers: {
+          authorization: `Basic ${basicAuth}`,
+          'content-type': 'application/json',
+          accept: 'application/json',
+        },
+        ...(method === 'POST' ? { body: '{}' } : {}),
+        signal: AbortSignal.timeout(this.linkTimeoutMs),
+      });
+      if (!response.ok) {
+        const responseBody = await response.text();
+        throw new Error(`Razorpay ${action} failed (${response.status}): ${responseBody.slice(0, 256)}`);
+      }
+      return (await response.json()) as Record<string, unknown>;
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        throw new Error(`Razorpay ${action} timed out after ${Math.round(this.linkTimeoutMs / 1000)}s`);
+      }
+      throw err;
     }
-    return (await response.json()) as Record<string, unknown>;
   }
 }

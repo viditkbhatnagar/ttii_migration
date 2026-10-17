@@ -1343,10 +1343,16 @@ function parseApprovalRowId(rowId: string): { applicationId: string; index: numb
   return { applicationId: m[1] ?? rowId, index: m[2] ? Number(m[2]) : 0 };
 }
 
-/** The amount Finance sees on a Payment Approval row, in rupees: the amount
- *  recorded with the payment, else the instalment's amount with GST (0 when GST
- *  is included), else the plan total. Null when none is known. */
-function approvalAmountRupees(plan: Record<string, unknown>, entry: InstalmentLedgerEntry): number | null {
+/** The amount of a Payment Approval row, in rupees: the amount recorded with
+ *  the payment, else the instalment's amount with GST (0 when GST is included),
+ *  else — for the queue display only — the plan total. Null when none is known.
+ *  The fee-schedule write passes planTotalFallback false: a total is not what
+ *  one payment paid. */
+function approvalAmountRupees(
+  plan: Record<string, unknown>,
+  entry: InstalmentLedgerEntry,
+  opts: { planTotalFallback: boolean },
+): number | null {
   const installments = Array.isArray(plan.installments) ? (plan.installments as Record<string, unknown>[]) : [];
   const totalMinor = Number(plan.total_amount_minor ?? 0);
   const receivedMinor = entry.amount_minor ?? 0;
@@ -1361,7 +1367,7 @@ function approvalAmountRupees(plan: Record<string, unknown>, entry: InstalmentLe
     ? receivedMinor / 100
     : instalmentInr > 0
       ? instalmentInr
-      : totalMinor > 0
+      : opts.planTotalFallback && totalMinor > 0
         ? totalMinor / 100
         : null;
 }
@@ -1444,6 +1450,9 @@ interface SettledPayment {
   mode: string;
   reference: string;
   receiptUrl: string;
+  /** 'razorpay': the reference is Razorpay's payment id (unique, safe to match
+   *  a retry on). 'manual': a reference Finance typed — never trusted as a key. */
+  source: 'razorpay' | 'manual';
 }
 
 /** The application fields that decide whose fee schedule a payment belongs to. */
@@ -1462,7 +1471,7 @@ type EnrolledPayee =
   | { kind: 'unresolved'; reason: string };
 
 type StudentPaymentOutcome =
-  | { kind: 'inserted' | 'marked'; rowId: number | null; rupees: number }
+  | { kind: 'inserted' | 'marked'; rowId: number | null; rupees: number; warnings: string[] }
   | { kind: 'exists'; rowId: number }
   | { kind: 'not_recorded'; reason: string };
 
@@ -13319,7 +13328,7 @@ export class OperationsService {
           email: a.user_email ?? '',
           course_title: a.course_id ? courseMap.get(a.course_id) ?? '' : '',
           instalment: label || (entry.index === 0 ? 'Registration' : `Instalment ${entry.index}`),
-          amount: approvalAmountRupees(plan, entry),
+          amount: approvalAmountRupees(plan, entry, { planTotalFallback: true }),
           mode: entry.mode || a.payment_method || 'manual',
           reference: entry.reference,
           receipt_url: entry.receipt_url ? toLegacyFileUrl(entry.receipt_url) : '',
@@ -13369,7 +13378,7 @@ export class OperationsService {
     // also recorded in their fee schedule, in the same transaction as the claim.
     const payee = await this.resolveEnrolledPayee({ ...app, id });
     const paidOnNote = /Paid on (\d{4}-\d{2}-\d{2})/.exec(entry.note)?.[1] ?? null;
-    const approvedRupees = approvalAmountRupees(planObj, entry);
+    const approvedRupees = approvalAmountRupees(planObj, entry, { planTotalFallback: false });
     const payment: SettledPayment = {
       label: planInstalmentLabel(app.payment_plan, index),
       amountMinor: approvedRupees === null ? null : Math.round(approvedRupees * 100),
@@ -13377,6 +13386,7 @@ export class OperationsService {
       mode: entry.mode,
       reference: entry.reference,
       receiptUrl: entry.receipt_url,
+      source: 'manual',
     };
     const nextLedger = ledger.map((e) =>
       e.index === index ? { ...e, status: 'approved' as const, decided_at: now.toISOString(), decided_by: actor } : e,
@@ -13519,6 +13529,7 @@ export class OperationsService {
       mode: 'Online',
       reference: paid.paymentId || linkId,
       receiptUrl: '',
+      source: 'razorpay',
     };
     const { outcome } = await this.writeLedgerAndStudentPayment(payee, payment, null, now, async (db) => {
       await db.applications.update({
@@ -13610,6 +13621,7 @@ export class OperationsService {
       mode: 'Online',
       reference: paid.paymentId || linkId,
       receiptUrl: '',
+      source: 'razorpay',
     };
     const { outcome } = await this.writeLedgerAndStudentPayment(payee, payment, null, now, async (db) => {
       await db.applications.update({
@@ -13633,26 +13645,30 @@ export class OperationsService {
 
   /**
    * Whose fee schedule a payment settled on this application belongs to (TTII
-   * 2026-10-17). A student only when the application is already enrolled —
-   * stage 'enrolled' / converted, or its student already has a live enrolment
-   * in the application's course (an Add Enrolment request). The student is the
-   * one the application links (student_id), else the one whose original
-   * application it is (users.application_id), else the ONE live student with
-   * its email who is enrolled in the course. Never a guess: none or several is
-   * 'unresolved' for an enrolled application, and 'lead' otherwise.
+   * 2026-10-17). Only an already-enrolled application has one:
+   *   - linked to its student (student_id) or named by one (users.application_id):
+   *     that student, when the application is enrolled / converted or the
+   *     student already has a live enrolment in its course (an Add Enrolment
+   *     request, which carries student_id since 2026-10-17);
+   *   - otherwise, and ONLY for an enrolled / converted application, by email:
+   *     exactly one live student account with that email, enrolled in the course.
+   * A lead is never resolved by email and never reported: its application stays
+   * the only record. Anything ambiguous on an enrolled application is
+   * 'unresolved' (Finance is told; nothing is guessed).
    */
   private async resolveEnrolledPayee(app: PayeeApplication): Promise<EnrolledPayee> {
     const stageEnrolled = app.stage === 'enrolled' || Number(app.is_converted) === 1;
     const courseId = app.course_id ?? 0;
     const lead: EnrolledPayee = { kind: 'lead' };
+    const unresolved = (reason: string): EnrolledPayee => (stageEnrolled ? { kind: 'unresolved', reason } : lead);
+    const enrolledInCourse = async (userId: number): Promise<boolean> => Boolean(await this.prisma.enrol.findFirst({
+      where: { user_id: userId, course_id: courseId, deleted_at: null },
+      select: { id: true },
+    }));
     const linked = async (userId: number, via: 'student_id' | 'users.application_id'): Promise<EnrolledPayee> => {
-      if (!courseId) return stageEnrolled ? { kind: 'unresolved', reason: 'the application has no course' } : lead;
-      if (stageEnrolled) return { kind: 'student', userId, courseId, via };
-      const enrol = await this.prisma.enrol.findFirst({
-        where: { user_id: userId, course_id: courseId, deleted_at: null },
-        select: { id: true },
-      });
-      return enrol ? { kind: 'student', userId, courseId, via } : lead;
+      if (!courseId) return unresolved('the application has no course');
+      if (stageEnrolled || await enrolledInCourse(userId)) return { kind: 'student', userId, courseId, via };
+      return lead;
     };
 
     if (app.student_id) {
@@ -13661,9 +13677,7 @@ export class OperationsService {
         select: { id: true },
       });
       if (user) return linked(user.id, 'student_id');
-      return stageEnrolled
-        ? { kind: 'unresolved', reason: `its linked student (users.id ${app.student_id}) is not a live student account` }
-        : lead;
+      return unresolved(`its linked student (users.id ${app.student_id}) is not a live student account`);
     }
 
     const owners = await this.prisma.users.findMany({
@@ -13673,31 +13687,27 @@ export class OperationsService {
     });
     const [owner] = owners;
     if (owners.length === 1 && owner) return linked(owner.id, 'users.application_id');
-    if (owners.length > 1) return { kind: 'unresolved', reason: 'more than one student account names this application' };
+    if (owners.length > 1) return unresolved('more than one student account names this application');
 
-    const email = (app.user_email ?? '').trim();
-    if (email && courseId) {
-      const users = await this.prisma.users.findMany({
-        where: { deleted_at: null, role_id: 2, OR: [{ email }, { user_email: email }] },
-        select: { id: true },
-      });
-      const ids = users.map((u) => u.id);
-      const enrolled = ids.length > 0
-        ? await this.prisma.enrol.findMany({
-            where: { user_id: { in: ids }, course_id: courseId, deleted_at: null },
-            select: { user_id: true },
-          })
-        : [];
-      const candidates = [...new Set(enrolled.map((e) => e.user_id).filter((v): v is number => v != null && v > 0))];
-      const [only] = candidates;
-      if (candidates.length === 1 && only) return { kind: 'student', userId: only, courseId, via: 'email' };
-      if (candidates.length > 1) {
-        return { kind: 'unresolved', reason: `${candidates.length} student accounts with ${email} are enrolled in this course` };
-      }
-    }
+    // By email: enrolled / converted applications only — never a lead.
     if (!stageEnrolled) return lead;
-    if (!courseId) return { kind: 'unresolved', reason: 'the application has no course' };
-    return { kind: 'unresolved', reason: email ? `no student account with ${email} is enrolled in this course` : 'the application has no email' };
+    if (!courseId) return unresolved('the application has no course');
+    const email = (app.user_email ?? '').trim();
+    if (!email) return unresolved('the application has no email');
+    const accounts = await this.prisma.users.findMany({
+      where: { deleted_at: null, role_id: 2, OR: [{ email }, { user_email: email }] },
+      select: { id: true },
+    });
+    const [account] = accounts;
+    if (accounts.length !== 1 || !account) {
+      return unresolved(accounts.length === 0
+        ? `no live student account has ${email}`
+        : `${accounts.length} live student accounts have ${email}`);
+    }
+    if (!(await enrolledInCourse(account.id))) {
+      return unresolved(`the student account with ${email} (users.id ${account.id}) is not enrolled in this course`);
+    }
+    return { kind: 'student', userId: account.id, courseId, via: 'email' };
   }
 
   /**
@@ -13733,10 +13743,16 @@ export class OperationsService {
   }
 
   /**
-   * Record settled money in the student's fee schedule: a row with the same
-   * reference means it is already recorded (a webhook retry, a repeated
-   * approval); else the earliest Pending row of the same amount with no payment
-   * against it is marked Paid; else one Paid row is added.
+   * Record settled money in the student's fee schedule.
+   *  - Already recorded: a LIVE row with this Razorpay payment's reference and
+   *    its amount (a webhook retry). A manual approval is never matched by its
+   *    typed reference ("CASH", a reused UTR): the claim on the application
+   *    ledger already makes it exactly-once.
+   *  - Else the earliest-due Pending row within Rs.1 of the amount, with no
+   *    payment against it, is marked Paid; else one Paid row is added.
+   * Anything Finance should check comes back as a warning: a reference already
+   * on a row of another amount (or, for a manual payment, on any row), and a
+   * new Paid row while Pending instalments are still open.
    */
   private async recordSettledPaymentForStudent(
     tx: Prisma.TransactionClient,
@@ -13749,33 +13765,37 @@ export class OperationsService {
     if (rupees < 1) return { kind: 'not_recorded', reason: 'the amount paid is not known' };
     const { userId, courseId } = payee;
     const reference = payment.reference.trim().slice(0, 100);
+    const warnings: string[] = [];
+    const amountText = `Rs.${rupees.toLocaleString('en-IN')}`;
+    const near = (amount: number | null): boolean => amount !== null && Math.abs(Number(amount) - rupees) <= 1;
+
     if (reference) {
-      // Any row, deleted ones included, so a row an admin removed is not
-      // re-created by a retry. A locking read sees rows committed after this
-      // transaction began.
-      const existing = await tx.$queryRaw<Array<{ id: number }>>`
-        SELECT id FROM student_payments
-        WHERE user_id = ${userId} AND course_id = ${courseId} AND reference_number = ${reference}
-        LIMIT 1
+      // A locking read: it sees rows committed after this transaction began.
+      const sameReference = await tx.$queryRaw<Array<{ id: number; amount: number | null }>>`
+        SELECT id, amount FROM student_payments
+        WHERE user_id = ${userId} AND course_id = ${courseId} AND deleted_at IS NULL
+          AND reference_number = ${reference}
+        ORDER BY id ASC
         FOR UPDATE`;
-      const [found] = existing;
-      if (found) return { kind: 'exists', rowId: Number(found.id) };
+      const duplicate = payment.source === 'razorpay' ? sameReference.find((r) => near(r.amount)) : undefined;
+      if (duplicate) return { kind: 'exists', rowId: Number(duplicate.id) };
+      if (sameReference.length > 0) {
+        warnings.push(`reference ${reference} is already on instalment row(s) ${sameReference.map((r) => `#${Number(r.id)} (Rs.${Number(r.amount ?? 0).toLocaleString('en-IN')})`).join(', ')} of this course; check this ${amountText} payment is not recorded twice`);
+      }
     }
+
     const paidDay = payment.paidDay ?? istCalendarDayUtc(now);
     const mode = payment.mode.trim().slice(0, 20) || null;
     const receipt = payment.receiptUrl.trim().slice(0, 500) || null;
-    const pending = await tx.$queryRaw<Array<{ id: number }>>`
-      SELECT id FROM student_payments
+    const open = await tx.$queryRaw<Array<{ id: number; amount: number | null; reference_number: string | null; receipt_url: string | null }>>`
+      SELECT id, amount, reference_number, receipt_url FROM student_payments
       WHERE user_id = ${userId} AND course_id = ${courseId} AND deleted_at IS NULL
         AND (status IS NULL OR LOWER(TRIM(status)) IN ('', 'pending', 'overdue', 'due'))
         AND NULLIF(paid_date, '0000-00-00') IS NULL
-        AND COALESCE(TRIM(reference_number), '') = ''
-        AND COALESCE(TRIM(receipt_url), '') = ''
-        AND amount = ${rupees}
       ORDER BY NULLIF(due_date, '0000-00-00') IS NULL, NULLIF(due_date, '0000-00-00') ASC, id ASC
-      LIMIT 1
       FOR UPDATE`;
-    const [target] = pending;
+    const target = open.find((r) => near(r.amount)
+      && (r.reference_number ?? '').trim() === '' && (r.receipt_url ?? '').trim() === '');
     if (target) {
       await tx.student_payments.updateMany({
         where: { id: Number(target.id), deleted_at: null },
@@ -13789,7 +13809,10 @@ export class OperationsService {
           updated_at: now,
         },
       });
-      return { kind: 'marked', rowId: Number(target.id), rupees };
+      return { kind: 'marked', rowId: Number(target.id), rupees, warnings };
+    }
+    if (open.length > 0) {
+      warnings.push(`payment ${amountText} recorded; Pending instalments still open (${open.map((r) => `#${Number(r.id)} Rs.${Number(r.amount ?? 0).toLocaleString('en-IN')}`).join(', ')}); please reconcile`);
     }
     await tx.student_payments.createMany({
       data: [{
@@ -13810,11 +13833,12 @@ export class OperationsService {
         updated_at: now,
       }],
     });
-    return { kind: 'inserted', rowId: null, rupees };
+    return { kind: 'inserted', rowId: null, rupees, warnings };
   }
 
-  /** The application timeline entry for a settled payment's fee-schedule
-   *  record: what was recorded, or — for Finance — why nothing was. */
+  /** The application timeline entries for a settled payment's fee-schedule
+   *  record: what was recorded, what Finance should reconcile, or why nothing
+   *  was recorded. Nothing for a lead. */
   private async reportStudentPayment(
     applicationId: number,
     payee: EnrolledPayee,
@@ -13856,6 +13880,15 @@ export class OperationsService {
         reference: payment.reference,
       },
     );
+    for (const warning of outcome.warnings) {
+      await this.recordEvent(
+        applicationId,
+        'student_payment_reconcile',
+        `Finance, please check: ${warning}.`.slice(0, 500),
+        actorUserId,
+        { user_id: payee.userId, course_id: payee.courseId, reference: payment.reference, amount: outcome.rupees },
+      );
+    }
   }
 
   // Phase E (Naji 2026-05-05): approval + enrolment.

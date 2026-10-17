@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import type { AdminPortalApi } from '../../../admin-portal-api.js';
 import { asString } from '../../../shared/utils/admin-data-utils.js';
 import { openLinkRefusal, toIsoDate, withPaidDateStatus, type InstalmentForm } from './student-view-model.js';
+import { parsePlanData } from './enrolment-fee-plan-model.js';
 import { SaveBlockedNotice } from './SaveBlockedNotice.js';
 import { NativeSelect } from './student-view-ui.js';
 
@@ -53,6 +54,21 @@ export function InstallmentDialog({
       status: asString(row.status),
     });
   }, [target]);
+
+  // Adding: say up front when an open payment link will refuse the add, with
+  // the cancel option (the server refuses on Save regardless). Best-effort: the
+  // plan read is refused for an original course planned on its application.
+  useEffect(() => {
+    if (target?.mode !== 'add' || !target.enrolId) return;
+    let cancelled = false;
+    api.getEnrolmentFeePlan(token, target.enrolId)
+      .then((raw) => {
+        const plan = parsePlanData(raw);
+        if (!cancelled && plan.money.linkOutstanding && !plan.money.pendingApproval && plan.blockReason) setLinkBlock(plan.blockReason);
+      })
+      .catch(() => { /* the Save refusal still shows the reason */ });
+    return () => { cancelled = true; };
+  }, [target, api, token]);
 
   const submit = async () => {
     if (!target) return;

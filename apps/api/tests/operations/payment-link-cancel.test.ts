@@ -218,6 +218,28 @@ describe('payment gateway: fetch and cancel a payment link', () => {
     await expect(failing.cancelPaymentLink('plink_9')).rejects.toThrow('Razorpay cancel payment link failed (400): {"error":{"description":"bad"}}');
   });
 
+  test('Razorpay: a call that does not answer in time is aborted with a clear error', async () => {
+    // Never answers; rejects only when the request's signal aborts.
+    const hanging = ((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => { reject(init.signal?.reason instanceof Error ? init.signal.reason : new Error('aborted')); });
+    })) as unknown as typeof fetch;
+    const gateway = new RazorpayPaymentGateway(config, logger, hanging, 20);
+    await expect(gateway.fetchPaymentLink('plink_9')).rejects.toThrow('Razorpay fetch payment link timed out after 0s');
+    await expect(gateway.cancelPaymentLink('plink_9')).rejects.toThrow('Razorpay cancel payment link timed out');
+  });
+
+  test('a Razorpay timeout on cancel is a refusal that leaves the database untouched', async () => {
+    const w = world();
+    const t = planService(w, gatewayWith(linkState(), new Error('Razorpay cancel payment link timed out after 15s')).gateway);
+    const res = await t.service.cancelPaymentLink('1', '251');
+    expect(res).toEqual({
+      status: 0,
+      message: 'Razorpay did not cancel the payment link: Razorpay cancel payment link timed out after 15s. If it was just paid, the payment will be recorded automatically.',
+    });
+    expect(t.calls.appWrites).toEqual([]);
+    expect(t.calls.events).toEqual([]);
+  });
+
   test('Mock: a link is open until cancelled', async () => {
     const gateway = new MockPaymentGateway();
     expect((await gateway.fetchPaymentLink('plink_x')).status).toBe('created');

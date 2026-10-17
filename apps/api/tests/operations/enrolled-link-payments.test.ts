@@ -196,8 +196,64 @@ describe('a paid Add Enrolment link lands in the enrolled student\'s fee schedul
     expect(t.calls.transactions).toBe(0);
     expect(t.world.apps[0]).toMatchObject({ payment_status: 'paid' });
     const unrecorded = t.events.find((e) => e.type === 'student_payment_unrecorded');
-    expect(unrecorded?.description).toContain('2 student accounts with vidhya@example.com are enrolled in this course');
+    expect(unrecorded?.description).toContain('2 live student accounts have vidhya@example.com');
     expect(unrecorded?.metadata).toMatchObject({ reference: 'pay_A1', amount_minor: 353882 });
+  });
+
+  test('the email must belong to exactly ONE live student, even if only one of them is enrolled in the course', async () => {
+    const w = world();
+    // A second account with the same email, NOT enrolled in course 25.
+    w.users.push({ id: 229, role_id: 2, name: 'Duplicate', email: null, user_email: 'vidhya@example.com', application_id: 0, deleted_at: null });
+    const t = setup(w);
+    await t.service.handleRazorpayWebhook('payment_link.paid', linkPaid('plink_332', 353882));
+    expect(w.rows).toEqual([]);
+    expect(t.events.find((e) => e.type === 'student_payment_unrecorded')?.description).toContain('2 live student accounts have vidhya@example.com');
+  });
+
+  test('the one student with the email must be enrolled in the application\'s course', async () => {
+    const w = world();
+    w.enrols = w.enrols.filter((e) => e.course_id !== 25);
+    const t = setup(w);
+    await t.service.handleRazorpayWebhook('payment_link.paid', linkPaid('plink_332', 353882));
+    expect(w.rows).toEqual([]);
+    expect(t.events.find((e) => e.type === 'student_payment_unrecorded')?.description)
+      .toContain('the student account with vidhya@example.com (users.id 228) is not enrolled in this course');
+  });
+
+  test('a Pending row within Rs.1 (rounding) is the one marked Paid', async () => {
+    const t = setup(world({ rows: [row({ id: 905, amount: 3538 })] }));
+    await t.service.handleRazorpayWebhook('payment_link.paid', linkPaid('plink_332', 353882));
+    expect(t.schedule()).toEqual([expect.objectContaining({ id: 905, amount: 3538, status: 'Paid', reference_number: 'pay_A1' })]);
+    expect(t.events.filter((e) => e.type === 'student_payment_reconcile')).toEqual([]);
+  });
+
+  test('no Pending row matches: a Paid row is added and Finance is asked to reconcile the open ones', async () => {
+    const t = setup(world({
+      rows: [
+        row({ id: 910, amount: 1000, installment_details: 'Course Fee', status: 'Paid', paid_date: day('2026-10-13'), payment_mode: 'Cash' }),
+        row({ id: 911, amount: 2538, installment_details: 'Balance' }),
+      ],
+    }));
+    await t.service.handleRazorpayWebhook('payment_link.paid', linkPaid('plink_332', 353882));
+    expect(t.schedule()).toHaveLength(3);
+    expect(t.schedule().find((r) => r.id === 911)).toMatchObject({ status: 'Pending' });
+    expect(t.schedule().find((r) => r.reference_number === 'pay_A1')).toMatchObject({ amount: 3539, status: 'Paid' });
+    const reconcile = t.events.filter((e) => e.type === 'student_payment_reconcile');
+    expect(reconcile).toHaveLength(1);
+    expect(reconcile[0]?.description).toContain('payment Rs.3,539 recorded; Pending instalments still open (#911 Rs.2,538); please reconcile');
+  });
+
+  test('a webhook retry is matched only on a LIVE row with the same payment id and amount', async () => {
+    // The same reference on a deleted row does not count; on a live row of another amount it is reported.
+    const t = setup(world({
+      rows: [
+        row({ id: 920, amount: 3539, status: 'Paid', paid_date: day('2026-10-17'), reference_number: 'pay_A1', deleted_at: new Date('2026-10-17T05:00:00.000Z') }),
+        row({ id: 921, amount: 500, status: 'Paid', paid_date: day('2026-10-10'), reference_number: 'pay_A1' }),
+      ],
+    }));
+    await t.service.handleRazorpayWebhook('payment_link.paid', linkPaid('plink_332', 353882));
+    expect(t.schedule().filter((r) => r.reference_number === 'pay_A1').map((r) => r.amount).sort()).toEqual([3539, 500]);
+    expect(t.events.find((e) => e.type === 'student_payment_reconcile')?.description).toContain('reference pay_A1 is already on instalment row(s) #921 (Rs.500)');
   });
 
   test('if the schedule write fails, the ledger is still written on its own and Finance is told', async () => {
@@ -206,6 +262,22 @@ describe('a paid Add Enrolment link lands in the enrolled student\'s fee schedul
     expect(t.world.rows).toEqual([]);
     expect(t.world.apps[0]).toMatchObject({ payment_status: 'paid' });
     expect(t.events.find((e) => e.type === 'student_payment_unrecorded')?.description).toContain('the fee schedule could not be updated');
+  });
+});
+
+describe('a lead that shares an email with an enrolled student is byte-identical', () => {
+  test('never resolved by email: the old application write only, no transaction, no event', async () => {
+    const lead = app({ id: 341, application_id: 'TTII267670', stage: 'payment_pending', is_converted: 0, payment_status: 'sent', payment_link_id: 'plink_341' });
+    const t = setup(world({ apps: [lead] }));
+    await t.service.handleRazorpayWebhook('payment_link.paid', linkPaid('plink_341', 353882, { applicationRef: 'TTII267670' }));
+    expect(t.calls.appWrites).toEqual([{
+      op: 'update', inTx: false, where: { id: 341 },
+      data: { stage: 'paid', payment_status: 'paid', payment_method: 'razorpay', payment_marked_paid_at: NOW, updated_at: NOW },
+    }]);
+    expect(t.calls.transactions).toBe(0);
+    expect(t.calls.scheduleWrites).toEqual([]);
+    expect(t.events.map((e) => e.type)).toEqual(['payment_received_razorpay']);
+    expect(t.notify).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -299,6 +371,24 @@ describe('Finance approval of a manual payment on an enrolled application', () =
     expect(results.map((r) => r.status).sort()).toEqual([0, 1]);
     expect(t.schedule()).toHaveLength(1);
     expect(t.events.filter((e) => e.type === 'payment_approved')).toHaveLength(1);
+  });
+
+  test('a typed reference is never trusted as "already recorded": the payment is recorded and Finance is asked to check', async () => {
+    const t = setup(world({
+      apps: [app({ payment_plan: pendingPlan({ reference: 'CASH', amount_minor: 100000 }), payment_status: 'pending_approval' })],
+      rows: [row({ id: 930, amount: 1000, status: 'Paid', paid_date: day('2026-10-13'), reference_number: 'CASH', payment_mode: 'Cash' })],
+    }));
+    expect((await t.service.approveManualPayment('1', '332')).status).toBe(1);
+    expect(t.schedule().filter((r) => r.reference_number === 'CASH')).toHaveLength(2);
+    expect(t.events.find((e) => e.type === 'student_payment_reconcile')?.description).toContain('reference CASH is already on instalment row(s) #930 (Rs.1,000)');
+  });
+
+  test('an approval whose amount is unknown writes no row (never the plan total) and tells Finance', async () => {
+    const t = setup(world({ apps: [app({ payment_plan: pendingPlan({ amount_minor: null }), payment_status: 'pending_approval' })] }));
+    expect(await t.service.approveManualPayment('1', '332')).toEqual({ status: 1, message: 'Payment approved.' });
+    expect(t.schedule()).toEqual([]);
+    expect(t.world.apps[0]).toMatchObject({ payment_status: 'paid' });
+    expect(t.events.find((e) => e.type === 'student_payment_unrecorded')?.description).toContain('the amount paid is not known');
   });
 
   test('a lead approval writes no fee row', async () => {
