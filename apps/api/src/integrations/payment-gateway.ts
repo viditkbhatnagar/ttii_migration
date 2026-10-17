@@ -5,6 +5,7 @@ import type {
   PaymentGateway,
   PaymentLinkRequest,
   PaymentLinkResult,
+  PaymentLinkState,
   PaymentOrder,
   PaymentOrderRequest,
   PaymentSignatureVerificationInput,
@@ -30,6 +31,19 @@ function hmacSha256Hex(secret: string, payload: string): string {
   return createHmac('sha256', secret).update(payload).digest('hex');
 }
 
+/** A Razorpay payment link entity as PaymentLinkState. */
+function toPaymentLinkState(body: Record<string, unknown>, fallbackId: string): PaymentLinkState {
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  return {
+    paymentLinkId: typeof body.id === 'string' && body.id !== '' ? body.id : fallbackId,
+    status: typeof body.status === 'string' ? body.status : '',
+    amountMinor: num(body.amount),
+    amountPaidMinor: num(body.amount_paid),
+    paymentCount: Array.isArray(body.payments) ? body.payments.length : 0,
+    providerPayload: body,
+  };
+}
+
 export class MockPaymentGateway implements PaymentGateway {
   readonly name = 'mock-payment';
 
@@ -53,6 +67,24 @@ export class MockPaymentGateway implements PaymentGateway {
   verifyWebhookSignature(input: PaymentWebhookVerificationInput): boolean {
     void input;
     return true;
+  }
+
+  /** Link states for local development: every link is open until cancelled here. */
+  private readonly linkStatuses = new Map<string, string>();
+
+  fetchPaymentLink(paymentLinkId: string): Promise<PaymentLinkState> {
+    return Promise.resolve({
+      paymentLinkId,
+      status: this.linkStatuses.get(paymentLinkId) ?? 'created',
+      amountMinor: 0,
+      amountPaidMinor: 0,
+      paymentCount: 0,
+    });
+  }
+
+  cancelPaymentLink(paymentLinkId: string): Promise<PaymentLinkState> {
+    this.linkStatuses.set(paymentLinkId, 'cancelled');
+    return this.fetchPaymentLink(paymentLinkId);
   }
 }
 
@@ -190,5 +222,41 @@ export class RazorpayPaymentGateway implements PaymentGateway {
       ...(expireBy ? { expireBy } : {}),
       providerPayload: body,
     };
+  }
+
+  // TTII 2026-10-17 — read and cancel a payment link, so an open link can be
+  // closed before a student's fee is planned or recorded another way.
+  async fetchPaymentLink(paymentLinkId: string): Promise<PaymentLinkState> {
+    const body = await this.paymentLinkRequest('GET', `/payment_links/${encodeURIComponent(paymentLinkId)}`, 'fetch payment link');
+    return toPaymentLinkState(body, paymentLinkId);
+  }
+
+  async cancelPaymentLink(paymentLinkId: string): Promise<PaymentLinkState> {
+    const body = await this.paymentLinkRequest('POST', `/payment_links/${encodeURIComponent(paymentLinkId)}/cancel`, 'cancel payment link');
+    const state = toPaymentLinkState(body, paymentLinkId);
+    this.logger.info('integration.payment.link_cancelled', {
+      provider: this.name,
+      payment_link_id: state.paymentLinkId,
+      status: state.status,
+    });
+    return state;
+  }
+
+  private async paymentLinkRequest(method: 'GET' | 'POST', path: string, action: string): Promise<Record<string, unknown>> {
+    const basicAuth = Buffer.from(`${this.config.apiKeyId}:${this.config.apiKeySecret}`).toString('base64');
+    const response = await this.fetchImpl(`${this.config.apiBaseUrl.replace(/\/+$/, '')}${path}`, {
+      method,
+      headers: {
+        authorization: `Basic ${basicAuth}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      ...(method === 'POST' ? { body: '{}' } : {}),
+    });
+    if (!response.ok) {
+      const responseBody = await response.text();
+      throw new Error(`Razorpay ${action} failed (${response.status}): ${responseBody.slice(0, 256)}`);
+    }
+    return (await response.json()) as Record<string, unknown>;
   }
 }

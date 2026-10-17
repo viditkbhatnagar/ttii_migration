@@ -5,6 +5,7 @@ import {
   courseStatusLabel,
   formatDuration,
   offeringSortKey,
+  openLinkRefusal,
   pipelineRoleIds,
   progressLabel,
   recentCount,
@@ -102,5 +103,15 @@ describe('small helpers', () => {
   test('serverResult reads the envelope', () => {
     expect(serverResult({ status: 0, message: 'You cannot disable your own account.' }, 'ok')).toEqual({ ok: false, message: 'You cannot disable your own account.' });
     expect(serverResult({ status: 1, message: 'success' }, 'Saved.')).toEqual({ ok: true, message: 'Saved.' });
+  });
+});
+
+describe('Add Instalment refused while a payment link is open (TTII 2026-10-17)', () => {
+  test("reads the server's refusal from the thrown API error, and nothing else", () => {
+    const refusal = { payload: { status: 0, code: 'payment_link_open', message: "A payment link from this enrolment's application (TTII267661) can still be paid until 20/10/2026." } };
+    expect(openLinkRefusal(refusal)).toContain('TTII267661');
+    expect(openLinkRefusal({ payload: { status: 0, message: 'Student is required.' } })).toBeNull();
+    expect(openLinkRefusal(new Error('network down'))).toBeNull();
+    expect(openLinkRefusal(null)).toBeNull();
   });
 });

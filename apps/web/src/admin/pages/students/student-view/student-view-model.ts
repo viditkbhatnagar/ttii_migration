@@ -189,6 +189,17 @@ export function withPaidDateStatus(form: InstalmentForm): InstalmentForm {
   return out;
 }
 
+/** TTII 2026-10-17 — the server refuses Add Instalment while the course's
+ *  application has a payment link that can still be paid; that refusal's
+ *  message (from the thrown API error's payload), else null. */
+export function openLinkRefusal(err: unknown): string | null {
+  const payload = (err as { payload?: unknown } | null)?.payload;
+  if (!payload || typeof payload !== 'object') return null;
+  const body = payload as { code?: unknown; message?: unknown };
+  if (body.code !== 'payment_link_open') return null;
+  return asString(body.message) || 'A payment link on this course can still be paid.';
+}
+
 export function initials(name: string): string {
   return (name || 'I').split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 }

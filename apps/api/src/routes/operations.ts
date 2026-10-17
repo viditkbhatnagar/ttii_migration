@@ -5294,6 +5294,16 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // TTII 2026-10-17 — cancel the open payment link on an enrolment's own
+  // application (checked at Razorpay first; a paid link is never cancelled).
+  app.post('/admin/students/enrolment-fee-plan/cancel-link', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await enrolmentFeePlanService.cancelPaymentLink(requestUserId(request), toStringValue(payload.enrol_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // ── Phase F: Chat Support ─────────────────────────────────────
 
   app.get('/admin/chat_support/conversations', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {

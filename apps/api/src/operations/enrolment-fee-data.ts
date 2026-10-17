@@ -299,7 +299,9 @@ export async function agreedPayableByStudentCourse(
     byId.set(a.id, a);
     const enrolled = (a.stage ?? '').trim().toLowerCase() === 'enrolled' || Number(a.is_converted) === 1;
     const key = emailKey(a.user_email);
-    if (enrolled && key !== '') byEmail.set(key, [...(byEmail.get(key) ?? []), a]);
+    // Only unlinked applications match by email — as in the query — since a
+    // row fetched for its student_id may share another student's email.
+    if (enrolled && key !== '' && a.student_id == null) byEmail.set(key, [...(byEmail.get(key) ?? []), a]);
   }
   for (const s of students) {
     const original = s.application_id ? byId.get(s.application_id) : undefined;

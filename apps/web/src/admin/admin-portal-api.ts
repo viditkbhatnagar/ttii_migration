@@ -2820,6 +2820,12 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/students/enrolment-fee-plan/save', authToken, body);
   }
 
+  // TTII 2026-10-17 — cancel the open payment link on an enrolment's own
+  // application (refused at Razorpay if it has any payment).
+  async cancelEnrolmentPaymentLink(authToken: string, enrolId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/students/enrolment-fee-plan/cancel-link', authToken, { enrol_id: enrolId });
+  }
+
   async loadAssignmentEvaluations(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/assignment/evaluations', authToken);
     return toRecords(payload.data);

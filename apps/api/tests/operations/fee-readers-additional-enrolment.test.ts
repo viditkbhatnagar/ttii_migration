@@ -178,6 +178,8 @@ describe('the agreed fee is read from the same application on every screen', () 
     // Another student's applications.
     app({ id: 800, course_id: 25, student_id: 353, user_email: 'ansy@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: 15000 }),
     app({ id: 801, course_id: 30, student_id: 353, user_email: 'ansy@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: 0 }),
+    // Linked to Ansy but under Vidhya's email (user_email is not unique): Ansy's only.
+    app({ id: 802, course_id: 31, student_id: 353, user_email: 'vidhya@example.com', stage: 'enrolled', is_converted: 1, application_final_fee: 7000 }),
   ];
   const db = fakePrisma({
     applications: {
@@ -190,9 +192,9 @@ describe('the agreed fee is read from the same application on every screen', () 
   const ANSY = { id: 353, user_email: 'ansy@example.com', application_id: 0 };
 
   test('the Fee Summary batch picks what the student portal and the plan tool pick', async () => {
-    const courses = [16, 18, 25, 30];
+    const courses = [16, 18, 25, 30, 31];
     const batch = await agreedPayableByStudentCourse(db, [VIDHYA, ANSY], courses);
-    expect(Object.fromEntries(batch)).toEqual({ '228:16': 18880, '228:18': 35400, '228:25': 3539, '353:25': 15000, '353:30': null });
+    expect(Object.fromEntries(batch)).toEqual({ '228:16': 18880, '228:18': 35400, '228:25': 3539, '353:25': 15000, '353:30': null, '353:31': 7000 });
     for (const student of [VIDHYA, ANSY]) {
       const single = await agreedPayableByCourse(db, student, courses);
       for (const c of courses) expect(batch.get(`${student.id}:${c}`) ?? null).toBe(single.get(c) ?? null);

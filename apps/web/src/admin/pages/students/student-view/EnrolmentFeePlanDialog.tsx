@@ -27,6 +27,7 @@ import {
   type PlanMode,
   type PlanScheduleRow,
 } from './enrolment-fee-plan-model.js';
+import { SaveBlockedNotice } from './SaveBlockedNotice.js';
 import { rupees } from './student-view-model.js';
 
 // Generate / Edit Payment Plan for an enrolment on its own plan (TTII
@@ -148,6 +149,8 @@ export function EnrolmentFeePlanDialog({
   const [count, setCount] = useState('3');
   const [firstDue, setFirstDue] = useState(() => todayYmd());
   const [saving, setSaving] = useState(false);
+  // Bumped to load the plan again (after a payment link is cancelled).
+  const [reloadKey, setReloadKey] = useState(0);
   // Row keys from a counter, never Date.now / random during render.
   const rowKeyRef = useRef(0);
 
@@ -177,13 +180,15 @@ export function EnrolmentFeePlanDialog({
         if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Could not load the payment plan.');
       });
     return () => { cancelled = true; };
-  }, [target, api, token]);
+  }, [target, api, token, reloadKey]);
 
   const kept = useMemo(() => (data ? data.rows.filter((r) => r.locked) : []), [data]);
   const replaceable = useMemo(() => (data ? data.rows.filter((r) => !r.locked) : []), [data]);
   const dueWindow = useMemo(() => (data?.dueFrom && data.dueTo ? { from: data.dueFrom, to: data.dueTo } : null), [data]);
   const summary = useMemo(() => (draft ? summarizeDraft(draft, kept, replaceable.length, dueWindow, data) : null), [draft, kept, replaceable.length, dueWindow, data]);
   const canSave = Boolean(target && data && draft && summary && !summary.problem && summary.remaining !== null && !data.blockReason) && !saving;
+  // What keeps Save disabled, shown right above it: the server's block first.
+  const blockedReason = data?.blockReason ?? summary?.problem ?? null;
 
   const patch = (p: Partial<PlanDraft>) => setDraft((d) => (d ? { ...d, ...p } : d));
   const setMode = (mode: PlanMode) => setDraft((d) => {
@@ -354,7 +359,6 @@ export function EnrolmentFeePlanDialog({
                 )}
               </section>
 
-              {summary.problem ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{summary.problem}</p> : null}
               {replaceable.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
                   Saving replaces {replaceable.length} pending instalment{replaceable.length === 1 ? '' : 's'} with no payment against {replaceable.length === 1 ? 'it' : 'them'}.
@@ -369,10 +373,23 @@ export function EnrolmentFeePlanDialog({
           ) : null}
         </div>
 
-        <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
-          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button type="button" onClick={() => { void save(); }} disabled={!canSave}>{saving ? 'Saving…' : 'Save Plan'}</Button>
-        </DialogFooter>
+        <div className="shrink-0 space-y-3 border-t border-border px-6 py-4">
+          {blockedReason ? (
+            <SaveBlockedNotice
+              reason={blockedReason}
+              // The server reports a pending approval before an open link.
+              linkOpen={Boolean(data?.blockReason && data.money.linkOutstanding && !data.money.pendingApproval)}
+              enrolId={target?.enrolId ?? null}
+              api={api}
+              token={token}
+              onLinkCancelled={() => setReloadKey((k) => k + 1)}
+            />
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="button" onClick={() => { void save(); }} disabled={!canSave}>{saving ? 'Saving…' : 'Save Plan'}</Button>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

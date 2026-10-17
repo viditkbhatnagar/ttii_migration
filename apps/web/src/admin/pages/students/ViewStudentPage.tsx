@@ -222,7 +222,13 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   onOpen: () => setFeePlanTarget({ enrolId: asString(selected.id), courseTitle: asString(selected.course_title), hasPlan: hasOwnPlan }),
                 }
               : null}
-            onAddInstalment={() => setInstTarget({ mode: 'add', userId: asString(selected.user_id), courseId: asString(selected.course_id) })}
+            onAddInstalment={() => setInstTarget({
+              mode: 'add',
+              userId: asString(selected.user_id),
+              courseId: asString(selected.course_id),
+              // The display-only enrolment (id 0) has no row to cancel a link from.
+              ...(asNumber(selected.id) > 0 ? { enrolId: asString(selected.id) } : {}),
+            })}
             onEditInstalment={(row) => setInstTarget({ mode: 'edit', row })}
             onDeleteInstalment={(row) => { void deleteInstalment(row); }}
           />

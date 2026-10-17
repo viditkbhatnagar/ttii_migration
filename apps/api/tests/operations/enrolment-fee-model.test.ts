@@ -343,7 +343,7 @@ describe('money recorded outside the schedule blocks a plan', () => {
   test('a payment awaiting Finance or an open payment link blocks until it settles', () => {
     expect(planBlockReason(money({ pendingApproval: true }), 99999)).toContain('waiting for Finance approval');
     expect(planBlockReason(money({ linkOutstanding: true, linkExpiresOn: '2026-10-23' }), 99999)).toBe(
-      "A payment link from this enrolment's application (TTII260300) can still be paid until 23/10/2026. Save the plan once it is paid (record it as a Paid instalment) or has expired.",
+      "A payment link from this enrolment's application (TTII260300) can still be paid until 23/10/2026. Cancel the payment link first, or wait until it is paid (the payment is then recorded automatically) or has expired.",
     );
   });
 });

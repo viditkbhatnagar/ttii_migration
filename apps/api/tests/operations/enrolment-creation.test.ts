@@ -418,6 +418,7 @@ describe('Convert Application allocates the TTS code the same safe way', () => {
 describe('Add Enrolment gives a second course its own enrolment id', () => {
   test('admin path: base already held by the first enrolment -> -2 suffix', async () => {
     const enrolCreated: Array<Record<string, unknown>> = [];
+    const appCreated: Array<Record<string, unknown>> = [];
     const prisma = {
       users: {
         findFirst: ({ where }: { where: { id: number } }) => Promise.resolve(
@@ -436,7 +437,7 @@ describe('Add Enrolment gives a second course its own enrolment id', () => {
       },
       applications: {
         findMany: () => Promise.resolve([]),
-        create: () => Promise.resolve({ id: 501, application_id: 'TTII260501' }),
+        create: ({ data }: { data: Record<string, unknown> }) => { appCreated.push(data); return Promise.resolve({ id: 501, application_id: 'TTII260501' }); },
       },
     } as unknown as PrismaClient;
     const service = new OperationsService(prisma);
@@ -446,6 +447,8 @@ describe('Add Enrolment gives a second course its own enrolment id', () => {
 
     expect(res.status).toBe(1);
     expect(enrolCreated[0]?.enrollment_id).toBe('TIDMTT26100353-2');
+    // TTII 2026-10-17 — the application is linked to the student from the start.
+    expect(appCreated[0]).toMatchObject({ student_id: 353, course_id: 25, stage: 'enrolled' });
     expect((res.data as { enrollment_id?: string }).enrollment_id).toBe('TIDMTT26100353-2');
   });
 });

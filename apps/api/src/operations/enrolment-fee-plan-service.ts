@@ -29,7 +29,8 @@ import {
   type EnrolmentApplication,
   type StudentRef,
 } from './enrolment-fee-data.js';
-import { buildStudentPaymentRowsFromPlan, readInstalmentLedger } from './operations-service.js';
+import type { PaymentGateway, PaymentLinkState } from '../integrations/contracts.js';
+import { buildStudentPaymentRowsFromPlan, paymentLinkOpen, readInstalmentLedger } from './operations-service.js';
 
 // Per-enrolment payment plans (TTII 2026-10-16).
 //
@@ -64,9 +65,9 @@ const sumPaid = (rows: ReadonlyArray<{ amount: number; lockReason: string | null
 /**
  * Money on the enrolment's own application: Finance-approved payments (as the
  * conversion mapping would record them), a payment awaiting approval, and a
- * payment link that can still be paid. None of these write student_payments
- * for an enrolled student (approveManualPayment and the link webhook update
- * only the application).
+ * payment link that can still be paid. Since TTII 2026-10-17 a payment settled
+ * on an enrolled student's application is also recorded in their schedule,
+ * which then covers it; older payments may exist on the application only.
  */
 export function applicationMoney(app: EnrolmentApplication | null, now: Date): Omit<ReceivedMoney, 'online'> {
   if (!app) {
@@ -85,19 +86,13 @@ export function applicationMoney(app: EnrolmentApplication | null, now: Date): O
   const received = buildStudentPaymentRowsFromPlan(app.paymentPlan, app.paymentStatus, { studentUserId: 0, courseId: app.courseId, actorUserId: null, now })
     .filter((r) => r.status === 'Paid')
     .reduce((sum, r) => sum + (r.amount ?? 0), 0);
-  // The link charges the instalment its link_targets entry names, else index 0.
-  const targets = plan.link_targets && typeof plan.link_targets === 'object' ? (plan.link_targets as Record<string, unknown>) : {};
-  const targetIndex = app.paymentLinkId ? Number(targets[app.paymentLinkId]) : Number.NaN;
-  const linkIndex = Number.isInteger(targetIndex) && targetIndex > 0 ? targetIndex : 0;
-  const linkSettled = ledger.some((e) => e.index === linkIndex && e.status === 'approved');
   const expires = app.paymentLinkExpiresAt;
-  const linkLive = (app.paymentLinkUrl ?? '').trim() !== '' && (!expires || expires.getTime() > now.getTime());
   return {
     application: received,
     applicationPaidUnknown: received === 0 && ((app.paymentStatus ?? '') === 'paid' || ledger.some((e) => e.status === 'approved')),
     applicationCode: app.applicationCode || `#${app.id}`,
     pendingApproval: (app.paymentStatus ?? '') === 'pending_approval' || ledger.some((e) => e.status === 'pending_approval'),
-    linkOutstanding: linkLive && !linkSettled,
+    linkOutstanding: paymentLinkOpen(app, now),
     linkExpiresOn: expires ? istToday(expires) : '',
   };
 }
@@ -108,10 +103,28 @@ interface PlanContext {
   pricing: CoursePricing;
 }
 
-export class EnrolmentFeePlanService {
-  constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
+async function defaultPaymentGateway(): Promise<PaymentGateway> {
+  const { createIntegrationRegistry } = await import('../integrations/registry.js');
+  return createIntegrationRegistry().payment;
+}
 
-  private async loadContext(enrolId: string): Promise<{ ok: true; ctx: PlanContext } | { ok: false; message: string }> {
+/** Any money against a link: paid, part-paid, or a payment Razorpay lists. */
+function linkHasPayment(state: PaymentLinkState): boolean {
+  return state.status === 'paid' || state.status === 'partially_paid' || state.amountPaidMinor > 0 || state.paymentCount > 0;
+}
+
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err)).slice(0, 300);
+
+export class EnrolmentFeePlanService {
+  constructor(
+    private readonly prisma: PrismaClient = getPrismaClient(),
+    private readonly paymentGateway: () => Promise<PaymentGateway> = defaultPaymentGateway,
+  ) {}
+
+  private async loadContext(
+    enrolId: string,
+    opts: { ownPlanOnly: boolean } = { ownPlanOnly: true },
+  ): Promise<{ ok: true; ctx: PlanContext } | { ok: false; message: string }> {
     const enrolPk = toPositiveInt(enrolId);
     if (!enrolPk) return { ok: false, message: 'Invalid enrolment id.' };
     const enrol = await this.prisma.enrol.findFirst({
@@ -124,8 +137,8 @@ export class EnrolmentFeePlanService {
       select: { id: true, name: true, user_email: true, application_id: true },
     });
     if (!student) return { ok: false, message: 'Student not found.' };
-    const original = await originalApplication(this.prisma, student);
-    if (!usesOwnFeePlan(enrol.course_id, original)) {
+    const original = opts.ownPlanOnly ? await originalApplication(this.prisma, student) : null;
+    if (opts.ownPlanOnly && !usesOwnFeePlan(enrol.course_id, original)) {
       return {
         ok: false,
         message: "This is the student's original course and its application payment plan has a schedule. Plan its fee with Generate / Edit Payment Plan on the student's application.",
@@ -333,6 +346,109 @@ export class EnrolmentFeePlanService {
     } catch (err) {
       if (err instanceof PlanRefusal) return { status: 0, message: err.message };
       throw err;
+    }
+  }
+
+  /**
+   * Cancel the payment link on this enrolment's own application (TTII
+   * 2026-10-17), so its fee can be planned or recorded without leaving a second
+   * way to pay. Razorpay is asked first: a link with any payment is never
+   * cancelled (the webhook records that payment). A link already cancelled or
+   * expired at Razorpay is success with no new event.
+   */
+  async cancelPaymentLink(actorUserId: string, enrolId: string): Promise<Record<string, unknown>> {
+    const actor = toPositiveInt(actorUserId);
+    if (!actor) return { status: 0, message: 'Invalid user.' };
+    const loaded = await this.loadContext(enrolId, { ownPlanOnly: false });
+    if (!loaded.ok) return { status: 0, message: loaded.message };
+    const { enrol, pricing } = loaded.ctx;
+    const app = pricing.application;
+    const linkId = (app?.paymentLinkId ?? '').trim();
+    if (!app || !linkId) return { status: 0, message: "This enrolment's application has no payment link." };
+    const code = app.applicationCode || `#${app.id}`;
+    const gateway = await this.paymentGateway();
+    if (!gateway.fetchPaymentLink || !gateway.cancelPaymentLink) {
+      return { status: 0, message: 'The payment provider cannot cancel payment links.' };
+    }
+
+    let state: PaymentLinkState;
+    try {
+      state = await gateway.fetchPaymentLink(linkId);
+    } catch (err) {
+      return { status: 0, message: `Could not check the payment link at Razorpay: ${errorText(err)}. Nothing was changed.` };
+    }
+    if (linkHasPayment(state)) {
+      return {
+        status: 0,
+        message: `The payment link on ${code} has already been paid; the payment will be recorded automatically. Nothing was cancelled.`,
+      };
+    }
+    const now = new Date();
+    if (state.status === 'cancelled' || state.status === 'expired') {
+      // Nothing new happened, so no event; if this database still reads the
+      // link as open, close it here too.
+      if (paymentLinkOpen(app, now)) await this.closeLinkLocally(app.id, linkId, actor, now);
+      return {
+        status: 1,
+        message: `The payment link on ${code} is already ${state.status}.`,
+        data: { link_id: linkId, link_status: state.status, cancelled_now: false },
+      };
+    }
+
+    let cancelled: PaymentLinkState;
+    try {
+      cancelled = await gateway.cancelPaymentLink(linkId);
+    } catch (err) {
+      return {
+        status: 0,
+        message: `Razorpay did not cancel the payment link: ${errorText(err)}. If it was just paid, the payment will be recorded automatically.`,
+      };
+    }
+    if (cancelled.status !== 'cancelled') {
+      return {
+        status: 0,
+        message: `Razorpay reports the payment link as "${cancelled.status || 'unknown'}", not cancelled. Nothing was changed here.`,
+      };
+    }
+    await this.closeLinkLocally(app.id, linkId, actor, now);
+    await this.recordLinkCancelled(app.id, actor, {
+      link_id: linkId,
+      enrol_id: enrol.id,
+      course_id: enrol.course_id,
+      amount_minor: state.amountMinor,
+    });
+    return {
+      status: 1,
+      message: `Payment link on ${code} cancelled.`,
+      data: { link_id: linkId, link_status: 'cancelled', cancelled_now: true },
+    };
+  }
+
+  /** The link reads closed from now on (the plan tool and Add Instalment check
+   *  the expiry). Pinned to this link, so a newer one is never touched. */
+  private async closeLinkLocally(applicationId: number, linkId: string, actor: number, now: Date): Promise<void> {
+    await this.prisma.applications.updateMany({
+      where: { id: applicationId, payment_link_id: linkId, deleted_at: null },
+      data: { payment_link_expires_at: now, updated_by: actor, updated_at: now },
+    });
+  }
+
+  private async recordLinkCancelled(applicationId: number, actor: number, metadata: Record<string, unknown>): Promise<void> {
+    try {
+      const role = await this.prisma.users.findFirst({ where: { id: actor }, select: { role_id: true } });
+      await this.prisma.application_events.create({
+        data: {
+          application_id: applicationId,
+          event_type: 'payment_link_cancelled',
+          description: `Payment link ${String(metadata.link_id)} cancelled from the student's enrolment so the fee can be planned without a second way to pay.`.slice(0, 500),
+          actor_user_id: actor,
+          actor_role_id: role?.role_id ?? null,
+          metadata: JSON.stringify(metadata),
+        },
+      });
+    } catch (err) {
+      // The cancellation stands; only the audit row is missing.
+      console.warn('[cancelPaymentLink] event not recorded', { applicationId, error: errorText(err) });
     }
   }
 }

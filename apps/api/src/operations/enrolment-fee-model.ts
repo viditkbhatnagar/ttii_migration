@@ -476,15 +476,23 @@ export const NO_MONEY_ELSEWHERE: ReceivedMoney = {
  * writes student_payments, so a plan saved over it would bill the student again.
  * The Paid rows must cover every rupee received, and nothing may be in flight.
  */
+/**
+ * Why nothing else may be scheduled or recorded for a course while its
+ * application's payment link is open: the student could pay twice. Shared by
+ * the plan tool and Add Instalment (TTII 2026-10-17).
+ */
+export function openLinkMessage(applicationCode: string, linkExpiresOn: string): string {
+  const code = applicationCode || 'the application';
+  const until = linkExpiresOn ? ` until ${dmy(linkExpiresOn)}` : '';
+  return `A payment link from this enrolment's application (${code}) can still be paid${until}. Cancel the payment link first, or wait until it is paid (the payment is then recorded automatically) or has expired.`;
+}
+
 export function planBlockReason(money: ReceivedMoney, paidRowsTotal: number): string | null {
   const code = money.applicationCode || 'the application';
   if (money.pendingApproval) {
     return `A payment on this enrolment's application (${code}) is waiting for Finance approval. Approve or reject it first, record an approved payment as a Paid instalment, then save the plan.`;
   }
-  if (money.linkOutstanding) {
-    const until = money.linkExpiresOn ? ` until ${dmy(money.linkExpiresOn)}` : '';
-    return `A payment link from this enrolment's application (${code}) can still be paid${until}. Save the plan once it is paid (record it as a Paid instalment) or has expired.`;
-  }
+  if (money.linkOutstanding) return openLinkMessage(money.applicationCode, money.linkExpiresOn);
   const received = money.application + money.online;
   if (received > paidRowsTotal) {
     const parts = [

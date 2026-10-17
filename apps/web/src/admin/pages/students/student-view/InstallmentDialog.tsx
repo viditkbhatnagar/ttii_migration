@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { AdminPortalApi } from '../../../admin-portal-api.js';
 import { asString } from '../../../shared/utils/admin-data-utils.js';
-import { toIsoDate, withPaidDateStatus, type InstalmentForm } from './student-view-model.js';
+import { openLinkRefusal, toIsoDate, withPaidDateStatus, type InstalmentForm } from './student-view-model.js';
+import { SaveBlockedNotice } from './SaveBlockedNotice.js';
 import { NativeSelect } from './student-view-ui.js';
 
 // Edit / Add Installment — Naji UAT 2026-05-13 / 2026-07-06. PAYMENT LOGIC IS
@@ -19,7 +20,9 @@ import { NativeSelect } from './student-view-ui.js';
 
 export type InstallmentTarget =
   | { mode: 'edit'; row: Record<string, unknown> }
-  | { mode: 'add'; userId: string; courseId: string };
+  // enrolId: the enrolment whose application's open payment link can be
+  // cancelled from here when it blocks the add (TTII 2026-10-17).
+  | { mode: 'add'; userId: string; courseId: string; enrolId?: string };
 
 const EMPTY: InstalmentForm = { installment_details: '', amount: '', due_date: '', paid_date: '', payment_mode: '', status: '' };
 const MODES = ['Online', 'Cash', 'Cheque', 'UPI', 'Bank Transfer', 'Razorpay'];
@@ -30,9 +33,12 @@ export function InstallmentDialog({
 }: { target: InstallmentTarget | null; onClose: () => void; onSaved: () => void; api: AdminPortalApi; token: string }) {
   const [form, setForm] = useState<InstalmentForm>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
+  // Set when the server refused the add because a payment link is open.
+  const [linkBlock, setLinkBlock] = useState<string | null>(null);
 
   useEffect(() => {
     if (!target) return;
+    setLinkBlock(null);
     if (target.mode === 'add') {
       setForm({ ...EMPTY, status: 'Pending' });
       return;
@@ -70,7 +76,9 @@ export function InstallmentDialog({
         toast.error(asString((res as { message?: unknown }).message) || 'Save failed');
       }
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Save failed');
+      const blocked = openLinkRefusal(err);
+      if (blocked) setLinkBlock(blocked);
+      else toast.error(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSubmitting(false);
     }
@@ -99,6 +107,9 @@ export function InstallmentDialog({
               <div>
                 <Label htmlFor="inst-mode" className="mb-1">Mode</Label>
                 <NativeSelect id="inst-mode" value={form.payment_mode} onChange={(v) => set({ payment_mode: v })} options={MODES.map((v) => ({ value: v, label: v }))} />
+                {target?.mode === 'add' && form.status.trim().toLowerCase() !== 'paid' && !form.paid_date.trim() ? (
+                  <p className="mt-1 text-xs text-muted-foreground">Leave empty until it is paid: a Pending row with a mode counts as a payment already recorded.</p>
+                ) : null}
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -117,10 +128,22 @@ export function InstallmentDialog({
               <p className="mt-1 text-xs text-muted-foreground">A row with a Paid Date is saved as Paid.</p>
             </div>
           </div>
-          <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
-            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
-            <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : 'Save'}</Button>
-          </DialogFooter>
+          <div className="shrink-0 space-y-3 border-t border-border px-6 py-4">
+            {linkBlock ? (
+              <SaveBlockedNotice
+                reason={linkBlock}
+                linkOpen
+                enrolId={target?.mode === 'add' ? target.enrolId ?? null : null}
+                api={api}
+                token={token}
+                onLinkCancelled={() => setLinkBlock(null)}
+              />
+            ) : null}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
+              <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : 'Save'}</Button>
+            </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

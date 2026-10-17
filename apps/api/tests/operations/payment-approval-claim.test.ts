@@ -43,6 +43,11 @@ function makeService() {
       },
       update: () => { throw new Error('unguarded update must not be used'); },
     },
+    // A lead: no student account is linked to (or enrolled through) it, so no
+    // fee schedule is written and no transaction is opened.
+    users: { findMany: () => Promise.resolve([]), findFirst: () => Promise.resolve(null) },
+    enrol: { findMany: () => Promise.resolve([]), findFirst: () => Promise.resolve(null) },
+    $transaction: () => { throw new Error('a lead approval must not open a transaction'); },
   } as unknown as PrismaClient;
   const service = new OperationsService(prisma);
   const recordEvent = vi.spyOn(service, 'recordEvent').mockResolvedValue();
@@ -82,10 +87,14 @@ describe('Payment Approval claim-first', () => {
       service.approveManualPayment('1', String(APP_ID)),
       service.rejectManualPayment('2', String(APP_ID), 'late'),
     ]);
-    expect(approved.status).toBe(1);
-    expect(rejected).toEqual({ status: 0, message: NOT_AWAITING });
+    // Whichever claims the row first decides; the other writes nothing.
+    // (Approve reads whose fee schedule the payment belongs to before its
+    // claim, so here the reject lands first.)
+    expect([approved.status, rejected.status].sort()).toEqual([0, 1]);
+    const loser = approved.status === 1 ? rejected : approved;
+    expect(loser).toEqual({ status: 0, message: NOT_AWAITING });
     expect(writes).toHaveLength(1);
-    expect(row.payment_status).toBe('paid');
+    expect(row.payment_status).toBe(approved.status === 1 ? 'paid' : 'payment_rejected');
   });
 
   test('reject still works alone and is refused the second time', async () => {

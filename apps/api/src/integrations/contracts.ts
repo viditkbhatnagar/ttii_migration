@@ -162,10 +162,24 @@ export interface PaymentLinkResult {
   providerPayload?: Record<string, unknown>;
 }
 
+/** A payment link as the provider reports it now (TTII 2026-10-17). */
+export interface PaymentLinkState {
+  paymentLinkId: string;
+  /** Razorpay: created | partially_paid | paid | cancelled | expired. */
+  status: string;
+  amountMinor: number;
+  amountPaidMinor: number;
+  /** Payments the provider lists against the link. */
+  paymentCount: number;
+  providerPayload?: Record<string, unknown>;
+}
+
 export interface PaymentGateway {
   readonly name: string;
   createOrder(input: PaymentOrderRequest): Promise<PaymentOrder>;
   createPaymentLink?(input: PaymentLinkRequest): Promise<PaymentLinkResult>;
+  fetchPaymentLink?(paymentLinkId: string): Promise<PaymentLinkState>;
+  cancelPaymentLink?(paymentLinkId: string): Promise<PaymentLinkState>;
   verifyPaymentSignature(input: PaymentSignatureVerificationInput): boolean;
   verifyWebhookSignature(input: PaymentWebhookVerificationInput): boolean;
 }

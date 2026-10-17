@@ -519,7 +519,7 @@ describe('money recorded outside the schedule blocks a save', () => {
     const open = await makeService(linked).service.savePlan('1', { enrolId: '253', plan: fullOf(18000) });
     expect(open).toEqual({
       status: 0,
-      message: "A payment link from this enrolment's application (TTII260300) can still be paid until 23/10/2026. Save the plan once it is paid (record it as a Paid instalment) or has expired.",
+      message: "A payment link from this enrolment's application (TTII260300) can still be paid until 23/10/2026. Cancel the payment link first, or wait until it is paid (the payment is then recorded automatically) or has expired.",
     });
 
     // Once the link has expired unpaid, nothing blocks.

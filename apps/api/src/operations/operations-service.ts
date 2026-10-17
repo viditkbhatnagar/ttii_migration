@@ -20,8 +20,8 @@ import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 import { allocateEnrollmentId } from './enrolment-id.js';
-import { feeWithScheduleFallback, ownPlanFee, usesOwnFeePlan } from './enrolment-fee-model.js';
-import { agreedPayableByCourse, agreedPayableByStudentCourse } from './enrolment-fee-data.js';
+import { feeWithScheduleFallback, istToday, openLinkMessage, ownPlanFee, usesOwnFeePlan } from './enrolment-fee-model.js';
+import { agreedPayableByCourse, agreedPayableByStudentCourse, loadCoursePricing } from './enrolment-fee-data.js';
 // Type-only — the runtime modules stay lazily imported so MSAL is never loaded
 // on non-Teams paths.
 // Naji UAT 2026-08-10 — the Graph meeting payload and the student join gate must
@@ -1342,6 +1342,129 @@ function parseApprovalRowId(rowId: string): { applicationId: string; index: numb
   if (!m) return { applicationId: rowId, index: 0 };
   return { applicationId: m[1] ?? rowId, index: m[2] ? Number(m[2]) : 0 };
 }
+
+/** The amount Finance sees on a Payment Approval row, in rupees: the amount
+ *  recorded with the payment, else the instalment's amount with GST (0 when GST
+ *  is included), else the plan total. Null when none is known. */
+function approvalAmountRupees(plan: Record<string, unknown>, entry: InstalmentLedgerEntry): number | null {
+  const installments = Array.isArray(plan.installments) ? (plan.installments as Record<string, unknown>[]) : [];
+  const totalMinor = Number(plan.total_amount_minor ?? 0);
+  const receivedMinor = entry.amount_minor ?? 0;
+  const instRow = installments[entry.index];
+  let instalmentInr = 0;
+  if (instRow) {
+    const base = Number(instRow.amountMinor ?? instRow.amount_minor ?? 0) / 100;
+    const gst = Number(instRow.gstPercent ?? instRow.gst_percent ?? 0);
+    if (base > 0) instalmentInr = base + (base * gst) / 100;
+  }
+  return receivedMinor > 0
+    ? receivedMinor / 100
+    : instalmentInr > 0
+      ? instalmentInr
+      : totalMinor > 0
+        ? totalMinor / 100
+        : null;
+}
+
+/** The label of instalment `index` in a plan, else the standalone-payment label. */
+function planInstalmentLabel(planJson: string | null, index: number): string {
+  let plan: Record<string, unknown> = {};
+  if (planJson) {
+    try { plan = JSON.parse(planJson) as Record<string, unknown>; } catch { plan = {}; }
+  }
+  const rows = Array.isArray(plan.installments) ? (plan.installments as Record<string, unknown>[]) : [];
+  const label = toStringValue(rows[index]?.label).trim();
+  return label || ledgerOnlyRowLabel(index);
+}
+
+/**
+ * Whether an application's payment link can still be paid: it has a URL, has
+ * not expired (cancelling sets the expiry to now), and the instalment it
+ * charges (its link_targets entry, else index 0) is not settled. Shared by the
+ * plan tool and Add Instalment (TTII 2026-10-17).
+ */
+export function paymentLinkOpen(
+  app: {
+    paymentPlan: string | null;
+    paymentStatus: string | null;
+    paymentLinkId: string | null;
+    paymentLinkUrl: string | null;
+    paymentLinkExpiresAt: Date | null;
+  },
+  now: Date,
+): boolean {
+  const expires = app.paymentLinkExpiresAt;
+  const live = (app.paymentLinkUrl ?? '').trim() !== '' && (!expires || expires.getTime() > now.getTime());
+  if (!live) return false;
+  let plan: Record<string, unknown> = {};
+  if (app.paymentPlan) {
+    try {
+      const parsed: unknown = JSON.parse(app.paymentPlan);
+      if (parsed && typeof parsed === 'object') plan = parsed as Record<string, unknown>;
+    } catch {
+      plan = {};
+    }
+  }
+  const targets = plan.link_targets && typeof plan.link_targets === 'object' ? (plan.link_targets as Record<string, unknown>) : {};
+  const targetIndex = app.paymentLinkId ? Number(targets[app.paymentLinkId]) : Number.NaN;
+  const linkIndex = Number.isInteger(targetIndex) && targetIndex > 0 ? targetIndex : 0;
+  // A paid index-0 link sets payment_status 'paid' without a ledger row; that
+  // settles it even when the ledger holds other entries.
+  if (linkIndex === 0 && (app.paymentStatus ?? '') === 'paid') return false;
+  const ledger = readInstalmentLedger(plan, app.paymentStatus ?? undefined);
+  return !ledger.some((e) => e.index === linkIndex && e.status === 'approved');
+}
+
+/** The payment inside a Razorpay `payment_link.paid` event. */
+interface LinkPayment {
+  paymentId: string;
+  amountMinor: number | null;
+  paidAt: Date | null;
+}
+
+function linkPaymentFromEvent(payload: Record<string, unknown>, link: Record<string, unknown>): LinkPayment {
+  const ev = payload as { payload?: { payment?: { entity?: Record<string, unknown> } } };
+  const payment = ev.payload?.payment?.entity ?? {};
+  const positive = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
+  const createdAt = positive(payment.created_at);
+  return {
+    paymentId: typeof payment.id === 'string' ? payment.id.trim() : '',
+    amountMinor: positive(payment.amount) ?? positive(link.amount_paid) ?? positive(link.amount),
+    paidAt: createdAt !== null ? new Date(createdAt * 1000) : null,
+  };
+}
+
+/** Money settled on an application, as it is mirrored into an enrolled
+ *  student's fee schedule (student_payments). */
+interface SettledPayment {
+  label: string;
+  amountMinor: number | null;
+  /** UTC midnight of the IST day it was paid. */
+  paidDay: Date | null;
+  mode: string;
+  reference: string;
+  receiptUrl: string;
+}
+
+/** The application fields that decide whose fee schedule a payment belongs to. */
+interface PayeeApplication {
+  id: number;
+  course_id: number | null;
+  student_id: number | null;
+  user_email: string | null;
+  stage: string | null;
+  is_converted: number | null;
+}
+
+type EnrolledPayee =
+  | { kind: 'student'; userId: number; courseId: number; via: 'student_id' | 'users.application_id' | 'email' }
+  | { kind: 'lead' }
+  | { kind: 'unresolved'; reason: string };
+
+type StudentPaymentOutcome =
+  | { kind: 'inserted' | 'marked'; rowId: number | null; rupees: number }
+  | { kind: 'exists'; rowId: number }
+  | { kind: 'not_recorded'; reason: string };
 
 /** Compare-and-swap retries for a centre wallet credit before giving up. */
 const FUND_CREDIT_CAS_ATTEMPTS = 5;
@@ -13173,21 +13296,13 @@ export class OperationsService {
         catch { plan = {}; }
       }
       const installments = Array.isArray(plan.installments) ? (plan.installments as Record<string, unknown>[]) : [];
-      const totalMinor = Number(plan.total_amount_minor ?? 0);
       const ledger = readInstalmentLedger(plan, a.payment_status ?? undefined);
       const pending = ledger.filter((e) => e.status === 'pending_approval');
       for (const entry of pending) {
         // Amount: exact captured amount → that instalment's inc-GST amount
         // (gstPercent is 0 when GST is "included", correct under both treatments)
         // → plan total, so nothing renders blank.
-        const receivedMinor = entry.amount_minor ?? 0;
         const instRow = installments[entry.index];
-        let instalmentInr = 0;
-        if (instRow) {
-          const base = Number(instRow.amountMinor ?? instRow.amount_minor ?? 0) / 100;
-          const gst = Number(instRow.gstPercent ?? instRow.gst_percent ?? 0);
-          if (base > 0) instalmentInr = base + (base * gst) / 100;
-        }
         const label = instRow ? toStringValue(instRow.label) : '';
         // Date of payment: captured paid_date → "Paid on YYYY-MM-DD" in the note
         // → the recorded date. Never blank.
@@ -13204,13 +13319,7 @@ export class OperationsService {
           email: a.user_email ?? '',
           course_title: a.course_id ? courseMap.get(a.course_id) ?? '' : '',
           instalment: label || (entry.index === 0 ? 'Registration' : `Instalment ${entry.index}`),
-          amount: receivedMinor > 0
-            ? receivedMinor / 100
-            : instalmentInr > 0
-              ? instalmentInr
-              : totalMinor > 0
-                ? totalMinor / 100
-                : null,
+          amount: approvalAmountRupees(plan, entry),
           mode: entry.mode || a.payment_method || 'manual',
           reference: entry.reference,
           receipt_url: entry.receipt_url ? toLegacyFileUrl(entry.receipt_url) : '',
@@ -13233,7 +13342,10 @@ export class OperationsService {
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const app = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
-      select: { payment_status: true, payment_plan: true, stage: true, is_converted: true },
+      select: {
+        payment_status: true, payment_plan: true, stage: true, is_converted: true,
+        application_id: true, course_id: true, student_id: true, user_email: true,
+      },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
     // An already-enrolled student's registration approval must NOT regress the
@@ -13253,45 +13365,56 @@ export class OperationsService {
     // payment_received notification. (See webhook-double-credit 2026-10-08.)
     const claim = { id, deleted_at: null, payment_plan: app.payment_plan, payment_status: app.payment_status };
     const now = new Date();
+    // TTII 2026-10-17 — for an already-enrolled student the approved payment is
+    // also recorded in their fee schedule, in the same transaction as the claim.
+    const payee = await this.resolveEnrolledPayee({ ...app, id });
+    const paidOnNote = /Paid on (\d{4}-\d{2}-\d{2})/.exec(entry.note)?.[1] ?? null;
+    const approvedRupees = approvalAmountRupees(planObj, entry);
+    const payment: SettledPayment = {
+      label: planInstalmentLabel(app.payment_plan, index),
+      amountMinor: approvedRupees === null ? null : Math.round(approvedRupees * 100),
+      paidDay: istCalendarDayUtc(entry.paid_date || paidOnNote) ?? istCalendarDayUtc(now),
+      mode: entry.mode,
+      reference: entry.reference,
+      receiptUrl: entry.receipt_url,
+    };
     const nextLedger = ledger.map((e) =>
       e.index === index ? { ...e, status: 'approved' as const, decided_at: now.toISOString(), decided_by: actor } : e,
     );
     planObj.instalment_payments = nextLedger;
+    const claimWith = (data: Prisma.applicationsUpdateManyMutationInput) => async (db: Prisma.TransactionClient | PrismaClient): Promise<boolean> =>
+      (await db.applications.updateMany({ where: claim, data })).count > 0;
 
     if (index === 0 && !alreadyEnrolled) {
       // Registration approval keeps the existing behavior: the application flips
       // to paid and the payment_received notification fires (the enrolment trigger).
-      const claimed = await this.prisma.applications.updateMany({
-        where: claim,
-        data: {
-          stage: 'paid',
-          payment_status: 'paid',
-          payment_marked_paid_at: now,
-          payment_marked_paid_by: actor,
-          payment_plan: JSON.stringify(planObj),
-          updated_at: now,
-          updated_by: actor,
-        },
-      });
-      if (claimed.count === 0) return { status: 0, message: 'This payment is not awaiting approval.' };
+      const { applied, outcome } = await this.writeLedgerAndStudentPayment(payee, payment, actor, now, claimWith({
+        stage: 'paid',
+        payment_status: 'paid',
+        payment_marked_paid_at: now,
+        payment_marked_paid_by: actor,
+        payment_plan: JSON.stringify(planObj),
+        updated_at: now,
+        updated_by: actor,
+      }));
+      if (!applied) return { status: 0, message: 'This payment is not awaiting approval.' };
       await this.recordEvent(id, 'payment_approved', 'Registration payment approved by finance', actorUserId, {});
       await this.notifyApplicationEvent(id, 'payment_received');
+      await this.reportStudentPayment(id, payee, payment, outcome, actorUserId);
     } else {
       // A later instalment — OR any approval for an already-enrolled student —
       // only advances the ledger + the coarse rollup; it must NOT re-flip stage
       // or re-fire the enrolment notification.
       const rollup = rollupPaymentStatus(nextLedger);
-      const claimed = await this.prisma.applications.updateMany({
-        where: claim,
-        data: {
-          ...(rollup ? { payment_status: rollup } : {}),
-          payment_plan: JSON.stringify(planObj),
-          updated_at: now,
-          updated_by: actor,
-        },
-      });
-      if (claimed.count === 0) return { status: 0, message: 'This payment is not awaiting approval.' };
+      const { applied, outcome } = await this.writeLedgerAndStudentPayment(payee, payment, actor, now, claimWith({
+        ...(rollup ? { payment_status: rollup } : {}),
+        payment_plan: JSON.stringify(planObj),
+        updated_at: now,
+        updated_by: actor,
+      }));
+      if (!applied) return { status: 0, message: 'This payment is not awaiting approval.' };
       await this.recordEvent(id, 'payment_approved', `${index === 0 ? 'Registration' : `Instalment ${index}`} payment approved by finance`, actorUserId, { instalment_index: index });
+      await this.reportStudentPayment(id, payee, payment, outcome, actorUserId);
     }
     return { status: 1, message: 'Payment approved.' };
   }
@@ -13350,17 +13473,16 @@ export class OperationsService {
    * index-0 approval and make the registration look unpaid again.
    */
   private async settleInstalmentFromLink(
-    applicationId: number,
+    app: PayeeApplication & { payment_plan: string | null; payment_status: string | null },
     index: number,
     linkId: string,
-    planJson: string | null,
-    paymentStatus: string | null,
+    paid: LinkPayment,
   ): Promise<void> {
     let planObj: Record<string, unknown> = {};
-    if (planJson) {
-      try { planObj = JSON.parse(planJson) as Record<string, unknown>; } catch { planObj = {}; }
+    if (app.payment_plan) {
+      try { planObj = JSON.parse(app.payment_plan) as Record<string, unknown>; } catch { planObj = {}; }
     }
-    const ledger = readInstalmentLedger(planObj, paymentStatus ?? undefined);
+    const ledger = readInstalmentLedger(planObj, app.payment_status ?? undefined);
     const already = ledger.find((e) => e.index === index);
     if (already && already.status === 'approved') return; // idempotent: webhooks retry
 
@@ -13387,17 +13509,32 @@ export class OperationsService {
     planObj.instalment_payments = [...ledger.filter((e) => e.index !== index), entry]
       .sort((a, b) => a.index - b.index);
 
-    await this.prisma.applications.update({
-      where: { id: applicationId },
-      data: { payment_plan: JSON.stringify(planObj), updated_at: now },
+    // TTII 2026-10-17 — an already-enrolled student's payment also lands in
+    // their fee schedule, in the same transaction as the ledger.
+    const payee = await this.resolveEnrolledPayee(app);
+    const payment: SettledPayment = {
+      label: planInstalmentLabel(app.payment_plan, index),
+      amountMinor: paid.amountMinor ?? amountMinor,
+      paidDay: istCalendarDayUtc(paid.paidAt ?? now),
+      mode: 'Online',
+      reference: paid.paymentId || linkId,
+      receiptUrl: '',
+    };
+    const { outcome } = await this.writeLedgerAndStudentPayment(payee, payment, null, now, async (db) => {
+      await db.applications.update({
+        where: { id: app.id },
+        data: { payment_plan: JSON.stringify(planObj), updated_at: now },
+      });
+      return true;
     });
     await this.recordEvent(
-      applicationId,
+      app.id,
       'instalment_paid_razorpay',
       `Instalment ${index + 1} paid via Razorpay`,
       null,
       { instalment_index: index, link_id: linkId, amount_minor: amountMinor },
     );
+    await this.reportStudentPayment(app.id, payee, payment, outcome, null);
   }
 
   // Razorpay webhook handler — `payment_link.paid` flips paid + advances
@@ -13412,9 +13549,13 @@ export class OperationsService {
     const notes = (link.notes && typeof link.notes === 'object')
       ? link.notes as Record<string, unknown>
       : {};
+    const appSelect = {
+      id: true, stage: true, is_converted: true, payment_plan: true, payment_status: true,
+      course_id: true, student_id: true, user_email: true,
+    } as const;
     let app = await this.prisma.applications.findFirst({
       where: { payment_link_id: linkId, deleted_at: null },
-      select: { id: true, stage: true, is_converted: true, payment_plan: true, payment_status: true },
+      select: appSelect,
     });
     // Issuing a link for a later instalment overwrites payment_link_id, so a
     // student paying an EARLIER link would no longer match on it. Fall back to
@@ -13425,10 +13566,11 @@ export class OperationsService {
       if (!ref) return;
       app = await this.prisma.applications.findFirst({
         where: { application_id: ref, deleted_at: null },
-        select: { id: true, stage: true, is_converted: true, payment_plan: true, payment_status: true },
+        select: appSelect,
       });
     }
     if (!app) return;
+    const paid = linkPaymentFromEvent(payload, link);
 
     // Which instalment did this link cover? Prefer the note written at issue
     // time; fall back to the plan's link_targets map for links whose notes were
@@ -13447,7 +13589,7 @@ export class OperationsService {
     }
 
     if (paidIndex > 0) {
-      await this.settleInstalmentFromLink(app.id, paidIndex, linkId, app.payment_plan, app.payment_status);
+      await this.settleInstalmentFromLink(app, paidIndex, linkId, paid);
       return;
     }
     // Don't regress an already-enrolled student's stage (or re-fire the enrolment
@@ -13455,20 +13597,265 @@ export class OperationsService {
     // Generate/Edit Payment Plan flow (Naji 2026-07-05). Leads are unaffected.
     const alreadyEnrolled = app.stage === 'enrolled' || app.is_converted === 1;
     const now = new Date();
-    await this.prisma.applications.update({
-      where: { id: app.id },
-      data: {
-        ...(alreadyEnrolled ? {} : { stage: 'paid' }),
-        payment_status: 'paid',
-        payment_method: 'razorpay',
-        payment_marked_paid_at: now,
-        updated_at: now,
-      },
+    const appId = app.id;
+    // TTII 2026-10-17 — Add Enrolment links (and any link of an already-enrolled
+    // student) also record the payment in the student's fee schedule, in the
+    // same transaction. A lead's application stays the only record; conversion
+    // materialises it.
+    const payee = await this.resolveEnrolledPayee(app);
+    const payment: SettledPayment = {
+      label: planInstalmentLabel(app.payment_plan, 0),
+      amountMinor: paid.amountMinor,
+      paidDay: istCalendarDayUtc(paid.paidAt ?? now),
+      mode: 'Online',
+      reference: paid.paymentId || linkId,
+      receiptUrl: '',
+    };
+    const { outcome } = await this.writeLedgerAndStudentPayment(payee, payment, null, now, async (db) => {
+      await db.applications.update({
+        where: { id: appId },
+        data: {
+          ...(alreadyEnrolled ? {} : { stage: 'paid' }),
+          payment_status: 'paid',
+          payment_method: 'razorpay',
+          payment_marked_paid_at: now,
+          updated_at: now,
+        },
+      });
+      return true;
     });
-    await this.recordEvent(app.id, 'payment_received_razorpay', 'Payment received via Razorpay', null, { link_id: linkId });
+    await this.recordEvent(appId, 'payment_received_razorpay', 'Payment received via Razorpay', null, { link_id: linkId });
     if (!alreadyEnrolled) {
-      await this.notifyApplicationEvent(app.id, 'payment_received');
+      await this.notifyApplicationEvent(appId, 'payment_received');
     }
+    await this.reportStudentPayment(appId, payee, payment, outcome, null);
+  }
+
+  /**
+   * Whose fee schedule a payment settled on this application belongs to (TTII
+   * 2026-10-17). A student only when the application is already enrolled —
+   * stage 'enrolled' / converted, or its student already has a live enrolment
+   * in the application's course (an Add Enrolment request). The student is the
+   * one the application links (student_id), else the one whose original
+   * application it is (users.application_id), else the ONE live student with
+   * its email who is enrolled in the course. Never a guess: none or several is
+   * 'unresolved' for an enrolled application, and 'lead' otherwise.
+   */
+  private async resolveEnrolledPayee(app: PayeeApplication): Promise<EnrolledPayee> {
+    const stageEnrolled = app.stage === 'enrolled' || Number(app.is_converted) === 1;
+    const courseId = app.course_id ?? 0;
+    const lead: EnrolledPayee = { kind: 'lead' };
+    const linked = async (userId: number, via: 'student_id' | 'users.application_id'): Promise<EnrolledPayee> => {
+      if (!courseId) return stageEnrolled ? { kind: 'unresolved', reason: 'the application has no course' } : lead;
+      if (stageEnrolled) return { kind: 'student', userId, courseId, via };
+      const enrol = await this.prisma.enrol.findFirst({
+        where: { user_id: userId, course_id: courseId, deleted_at: null },
+        select: { id: true },
+      });
+      return enrol ? { kind: 'student', userId, courseId, via } : lead;
+    };
+
+    if (app.student_id) {
+      const user = await this.prisma.users.findFirst({
+        where: { id: app.student_id, deleted_at: null, role_id: 2 },
+        select: { id: true },
+      });
+      if (user) return linked(user.id, 'student_id');
+      return stageEnrolled
+        ? { kind: 'unresolved', reason: `its linked student (users.id ${app.student_id}) is not a live student account` }
+        : lead;
+    }
+
+    const owners = await this.prisma.users.findMany({
+      where: { application_id: app.id, deleted_at: null, role_id: 2 },
+      select: { id: true },
+      take: 2,
+    });
+    const [owner] = owners;
+    if (owners.length === 1 && owner) return linked(owner.id, 'users.application_id');
+    if (owners.length > 1) return { kind: 'unresolved', reason: 'more than one student account names this application' };
+
+    const email = (app.user_email ?? '').trim();
+    if (email && courseId) {
+      const users = await this.prisma.users.findMany({
+        where: { deleted_at: null, role_id: 2, OR: [{ email }, { user_email: email }] },
+        select: { id: true },
+      });
+      const ids = users.map((u) => u.id);
+      const enrolled = ids.length > 0
+        ? await this.prisma.enrol.findMany({
+            where: { user_id: { in: ids }, course_id: courseId, deleted_at: null },
+            select: { user_id: true },
+          })
+        : [];
+      const candidates = [...new Set(enrolled.map((e) => e.user_id).filter((v): v is number => v != null && v > 0))];
+      const [only] = candidates;
+      if (candidates.length === 1 && only) return { kind: 'student', userId: only, courseId, via: 'email' };
+      if (candidates.length > 1) {
+        return { kind: 'unresolved', reason: `${candidates.length} student accounts with ${email} are enrolled in this course` };
+      }
+    }
+    if (!stageEnrolled) return lead;
+    if (!courseId) return { kind: 'unresolved', reason: 'the application has no course' };
+    return { kind: 'unresolved', reason: email ? `no student account with ${email} is enrolled in this course` : 'the application has no email' };
+  }
+
+  /**
+   * The application ledger write, plus — for an already-enrolled student — the
+   * fee-schedule record, in ONE transaction. `ledgerWrite` runs first (its
+   * UPDATE locks the application row, so a concurrent retry of the same payment
+   * waits for this one to commit) and returns false when its claim matched
+   * nothing; then nothing else is written. Should the schedule write fail, the
+   * ledger is written on its own exactly as before and Finance is told — a
+   * payment is never lost from both.
+   */
+  private async writeLedgerAndStudentPayment(
+    payee: EnrolledPayee,
+    payment: SettledPayment,
+    actor: number | null,
+    now: Date,
+    ledgerWrite: (db: Prisma.TransactionClient | PrismaClient) => Promise<boolean>,
+  ): Promise<{ applied: boolean; outcome: StudentPaymentOutcome | null }> {
+    if (payee.kind !== 'student') return { applied: await ledgerWrite(this.prisma), outcome: null };
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        if (!(await ledgerWrite(tx))) return { applied: false, outcome: null };
+        return { applied: true, outcome: await this.recordSettledPaymentForStudent(tx, payee, payment, actor, now) };
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[recordSettledPayment] fee schedule write failed for user ${payee.userId}, course ${payee.courseId}; writing the application ledger alone:`, message);
+      return {
+        applied: await ledgerWrite(this.prisma),
+        outcome: { kind: 'not_recorded', reason: `the fee schedule could not be updated (${message.slice(0, 200)})` },
+      };
+    }
+  }
+
+  /**
+   * Record settled money in the student's fee schedule: a row with the same
+   * reference means it is already recorded (a webhook retry, a repeated
+   * approval); else the earliest Pending row of the same amount with no payment
+   * against it is marked Paid; else one Paid row is added.
+   */
+  private async recordSettledPaymentForStudent(
+    tx: Prisma.TransactionClient,
+    payee: { userId: number; courseId: number },
+    payment: SettledPayment,
+    actor: number | null,
+    now: Date,
+  ): Promise<StudentPaymentOutcome> {
+    const rupees = ledgerRupees(payment.amountMinor);
+    if (rupees < 1) return { kind: 'not_recorded', reason: 'the amount paid is not known' };
+    const { userId, courseId } = payee;
+    const reference = payment.reference.trim().slice(0, 100);
+    if (reference) {
+      // Any row, deleted ones included, so a row an admin removed is not
+      // re-created by a retry. A locking read sees rows committed after this
+      // transaction began.
+      const existing = await tx.$queryRaw<Array<{ id: number }>>`
+        SELECT id FROM student_payments
+        WHERE user_id = ${userId} AND course_id = ${courseId} AND reference_number = ${reference}
+        LIMIT 1
+        FOR UPDATE`;
+      const [found] = existing;
+      if (found) return { kind: 'exists', rowId: Number(found.id) };
+    }
+    const paidDay = payment.paidDay ?? istCalendarDayUtc(now);
+    const mode = payment.mode.trim().slice(0, 20) || null;
+    const receipt = payment.receiptUrl.trim().slice(0, 500) || null;
+    const pending = await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT id FROM student_payments
+      WHERE user_id = ${userId} AND course_id = ${courseId} AND deleted_at IS NULL
+        AND (status IS NULL OR LOWER(TRIM(status)) IN ('', 'pending', 'overdue', 'due'))
+        AND NULLIF(paid_date, '0000-00-00') IS NULL
+        AND COALESCE(TRIM(reference_number), '') = ''
+        AND COALESCE(TRIM(receipt_url), '') = ''
+        AND amount = ${rupees}
+      ORDER BY NULLIF(due_date, '0000-00-00') IS NULL, NULLIF(due_date, '0000-00-00') ASC, id ASC
+      LIMIT 1
+      FOR UPDATE`;
+    const [target] = pending;
+    if (target) {
+      await tx.student_payments.updateMany({
+        where: { id: Number(target.id), deleted_at: null },
+        data: {
+          status: 'Paid',
+          paid_date: paidDay,
+          payment_mode: mode,
+          reference_number: reference || null,
+          ...(receipt ? { receipt_url: receipt } : {}),
+          updated_by: actor,
+          updated_at: now,
+        },
+      });
+      return { kind: 'marked', rowId: Number(target.id), rupees };
+    }
+    await tx.student_payments.createMany({
+      data: [{
+        user_id: userId,
+        course_id: courseId,
+        installment_details: payment.label.trim().slice(0, 200) || 'Course Fee',
+        amount: rupees,
+        status: 'Paid',
+        due_date: null,
+        paid_date: paidDay,
+        payment_mode: mode,
+        reference_number: reference || null,
+        receipt_url: receipt,
+        payment_to: 'ttii',
+        created_by: actor,
+        updated_by: actor,
+        created_at: now,
+        updated_at: now,
+      }],
+    });
+    return { kind: 'inserted', rowId: null, rupees };
+  }
+
+  /** The application timeline entry for a settled payment's fee-schedule
+   *  record: what was recorded, or — for Finance — why nothing was. */
+  private async reportStudentPayment(
+    applicationId: number,
+    payee: EnrolledPayee,
+    payment: SettledPayment,
+    outcome: StudentPaymentOutcome | null,
+    actorUserId: string | null,
+  ): Promise<void> {
+    if (payee.kind === 'lead') return;
+    const rupees = ledgerRupees(payment.amountMinor);
+    const amount = rupees > 0 ? `Rs.${rupees.toLocaleString('en-IN')}` : 'A payment';
+    const reference = payment.reference || 'no reference';
+    const reason = payee.kind === 'unresolved'
+      ? payee.reason
+      : outcome?.kind === 'not_recorded' ? outcome.reason : null;
+    if (reason !== null) {
+      console.error(`[recordSettledPayment] application ${applicationId}: payment ${reference} was not added to a fee schedule: ${reason}`);
+      await this.recordEvent(
+        applicationId,
+        'student_payment_unrecorded',
+        `${amount} (${reference}) is recorded on this application but NOT in the student's fee schedule: ${reason}. Finance: add it as a Paid instalment for the right student.`.slice(0, 500),
+        actorUserId,
+        { reason, amount_minor: payment.amountMinor, reference: payment.reference, label: payment.label },
+      );
+      return;
+    }
+    if (payee.kind !== 'student' || !outcome || outcome.kind === 'exists' || outcome.kind === 'not_recorded') return;
+    await this.recordEvent(
+      applicationId,
+      'student_payment_recorded',
+      `${amount} recorded as Paid in the student's fee schedule (${payment.label})${outcome.kind === 'marked' ? ', against its Pending instalment' : ''}.`.slice(0, 500),
+      actorUserId,
+      {
+        user_id: payee.userId,
+        course_id: payee.courseId,
+        via: payee.via,
+        row_id: outcome.rowId,
+        matched_pending_row: outcome.kind === 'marked',
+        amount: outcome.rupees,
+        reference: payment.reference,
+      },
+    );
   }
 
   // Phase E (Naji 2026-05-05): approval + enrolment.
@@ -15934,6 +16321,10 @@ export class OperationsService {
         biography: sourceApp?.biography ?? null,
         learning_disabilities: sourceApp?.learning_disabilities ?? null,
         accessibility_needs: sourceApp?.accessibility_needs ?? null,
+        // TTII 2026-10-17 — linked to the student from the start, so a payment
+        // on this application is recorded in THEIR fee schedule and no other
+        // student's lookup can match it by email.
+        student_id: student.id,
         // Enrolment-specific (new) fields
         course_id: courseIdInt,
         offering_id: offeringPk,
@@ -17371,6 +17762,29 @@ export class OperationsService {
     return { status: 1, message: 'Installment updated successfully.' };
   }
 
+  /** The course's own application, when its payment link can still be paid
+   *  (TTII 2026-10-17) — resolved exactly as the plan tool and the student
+   *  portal resolve it. */
+  private async openPaymentLinkForCourse(
+    userId: number,
+    courseId: number,
+  ): Promise<{ applicationId: number; applicationCode: string; message: string } | null> {
+    const student = await this.prisma.users.findFirst({
+      where: { id: userId, deleted_at: null, role_id: 2 },
+      select: { id: true, user_email: true, application_id: true },
+    });
+    if (!student) return null;
+    const pricing = await loadCoursePricing(this.prisma, student, [courseId], { withCourseFacts: false });
+    const app = pricing.get(courseId)?.application ?? null;
+    if (!app || !paymentLinkOpen(app, new Date())) return null;
+    const code = app.applicationCode || `#${app.id}`;
+    return {
+      applicationId: app.id,
+      applicationCode: code,
+      message: openLinkMessage(code, app.paymentLinkExpiresAt ? istToday(app.paymentLinkExpiresAt) : ''),
+    };
+  }
+
   // Naji 2026-07-06 — holistic schedule editing: admins can add an ad-hoc
   // installment to a student's plan (e.g. an extra collection) and delete a
   // wrong row. user_id is users.id (NOT applications.id) and course_id scopes
@@ -17390,9 +17804,24 @@ export class OperationsService {
     if (!userId) return { status: 0, message: 'Student is required.' };
     if (!courseId) return { status: 0, message: 'Course is required to add an installment.' };
 
+    // TTII 2026-10-17 — while the course's own application has a payment link
+    // that can still be paid, a hand-added instalment is a second way to
+    // charge (or record) the same fee: refuse, whatever the status, until the
+    // link is cancelled, paid (then recorded automatically) or expired.
+    const openLink = await this.openPaymentLinkForCourse(userId, courseId);
+    if (openLink) {
+      return {
+        status: 0,
+        code: 'payment_link_open',
+        message: openLink.message,
+        data: { application_id: openLink.applicationId, application_code: openLink.applicationCode },
+      };
+    }
+
     const amountN = Number(input.amount);
     const dueRaw = (input.dueDate ?? '').trim();
     const paidRaw = (input.paidDate ?? '').trim();
+    const status = (input.status ?? '').trim() || 'Pending';
     await this.prisma.student_payments.create({
       data: {
         user_id: userId,
@@ -17401,8 +17830,10 @@ export class OperationsService {
         // raw driver error to the admin UI (the UI also caps the input at 200).
         installment_details: (input.installmentDetails ?? '').trim().slice(0, 200) || null,
         amount: Number.isFinite(amountN) && amountN >= 0 ? Math.round(amountN) : 0,
+        // Only what the admin chose — never a default: the payment plan tool
+        // treats a Pending row with a mode as a payment already recorded.
         payment_mode: (input.paymentMode ?? '').trim() || null,
-        status: (input.status ?? '').trim() || 'Pending',
+        status,
         due_date: dueRaw ? new Date(dueRaw) : null,
         paid_date: paidRaw ? new Date(paidRaw) : null,
         created_by: toNullableIntId(actorUserId),
