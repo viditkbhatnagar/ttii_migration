@@ -2387,6 +2387,9 @@ export class OperationsService {
       }
     }
 
+    // Join the intake's single course-wide cohort, when it has one (TTII 2026-10-21).
+    await this.autoAssignIntakeCohort({ userId: created.studentUserId, offeringId: application.offering_id, applicationId: toIntId(applicationId), actorUserId });
+
     // Enrolment-confirmed email + audit trail (mirror the admin Approve fan-out).
     // Best-effort: a notification failure must never fail the conversion itself.
     try {
@@ -7447,6 +7450,58 @@ export class OperationsService {
         image: toLegacyFileUrl(u.image) || toLegacyFileUrl(u.profile_picture),
       };
     }) as unknown as SqlRow[];
+  }
+
+  /**
+   * TTII 2026-10-21 — a student approved into an intake joins that intake's
+   * cohort automatically, but ONLY when the intake (offering) is linked to
+   * exactly one live cohort and it is a course-wide cohort (no subject) that has
+   * not ended. That is the AI courses' shape (one cohort per intake); subject-wise
+   * Montessori cohorts are joined over time and stay a manual choice. Before
+   * this, approval never touched cohort_students, so AMINA C (TTS0125) was
+   * enrolled into the October Early Years intake and saw no live classes or
+   * recordings. Only ever ADDS, is idempotent, and never blocks the enrolment.
+   */
+  async autoAssignIntakeCohort(input: {
+    userId: number;
+    offeringId: number | null | undefined;
+    applicationId: number | null;
+    actorUserId: string | null;
+  }): Promise<{ assigned: boolean; cohortId?: number; reason?: string }> {
+    const offeringId = Number(input.offeringId ?? 0);
+    if (!input.userId || !Number.isInteger(offeringId) || offeringId <= 0) return { assigned: false, reason: 'no intake' };
+    try {
+      const links = await this.prisma.cohort_offerings.findMany({ where: { offering_id: offeringId }, select: { cohort_id: true } });
+      const cohortIds = [...new Set(links.map((l) => l.cohort_id))];
+      if (cohortIds.length === 0) return { assigned: false, reason: 'intake has no cohort' };
+      const cohorts = await this.prisma.cohorts.findMany({
+        where: { id: { in: cohortIds }, deleted_at: null },
+        select: { id: true, cohort_id: true, subject_id: true, end_date: true, title: true },
+      });
+      if (cohorts.length !== 1) return { assigned: false, reason: `intake has ${cohorts.length} cohorts` };
+      const [cohort] = cohorts;
+      if (!cohort || cohort.subject_id !== null) return { assigned: false, reason: 'the cohort is subject-wise' };
+      // @db.Date end_date is a UTC-midnight date; compare with today's IST date.
+      const istNow = new Date(Date.now() + 330 * 60 * 1000);
+      const todayUtc = Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate());
+      if (cohort.end_date instanceof Date && cohort.end_date.getTime() < todayUtc) return { assigned: false, reason: 'the cohort has ended' };
+      const keys = [String(cohort.id), ...(cohort.cohort_id ? [cohort.cohort_id] : [])];
+      const already = await this.prisma.cohort_students.count({ where: { user_id: input.userId, deleted_at: null, cohort_id: { in: keys } } });
+      if (already > 0) return { assigned: false, cohortId: cohort.id, reason: 'already in the cohort' };
+      const now = new Date();
+      const actor = input.actorUserId ? toNullableIntId(input.actorUserId) : null;
+      // Same row shape as addCohortLearners (cohort_id holds the pk as a string).
+      await this.prisma.cohort_students.create({
+        data: { cohort_id: String(cohort.id), user_id: input.userId, created_at: now, updated_at: now, created_by: actor, updated_by: actor },
+      });
+      if (input.applicationId) {
+        await this.recordEvent(input.applicationId, 'cohort_assigned', `Added to cohort ${cohort.title ?? cohort.id}, the only cohort of this intake`, input.actorUserId, { cohort_id: cohort.id, user_id: input.userId });
+      }
+      return { assigned: true, cohortId: cohort.id };
+    } catch (err) {
+      console.error('[autoAssignIntakeCohort] failed:', err instanceof Error ? err.message : err);
+      return { assigned: false, reason: 'error' };
+    }
   }
 
   // Naji UAT 2026-05-14 — bulk-assign students to a cohort. Each row in
@@ -13930,6 +13985,7 @@ export class OperationsService {
       select: {
         id: true, stage: true, name: true, user_email: true, phone: true, course_id: true, biography: true, verification: true,
         payment_plan: true, payment_status: true, payment_marked_paid_at: true, enrollment_status: true, mode_of_study: true,
+        offering_id: true,
       },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
@@ -14093,6 +14149,9 @@ export class OperationsService {
     } catch (err) {
       console.error('[adminApproveApplication] payment materialization failed:', err instanceof Error ? err.message : err);
     }
+
+    // Join the intake's single course-wide cohort, when it has one (TTII 2026-10-21).
+    await this.autoAssignIntakeCohort({ userId: student.id, offeringId: app.offering_id, applicationId: id, actorUserId });
 
     // Course welcome email — skipped here for the existing student
     // case; new students already received the credentials email above.
@@ -16420,6 +16479,8 @@ export class OperationsService {
         select: { id: true, enrollment_id: true },
       });
       enrolRow = enrol;
+      // Join the intake's single course-wide cohort, when it has one (TTII 2026-10-21).
+      await this.autoAssignIntakeCohort({ userId: student.id, offeringId: offeringPk, applicationId: created.id, actorUserId });
     }
 
     // Optional payment-link generation (admin + counsellor/associate
