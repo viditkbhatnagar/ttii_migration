@@ -21,6 +21,8 @@ import { EnrolmentFeePlanService } from '../operations/enrolment-fee-plan-servic
 import type { CounsellorTeamsService } from '../operations/counsellor-teams-service.js';
 import type { CounsellorGroupsService } from '../operations/counsellor-groups-service.js';
 import { registerCounsellorTeamsRoutes } from './counsellor-teams-routes.js';
+import { registerCentreProfileRoutes } from './centre-profile-routes.js';
+import { CentreProfileService } from '../operations/centre-profile-service.js';
 import { AssociateAdminService } from '../operations/associate-admin-service.js';
 import { ASSOCIATE_STUDENT_TABS, type AssociateStudentTab } from '../operations/associate-admin-model.js';
 import {
@@ -4931,6 +4933,16 @@ export function registerOperationsRoutes(
   });
 
   // ─── Phase D: Centres Feature ───────────────────────────────────────────────
+
+  // Centres v2 (Naji 2026-10-22) — Centre Directory dialog + Centre Profile 360
+  // (centre-profile-routes.ts). Admin/Subadmin only: the profile carries KYC
+  // and bank details. Cohorts reuse the Cohorts list feed.
+  registerCentreProfileRoutes(app, {
+    requireAuth,
+    requireAdminOnlyRole,
+    ...(options.centreProfileService instanceof CentreProfileService ? { service: options.centreProfileService } : {}),
+    loadCohorts: (centreId) => operationsService.listAdminCohorts({ centreId: String(centreId) }),
+  });
 
   app.get('/admin/centres/get', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
