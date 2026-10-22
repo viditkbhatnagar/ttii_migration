@@ -30,6 +30,7 @@ import { toEmbeddableVideoUrl } from '../../lib/video-embed.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asBoolean } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
+import { httpUrlOrEmpty } from '../../../lib/safe-url.js';
 
 type LiveTab = 'upcoming' | 'ongoing' | 'past';
 
@@ -359,7 +360,7 @@ function LiveClassCard({
   const date = formatLiveDate(asString(row.date));
   const fromTime = shortTime(asString(row.from_time));
   const toTime = shortTime(asString(row.to_time));
-  const joinUrl = asString(row.join_url);
+  const joinUrl = httpUrlOrEmpty(row.join_url);
   const timeRange = [fromTime, toTime].filter(Boolean).join(' – ');
   const duration = formatDuration(asString(row.from_time), asString(row.to_time));
   const sinceStart = isOngoing ? startedAgo(asString(row.from_time)) : '';

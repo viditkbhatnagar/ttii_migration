@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import type { PrismaClient, $Enums } from '@prisma/client';
 
 import { hashPassword } from '../auth/password.js';
+import { validJoinUrl } from './live-class-join-url.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { normaliseQuestionText, shapeChanged, toArray, validateQuestionShape, type QuestionShape } from './question-rules.js';
 import { questionBankCourseScope, questionUsage, type QuestionUsage } from './question-usage.js';
@@ -3322,9 +3323,16 @@ export class OperationsService {
     }
 
     const centreId = scope === 'centre' ? await this.resolveActorCentreId(actorUserId) : '';
+    // A centre login with no centre must not fall through to an unscoped cohort lookup.
+    if (scope === 'centre' && !centreId) {
+      return {
+        success: false,
+        message: 'Centre is not assigned for current user.',
+      };
+    }
 
     const cohortWhere: Record<string, unknown> = { id: toIntId(cohortIdStr), deleted_at: null };
-    if (scope === 'centre' && centreId) {
+    if (scope === 'centre') {
       cohortWhere.centre_id = toIntId(centreId);
     }
     // Ownership: an instructor may only add sessions to cohorts assigned to them
@@ -3388,6 +3396,9 @@ export class OperationsService {
     if (platform === 'manual' || platform === 'other') {
       if (!input.manualJoinUrl || !input.manualJoinUrl.trim()) {
         return { success: false, message: 'Manual/External platform selected but no meeting URL provided.' };
+      }
+      if (!validJoinUrl(input.manualJoinUrl)) {
+        return { success: false, message: 'Enter a valid meeting link starting with http:// or https:// (up to 1000 characters).' };
       }
     }
 
@@ -3477,7 +3488,7 @@ export class OperationsService {
             ];
           }
         } else if (platform === 'manual' || platform === 'other') {
-          joinUrl = input.manualJoinUrl ?? null;
+          joinUrl = validJoinUrl(input.manualJoinUrl);
         }
 
         await this.prisma.live_class.create({

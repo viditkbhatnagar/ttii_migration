@@ -1,3 +1,4 @@
+import { httpUrlOrEmpty } from '../../../../lib/safe-url.js';
 import { asNumber, asString } from '../../../shared/utils/admin-data-utils.js';
 import { dayMonthYear, hhmmOf, to12h, ymdOf } from '../list-model.js';
 
@@ -39,7 +40,7 @@ export function toSessionView(s: Record<string, unknown>): SessionView {
   const id = asString(s.id) || asString(s._id);
   const platform = asString(s.platform).toLowerCase();
   const zoomId = asString(s.zoom_id);
-  const joinUrl = asString(s.join_url);
+  const joinUrl = httpUrlOrEmpty(s.join_url);
   const hostEmail = asString(s.host_email);
   const from = to12h(hhmmOf(asString(s.from_time) || asString(s.fromTime)));
   const to = to12h(hhmmOf(asString(s.to_time) || asString(s.toTime)));

@@ -1,4 +1,5 @@
 import { type AuthSession, type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
+import { httpUrlOrEmpty } from '../lib/safe-url.js';
 
 /**
  * Instructor portal API client. Thin wrapper over the shared legacy API
@@ -268,7 +269,7 @@ function asLiveClassRow(input: unknown): InstructorDashboardLiveClass {
     status: asString(row.status),
     cohortId: row.cohortId == null ? null : asNumber(row.cohortId),
     cohortTitle: asNullableString(row.cohortTitle),
-    joinUrl: asNullableString(row.joinUrl),
+    joinUrl: httpUrlOrEmpty(row.joinUrl) || null,
     recordingUrl: asNullableString(row.recordingUrl),
     recordingStorageKey: asNullableString(row.recordingStorageKey),
   };

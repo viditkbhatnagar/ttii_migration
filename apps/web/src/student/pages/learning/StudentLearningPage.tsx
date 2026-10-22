@@ -48,6 +48,7 @@ import { ExamPlayer } from '../../components/ExamPlayer.js';
 import { toEmbeddableVideoUrl } from '../../lib/video-embed.js';
 import { RecommendedCourseCard } from '../../components/RecommendedCourseCard.js';
 import { EnrollPathModal } from '../../components/EnrollPathModal.js';
+import { httpUrlOrEmpty } from '../../../lib/safe-url.js';
 
 // Map file type → icon. Naji 2026-05-04 / 05-05: every content type
 // should look distinct. PDF and article were sharing FileText so they
@@ -2320,7 +2321,7 @@ function LiveClassRow({
   const subject = asString(row.subject_title);
   const cohortCode = normalizeCohortCode(asString(row.cohort_code));
   const instructor = asString(row.instructor_name);
-  const joinUrl = asString(row.join_url);
+  const joinUrl = httpUrlOrEmpty(row.join_url);
   const recordingUrl = asString(row.recording_url);
   const status = asString(row.status);
   const hasRecording = row.has_recording === true && Boolean(recordingUrl);
