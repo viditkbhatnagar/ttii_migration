@@ -20,6 +20,9 @@ import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 import { allocateEnrollmentId } from './enrolment-id.js';
+import { nextCentreCode } from './centre-code.js';
+import { createCentreInTx, emailCentreCredentials } from './centre-create.js';
+import { NOT_SET_UP_MESSAGE as CENTRE_DETAILS_NOT_SET_UP, isMissingTable as isCentreTableMissing, locationName } from './centre-profile-model.js';
 import { feeWithScheduleFallback, istToday, openLinkMessage, ownPlanFee, usesOwnFeePlan } from './enrolment-fee-model.js';
 import { agreedPayableByCourse, agreedPayableByStudentCourse, loadCoursePricing } from './enrolment-fee-data.js';
 // Type-only — the runtime modules stay lazily imported so MSAL is never loaded
@@ -2710,8 +2713,15 @@ export class OperationsService {
 
     return allCentres.map(c => {
       const linked = userByCentre.get(String(c.id));
+      // Centres v2 (2026-10-22): the legacy PHP `password` column never leaves
+      // the server. Location NAMES are read from the Text columns; the numeric
+      // ids legacy rows hold name nothing and come back as ''.
+      const { password: _password, ...centre } = c;
       return {
-        ...c,
+        ...centre,
+        country_name: locationName(c.country_id),
+        state_name: locationName(c.state_id),
+        district_name: locationName(c.district_id),
         students_count: countMap.get(c.id) ?? 0,
         linked_user_id: linked?.id ?? null,
         linked_user_email: linked?.user_email ?? c.email ?? null,
@@ -2720,8 +2730,6 @@ export class OperationsService {
   }
 
   async addCentre(actorUserId: string, input: CentreInput): Promise<Record<string, unknown>> {
-    const now = new Date();
-
     const duplicateCount = await this.prisma.centres.count({
       where: {
         deleted_at: null,
@@ -2739,79 +2747,47 @@ export class OperationsService {
       };
     }
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      const latestCentre = await tx.centres.findFirst({
-        where: { deleted_at: null },
-        orderBy: { id: 'desc' },
-        select: { centre_id: true },
-      });
-      const nextCentreCode = toInteger(latestCentre?.centre_id) + 1;
-
-      const centre = await tx.centres.create({
-        data: {
-          centre_id: String(nextCentreCode),
-          centre_name: input.centreName,
-          contact_person: input.contactPerson,
-          country_code: input.countryCode,
+    // Centres v2 (2026-10-22): one way to create a centre, shared with the
+    // Centre Directory dialog (centre-profile-service) and onboarding — the
+    // next TTC#### code (centre-code.ts; this used to write plain numbers while
+    // answering TTC####), the centre_kyc row and the role-7 login in one
+    // transaction, and the credentials emailed only AFTER it commits.
+    let created: { centreId: number; centreCode: string; tempPassword: string };
+    try {
+      created = await this.prisma.$transaction(async (tx) => {
+        const centreCode = await nextCentreCode(tx);
+        return createCentreInTx(tx, {
+          centreCode,
+          centreName: input.centreName,
+          contactPerson: input.contactPerson,
+          countryCode: input.countryCode,
           phone: input.phone,
-          whatsapp: input.phone,
-          secondary_phone: '',
           email: input.email,
           address: input.address,
-          date_of_registration: toNullableString(input.registrationDate),
-          date_of_expiry: toNullableString(input.expiryDate),
-          wallet_balance: '0',
-          created_by: toIntId(actorUserId),
-          updated_by: toIntId(actorUserId),
-          created_at: now,
-          updated_at: now,
-        },
+          registrationDate: toNullableString(input.registrationDate),
+          expiryDate: toNullableString(input.expiryDate),
+          kyc: { logo: input.image?.trim() || null },
+          actorUserId: toIntId(actorUserId) || null,
+        });
       });
+    } catch (error: unknown) {
+      // createCentreInTx writes centre_kyc, which exists only after the 2026-10-22 migration.
+      if (isCentreTableMissing(error)) return { status: 0, message: CENTRE_DETAILS_NOT_SET_UP };
+      throw error;
+    }
 
-      // Generate a secure temp password and email it to the centre admin.
-      // The admin-supplied password / "Centre@1234" fallback are no longer
-      // used (per Naji's QA round 2026-04-30).
-      const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
-      const creds = await issueAndEmailCredentials({
-        name: input.contactPerson || input.centreName,
-        email: input.email,
-        roleLabel: 'Centre admin',
-      });
-
-      await tx.users.create({
-        data: {
-          name: input.centreName,
-          user_email: input.email,
-          country_code: input.countryCode,
-          phone: input.phone,
-          role_id: 7,
-          centre_id: String(centre.id),
-          password: creds.hashedPassword,
-          status: 1,
-          gender: '',
-          dynamic_link: '',
-          image: input.image?.trim() ?? '',
-          profile_picture: input.image?.trim() ?? '',
-          application_id: 0,
-          created_by: toIntId(actorUserId),
-          updated_by: toIntId(actorUserId),
-          created_at: now,
-          updated_at: now,
-        },
-      });
-
-      return {
-        centreDbId: centre.id,
-        centreCode: `TTC${String(nextCentreCode).padStart(4, '0')}`,
-      };
-    });
+    const sent = await emailCentreCredentials(
+      { contactPerson: input.contactPerson, centreName: input.centreName, email: input.email },
+      created.tempPassword,
+    );
 
     return {
       status: 1,
       message: 'Centre Added Successfully!',
       data: {
-        centre_id: created.centreDbId,
+        centre_id: created.centreId,
         centre_code: created.centreCode,
+        email_delivered: sent.emailDelivered,
       },
     };
   }
@@ -17028,12 +17004,14 @@ export class OperationsService {
         })
       : 0;
 
+    // Centres v2 (2026-10-22): the legacy PHP `password` column never leaves the server.
+    const { password: _password, ...safeCentre } = centre;
     return {
       status: 1,
       message: 'success',
       data: {
         centre: {
-          ...centre,
+          ...safeCentre,
           students_count: studentCount,
           fund_request_count: fundRequestCount,
         },
