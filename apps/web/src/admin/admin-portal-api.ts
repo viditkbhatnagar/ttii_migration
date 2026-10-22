@@ -2156,6 +2156,67 @@ export class AdminPortalApi {
     return payload.message ?? 'Team removed.';
   }
 
+  // Centres v2 (Naji 2026-10-22) — Centre Onboarding + Affiliation & Agreements
+  // (apps/api/src/routes/centre-onboarding-routes.ts). Admin / Subadmin only.
+  // Reads resolve to the raw `data` (parsed by pages/centres/onboarding/*-model.ts);
+  // refusals ({ status: 0, message }) throw an ApiError carrying the message.
+
+  async loadCentreOnboarding(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/onboarding/index', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+  async loadCentreOnboardingRecord(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/onboarding/view', authToken, { id });
+    return asRecord(payload.data) ?? {};
+  }
+  async checkCentreLeadDuplicates(authToken: string, query: { email: string; mobile: string; excludeId: string }): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/onboarding/duplicates', authToken, {
+      email: query.email, mobile: query.mobile, exclude_id: query.excludeId,
+    });
+    return asRecord(payload.data) ?? {};
+  }
+  async loadAffiliationNumbers(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/onboarding/next_numbers', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+  async centreOnboardingAction(
+    authToken: string,
+    action: 'create' | 'update' | 'send_link' | 'expire_link' | 'verify' | 'approve' | 'request_changes' | 'reject' | 'reopen' | 'upload_agreement' | 'complete',
+    body: Record<string, unknown>,
+  ): Promise<{ message: string; data: Record<string, unknown> }> {
+    const payload = await this.post<LegacyEnvelope<unknown>>(`/admin/centres/onboarding/${action}`, authToken, body);
+    return { message: payload.message ?? 'Saved.', data: asRecord(payload.data) ?? {} };
+  }
+  async loadAffiliation(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/affiliation/index', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+  async affiliationAction(
+    authToken: string,
+    action: 'mark_fee_paid' | 'regenerate_pdf',
+    body: Record<string, unknown>,
+  ): Promise<{ message: string; data: Record<string, unknown> }> {
+    const payload = await this.post<LegacyEnvelope<unknown>>(`/admin/centres/affiliation/${action}`, authToken, body);
+    return { message: payload.message ?? 'Saved.', data: asRecord(payload.data) ?? {} };
+  }
+  /** The signed agreement PDF (max 10 MB), checked by content on the server. */
+  async uploadCentreAgreementFile(authToken: string, onboardingId: string, file: File): Promise<{ url: string; name: string; sig: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const url = `${this.apiClient.getBaseUrl()}admin/centres/onboarding/agreement_file?id=${encodeURIComponent(onboardingId)}&auth_token=${encodeURIComponent(authToken)}`;
+    const response = await fetch(url, { method: 'POST', body: formData });
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!response.ok || !contentType.includes('application/json')) {
+      throw new Error(response.status === 413 ? 'Max 10 MB' : `Upload failed (${response.status}). Please try again.`);
+    }
+    const payload = (await response.json()) as Record<string, unknown>;
+    const data = asRecord(payload.data) ?? {};
+    if (payload.status !== 1 || typeof data.url !== 'string') {
+      throw new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Upload failed');
+    }
+    return { url: data.url, name: typeof data.name === 'string' ? data.name : file.name, sig: typeof data.sig === 'string' ? data.sig : '' };
+  }
+
   // TTII 2026-10-12 — Associate Management in Naji's design
   // (apps/api/src/operations/associate-admin-service.ts + associate-communications-service.ts).
   // The pages parse these payloads with pages/associates/associate-mgmt-model.ts.

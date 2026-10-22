@@ -13,7 +13,7 @@ import {
   type RoleRouteDefinition,
 } from '@ttii/frontend-core';
 import { InlineNotice, MetricCard, PortalScaffold, ShellCard } from '@ttii/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { ConfirmDialogProvider } from '@/components/confirm-dialog';
@@ -37,6 +37,8 @@ import ForgotPasswordFlow from './auth/ForgotPasswordFlow.js';
 import { SsoButtons } from './auth/SsoButtons.js';
 import { SsoCompleteProfileModal } from './auth/SsoCompleteProfileModal.js';
 import PublicApplyPage from './public/PublicApplyPage.js';
+// Centres v2 (2026-10-22): the public centre application form, loaded on demand.
+const CentreFormPage = lazy(() => import('./public/centre-form/CentreFormPage.js'));
 
 interface ShellMetric {
   label: string;
@@ -1100,23 +1102,37 @@ function PortalRouter({
   const applyToken = isPublicApply
     ? (pathname.slice('/apply/'.length).split('/')[0] ?? '')
     : '';
+  // Centres v2 (2026-10-22): the centre application form link, same idea —
+  // a tokenised URL, no login, served on whichever host the link names.
+  const isCentreForm = pathname.startsWith('/centre-form/');
+  const centreFormToken = isCentreForm
+    ? (pathname.slice('/centre-form/'.length).split('/')[0] ?? '')
+    : '';
 
   // On subdomain, redirect root or wrong-portal paths to the correct portal —
   // but ONLY when the user is authenticated. Otherwise let `/` render the
   // login form; auto-redirecting an unauthenticated user to a protected path
   // lands them on the "Login required" guard screen instead of a login form.
   useEffect(() => {
-    if (isPublicApply) return;
+    if (isPublicApply || isCentreForm) return;
     if (!subdomainPortal) return;
     if (!session) return;
     const redirect = getSubdomainRedirectPath(subdomainPortal, pathname);
     if (redirect) {
       navigateTo(redirect);
     }
-  }, [isPublicApply, subdomainPortal, pathname, session]);
+  }, [isPublicApply, isCentreForm, subdomainPortal, pathname, session]);
 
   if (isPublicApply) {
     return <PublicApplyPage token={applyToken} />;
+  }
+
+  if (isCentreForm) {
+    return (
+      <Suspense fallback={<StudentLoader />}>
+        <CentreFormPage token={centreFormToken} />
+      </Suspense>
+    );
   }
 
   // Forgot Password flow — role_id is forwarded so multi-role accounts
