@@ -1,260 +1,85 @@
-import { useState } from 'react';
-import { toast } from 'sonner';
-import { MetricCard } from '@ttii/ui';
+import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../../admin/shared/components/AdminDataTable.js';
-import { AdminTabBar, type AdminTab } from '../../../admin/shared/components/AdminTabBar.js';
-import { AdminStatusBadge } from '../../../admin/shared/components/AdminStatusBadge.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asString, formatDate, formatCurrency, messageFromError } from '../../../admin/shared/utils/admin-data-utils.js';
+import { messageFromError } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CentrePageProps } from '../../routing/centre-routes.js';
-import type { CentreWalletSnapshot } from '../../centre-portal-api.js';
+import { CentrePageHeader, NoticeCard } from '../kit/page-kit.js';
+import { useQueryParams } from '../kit/use-query-params.js';
+import { CollectionDetailView } from './CollectionDetailView.js';
+import { FundRequestsTab } from './FundRequestsTab.js';
+import { RequestFundsDialog } from './RequestFundsDialog.js';
+import { WalletCollectionsTab } from './WalletCollectionsTab.js';
+import { WalletLedgerTab } from './WalletLedgerTab.js';
+import { WalletOverviewTab } from './WalletOverviewTab.js';
+import { WALLET_TABS, parseWalletTab, toCollectionDetail, toCollectionsView, toWalletLedgerView, type WalletTab } from './wallet-model.js';
 
-const fundRequestColumns: DataTableColumn[] = [
-  {
-    key: 'amount',
-    label: 'Amount',
-    sortable: true,
-    render: (value) => formatCurrency(value),
-  },
-  {
-    key: 'date',
-    label: 'Date',
-    sortable: true,
-    render: (value, row) => formatDate(value || row.created_at),
-  },
-  { key: 'transaction_no', label: 'Transaction No', sortable: true },
-  {
-    key: 'status',
-    label: 'Status',
-    sortable: true,
-    render: (value) => <AdminStatusBadge status={asString(value) || 'pending'} />,
-  },
-  { key: 'description', label: 'Description' },
-];
-
-const transactionColumns: DataTableColumn[] = [
-  {
-    key: 'txn_type',
-    label: 'Type',
-    render: (value) => {
-      const type = asString(value);
-      return (
-        <span
-          className={
-            type === 'Credit'
-              ? 'rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700'
-              : 'rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700'
-          }
-        >
-          {type}
-        </span>
-      );
-    },
-  },
-  {
-    key: 'amount',
-    label: 'Amount',
-    sortable: true,
-    render: (value) => formatCurrency(value),
-  },
-  {
-    key: 'date',
-    label: 'Date',
-    sortable: true,
-    render: (value, row) => formatDate(value || row.created_at),
-  },
-  { key: 'description', label: 'Description' },
-];
-
-const tabs: AdminTab[] = [
-  { id: 'all', label: 'All' },
-  { id: 'pending', label: 'Pending' },
-  { id: 'approved', label: 'Approved' },
-  { id: 'rejected', label: 'Rejected' },
-];
-
+/** Wallet & Payment. ?tab=collections|ledger|fund-requests, ?new=1 opens Request Funds, ?student=<key> opens a fee detail. */
 export default function CentreWalletPage({ api, session }: CentrePageProps) {
-  const { data, loading, error, reload } = useAdminPageData<CentreWalletSnapshot>(
-    () => api.loadWallet(session.token),
-    [session.token],
+  const [params, setParams] = useQueryParams();
+  const tab = parseWalletTab(params.get('tab'));
+  const studentKey = params.get('student') ?? '';
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const ledger = useAdminPageData(async () => toWalletLedgerView(await api.loadWalletLedger(session.token)), [session.token]);
+  const collections = useAdminPageData(async () => toCollectionsView(await api.loadWalletCollections(session.token)), [session.token]);
+  const detail = useAdminPageData(
+    async () => (studentKey ? toCollectionDetail(await api.loadWalletCollection(session.token, studentKey)) : null),
+    [session.token, studentKey],
   );
 
-  const [activeTab, setActiveTab] = useState('all');
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [fundAmount, setFundAmount] = useState('');
-  const [fundTxnRef, setFundTxnRef] = useState('');
-  const [fundDescription, setFundDescription] = useState('');
+  const wantsNew = params.get('new') === '1';
+  useEffect(() => {
+    if (!wantsNew) return;
+    setDialogOpen(true);
+    setParams({ new: null, student: null, tab: 'fund-requests' });
+  }, [wantsNew, setParams]);
 
-  const handleAddFundRequest = async () => {
-    const amount = Number(fundAmount);
-    if (!amount || amount <= 0) return;
-    try {
-      await api.addFundRequest(session.token, {
-        amount,
-        transactionNo: fundTxnRef.trim() || '',
-        description: fundDescription.trim() || '',
-      });
-      setFundAmount('');
-      setFundTxnRef('');
-      setFundDescription('');
-      setDialogOpen(false);
-      reload();
-    } catch (err: unknown) {
-      toast.error(messageFromError(err));
-    }
-  };
+  const openDialog = () => { setParams({ tab: 'fund-requests', student: null }); setDialogOpen(true); };
+  const closeDetail = () => setParams({ student: null });
 
-  if (loading) {
-    return <PageLoader label="Loading centre wallet..." />;
+  const header = (
+    <CentrePageHeader
+      title="Wallet & Payment"
+      subtitle="Wallet balance, student fee collections and fund requests"
+      actions={<Button className="gap-1.5" onClick={openDialog}><Plus className="h-4 w-4" />Request Funds</Button>}
+    />
+  );
+
+  if (ledger.loading || collections.loading) return <PageLoader label="Loading wallet..." />;
+  const failure = ledger.error || collections.error;
+  if (failure || !ledger.data || !collections.data) {
+    return <div className="space-y-5">{header}<NoticeCard tone="error">{failure || messageFromError(null)}</NoticeCard></div>;
   }
 
-  if (error) {
+  if (studentKey) {
     return (
-      <Card>
-        <CardContent role="alert" className="py-10 text-center text-sm text-red-600">
-          {error}
-        </CardContent>
-      </Card>
+      <div className="space-y-5">
+        {header}
+        {detail.loading && <PageLoader label="Loading payment details..." />}
+        {!detail.loading && (detail.error || !detail.data) && <NoticeCard tone="error">{detail.error || 'Payment record not found.'}</NoticeCard>}
+        {!detail.loading && detail.data && <CollectionDetailView detail={detail.data} onBack={closeDetail} />}
+      </div>
     );
   }
 
-  const wallet = data!;
-
-  const filteredRequests =
-    activeTab === 'all'
-      ? wallet.fundRequests
-      : wallet.fundRequests.filter(
-          (r) => asString(r.status).toLowerCase() === activeTab,
-        );
-
-  const tabsWithCounts: AdminTab[] = tabs.map((tab) => ({
-    ...tab,
-    count:
-      tab.id === 'all'
-        ? wallet.fundRequests.length
-        : wallet.fundRequests.filter(
-            (r) => asString(r.status).toLowerCase() === tab.id,
-          ).length,
-  }));
-
-  const transactions = [
-    ...wallet.credits.map((c) => ({ ...c, txn_type: 'Credit' })),
-    ...wallet.debits.map((d) => ({ ...d, txn_type: 'Debit' })),
-  ];
-
   return (
-    <div className="space-y-6">
-      <AdminPageHeader
-        title="Wallet"
-        addLabel="+ Request Fund"
-        onAdd={() => setDialogOpen(true)}
-      />
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Request Fund</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label>Amount</Label>
-              <Input
-                type="number"
-                value={fundAmount}
-                onChange={(e) => setFundAmount(e.target.value)}
-                placeholder="Enter amount"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Transaction Reference</Label>
-              <Input
-                value={fundTxnRef}
-                onChange={(e) => setFundTxnRef(e.target.value)}
-                placeholder="Enter transaction reference"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Input
-                value={fundDescription}
-                onChange={(e) => setFundDescription(e.target.value)}
-                placeholder="Enter description"
-              />
-            </div>
-            <Button
-              className="w-full bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={() => void handleAddFundRequest()}
-            >
-              Submit Request
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Metric cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border-l-4 border-blue-500">
-          <MetricCard
-            label="Balance"
-            value={formatCurrency(wallet.walletBalance)}
-            tone="info"
-          />
-        </div>
-        <div className="rounded-xl border-l-4 border-green-500">
-          <MetricCard
-            label="Total Credits"
-            value={formatCurrency(wallet.totalCredits)}
-            tone="success"
-          />
-        </div>
-        <div className="rounded-xl border-l-4 border-amber-500">
-          <MetricCard
-            label="Total Debits"
-            value={formatCurrency(wallet.totalDebits)}
-            tone="warning"
-          />
-        </div>
-        <div className="rounded-xl border-l-4 border-gray-400">
-          <MetricCard
-            label="Fund Requests"
-            value={String(wallet.fundRequests.length)}
-            tone="neutral"
-          />
-        </div>
-      </div>
-
-      {/* Fund requests */}
-      <div>
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">Fund Requests</h2>
-        <AdminTabBar tabs={tabsWithCounts} activeTab={activeTab} onChange={setActiveTab} />
-        <AdminDataTable
-          columns={fundRequestColumns}
-          rows={filteredRequests}
-          pageSize={10}
-        />
-      </div>
-
-      {/* Transaction history */}
-      <div>
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">Transaction History</h2>
-        <AdminDataTable
-          columns={transactionColumns}
-          rows={transactions}
-          pageSize={10}
-        />
-      </div>
+    <div className="space-y-5">
+      {header}
+      <Tabs value={tab} onValueChange={(v) => setParams({ tab: v === 'overview' ? null : v })}>
+        <TabsList className="h-auto flex-wrap bg-muted/50 p-1">
+          {WALLET_TABS.map((t) => <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>)}
+        </TabsList>
+        <TabsContent value="overview" className="mt-4"><WalletOverviewTab ledger={ledger.data} totals={collections.data.totals} /></TabsContent>
+        <TabsContent value="collections" className="mt-4">
+          <WalletCollectionsTab rows={collections.data.rows} onView={(key) => setParams({ student: key, tab: 'collections' })} />
+        </TabsContent>
+        <TabsContent value="ledger" className="mt-4"><WalletLedgerTab ledger={ledger.data} /></TabsContent>
+        <TabsContent value="fund-requests" className="mt-4"><FundRequestsTab requests={ledger.data.fundRequests} onNew={() => setDialogOpen(true)} /></TabsContent>
+      </Tabs>
+      <RequestFundsDialog open={dialogOpen} onOpenChange={setDialogOpen} api={api} token={session.token} onSent={ledger.reload} />
     </div>
   );
 }
