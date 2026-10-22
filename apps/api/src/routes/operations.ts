@@ -23,6 +23,8 @@ import type { CounsellorGroupsService } from '../operations/counsellor-groups-se
 import { registerCounsellorTeamsRoutes } from './counsellor-teams-routes.js';
 import { registerCentreProfileRoutes } from './centre-profile-routes.js';
 import { CentreProfileService } from '../operations/centre-profile-service.js';
+import { registerCentreDashboardRoutes } from './centre-dashboard-routes.js';
+import type { CentreDashboardService } from '../operations/centre-dashboard-service.js';
 import { AssociateAdminService } from '../operations/associate-admin-service.js';
 import { ASSOCIATE_STUDENT_TABS, type AssociateStudentTab } from '../operations/associate-admin-model.js';
 import {
@@ -88,6 +90,7 @@ interface RegisterOperationsRoutesOptions {
   associateAdminService?: AssociateAdminService;
   associateCommunicationsService?: AssociateCommunicationsService;
   enrolmentFeePlanService?: EnrolmentFeePlanService;
+  centreDashboardService?: CentreDashboardService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -1787,8 +1790,10 @@ export function registerOperationsRoutes(
   });
 
   // ─── Phase 1: Admin Centre Payments ─────────────────────────────────────
+  // Centre money (top-ups, wallets, approvals) is Admin/Subadmin only since
+  // Centres v2 (2026-10-22): no counsellor or associate screen reads it.
 
-  app.get('/admin/centres/centre_payments', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/centres/centre_payments', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listAdminCentrePayments({
@@ -1804,9 +1809,19 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Centres v2 (Naji 2026-10-22): Centre Dashboard + the Wallet & Payment tabs
+  // with no older endpoint (centre-dashboard-routes.ts). Admin/Subadmin only.
+  // Application Payments reuse the Fees → Payment Status computation.
+  registerCentreDashboardRoutes(app, {
+    requireAuth,
+    requireAdminOnlyRole,
+    loadPaymentStatus: (scope) => operationsService.listPaymentStatus({ scope }),
+    ...(options.centreDashboardService ? { service: options.centreDashboardService } : {}),
+  });
+
   // ─── Phase 1: Admin Wallet Status ───────────────────────────────────────
 
-  app.get('/admin/wallet/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/wallet/index', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listAdminWalletStatus({
@@ -4989,7 +5004,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/centres/fund_request/approve', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/centres/fund_request/approve', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.approveFundRequest(requestUserId(request), toStringValue(payload.id));
@@ -4997,7 +5012,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/centres/fund_request/reject', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/centres/fund_request/reject', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.rejectFundRequest(requestUserId(request), toStringValue(payload.id));
