@@ -17,8 +17,11 @@ export interface CentreRouteConfig {
 
 const CentreDashboardPage = lazy(() => import('../pages/dashboard/CentreDashboardPage.js'));
 const CentreApplicationsPage = lazy(() => import('../pages/applications/CentreApplicationsPage.js'));
+const CentreApplicationDetailPage = lazy(() => import('../pages/applications/CentreApplicationDetailPage.js'));
 const CentreStudentsPage = lazy(() => import('../pages/students/CentreStudentsPage.js'));
+const CentreStudentDetailPage = lazy(() => import('../pages/students/CentreStudentDetailPage.js'));
 const CentreCoursesPage = lazy(() => import('../pages/courses/CentreCoursesPage.js'));
+const CentreCourseDetailPage = lazy(() => import('../pages/courses/CentreCourseDetailPage.js'));
 const CentreCohortsPage = lazy(() => import('../pages/cohorts/CentreCohortsPage.js'));
 const CentreViewCohortPage = lazy(() => import('../pages/cohorts/CentreViewCohortPage.js'));
 const CentreLiveClassPage = lazy(() => import('../pages/live/CentreLiveClassPage.js'));
@@ -31,8 +34,11 @@ const CentreProfilePage = lazy(() => import('../pages/profile/CentreProfilePage.
 export const CENTRE_ROUTES: CentreRouteConfig[] = [
   { path: '/centre/dashboard', aliases: ['/centre', '/centre/'], pageComponent: CentreDashboardPage, title: 'Dashboard' },
   { path: '/centre/applications', pageComponent: CentreApplicationsPage, title: 'Applications' },
+  { path: '/centre/applications/view/:id', pageComponent: CentreApplicationDetailPage, title: 'Application' },
   { path: '/centre/students', pageComponent: CentreStudentsPage, title: 'Students' },
-  { path: '/centre/courses', pageComponent: CentreCoursesPage, title: 'Courses' },
+  { path: '/centre/students/view/:id', pageComponent: CentreStudentDetailPage, title: 'Student Profile' },
+  { path: '/centre/courses', pageComponent: CentreCoursesPage, title: 'Courses & Fees' },
+  { path: '/centre/courses/view/:id', pageComponent: CentreCourseDetailPage, title: 'Course' },
   { path: '/centre/cohorts', pageComponent: CentreCohortsPage, title: 'Cohorts' },
   { path: '/centre/cohorts/view/:id', pageComponent: CentreViewCohortPage, title: 'View Cohort' },
   { path: '/centre/live', pageComponent: CentreLiveClassPage, title: 'Live Classes' },
