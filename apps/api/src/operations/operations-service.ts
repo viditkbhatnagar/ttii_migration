@@ -4713,12 +4713,15 @@ export class OperationsService {
 
   async listAdminWalletStatus(filters: AdminWalletFilters): Promise<SqlRow[]> {
     const where: Record<string, unknown> = { deleted_at: null };
-    if (filters.centreId) where.centre_id = toIntId(filters.centreId);
+    // centres.centre_id is the VarChar centre CODE ("TTC0001"); it used to be
+    // compared with an Int, which Prisma rejects (a 500 on any code).
+    if (filters.centreId) where.centre_id = { contains: filters.centreId };
     if (filters.centreName) where.centre_name = { contains: filters.centreName };
 
     const centres = await this.prisma.centres.findMany({
       where: where as Prisma.centresWhereInput,
-      select: { id: true, centre_id: true, centre_name: true, wallet_balance: true, phone: true, email: true },
+      // status: Wallet & Payment → Centre Wallets shows Active / Inactive (Naji 2026-10-22).
+      select: { id: true, centre_id: true, centre_name: true, wallet_balance: true, phone: true, email: true, status: true },
       orderBy: { id: 'desc' },
     });
 

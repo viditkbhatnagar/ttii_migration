@@ -21,6 +21,8 @@ import { EnrolmentFeePlanService } from '../operations/enrolment-fee-plan-servic
 import type { CounsellorTeamsService } from '../operations/counsellor-teams-service.js';
 import type { CounsellorGroupsService } from '../operations/counsellor-groups-service.js';
 import { registerCounsellorTeamsRoutes } from './counsellor-teams-routes.js';
+import { registerCentreDashboardRoutes } from './centre-dashboard-routes.js';
+import type { CentreDashboardService } from '../operations/centre-dashboard-service.js';
 import { AssociateAdminService } from '../operations/associate-admin-service.js';
 import { ASSOCIATE_STUDENT_TABS, type AssociateStudentTab } from '../operations/associate-admin-model.js';
 import {
@@ -86,6 +88,7 @@ interface RegisterOperationsRoutesOptions {
   associateAdminService?: AssociateAdminService;
   associateCommunicationsService?: AssociateCommunicationsService;
   enrolmentFeePlanService?: EnrolmentFeePlanService;
+  centreDashboardService?: CentreDashboardService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -1800,6 +1803,16 @@ export function registerOperationsRoutes(
     } catch (error: unknown) {
       sendOperationsError(reply, error);
     }
+  });
+
+  // Centres v2 (Naji 2026-10-22): Centre Dashboard + the Wallet & Payment tabs
+  // with no older endpoint (centre-dashboard-routes.ts). Admin/Subadmin only.
+  // Application Payments reuse the Fees → Payment Status computation.
+  registerCentreDashboardRoutes(app, {
+    requireAuth,
+    requireAdminOnlyRole,
+    loadPaymentStatus: () => operationsService.listPaymentStatus({}),
+    ...(options.centreDashboardService ? { service: options.centreDashboardService } : {}),
   });
 
   // ─── Phase 1: Admin Wallet Status ───────────────────────────────────────
