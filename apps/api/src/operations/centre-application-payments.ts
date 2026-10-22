@@ -116,11 +116,14 @@ interface ResolvedApp { app: AppInput & { added_under_centre: number }; converte
 function claimGroups(resolved: ResolvedApp[], byUser: Map<number, Map<number, CourseTotals>>) {
   const claimed = new Set<string>();
   const share = new Map<number, Totals>();
+  /** "user|course" → the application that counts that group (for listing a row's instalments). */
+  const owner = new Map<string, number>();
   const newestFirst = [...resolved].sort((a, b) => createdMs(b.app) - createdMs(a.app) || b.app.id - a.app.id);
   const take = (r: ResolvedApp, courseId: number, group: CourseTotals) => {
     const key = `${r.userId}|${courseId}`;
     if (claimed.has(key)) return;
     claimed.add(key);
+    owner.set(key, r.app.id);
     const prev = share.get(r.app.id) ?? ZERO;
     share.set(r.app.id, { fee: prev.fee + group.fee, paid: prev.paid + group.paid });
   };
@@ -133,16 +136,14 @@ function claimGroups(resolved: ResolvedApp[], byUser: Map<number, Map<number, Co
     if (r.userId === null || r.app.course_id) continue;
     for (const [courseId, group] of byUser.get(r.userId) ?? []) take(r, courseId, group);
   }
-  return { claimed, share };
+  return { claimed, share, owner };
 }
 
-export function buildApplicationPayments(input: ApplicationPaymentsInput): ApplicationPaymentRow[] {
-  const { byApp, byUser } = indexInstallments(input.installments);
+/** The applications that get a row (centre set, not rejected), with the enrolled student when converted. */
+function resolveApps(input: ApplicationPaymentsInput): ResolvedApp[] {
   const studentsById = new Map(input.students.map((s) => [s.id, s]));
   const studentByApp = new Map(input.students.filter((s) => s.application_id > 0).map((s) => [s.application_id, s]));
-  const courseTitle = (id: number | null) => (id ? input.courseTitles.get(id) ?? '' : '');
-
-  const resolved: ResolvedApp[] = input.apps.flatMap((app) => {
+  return input.apps.flatMap((app) => {
     const centreId = app.added_under_centre;
     if (centreId === null || pipelineStageOf(app) === 'rejected') return [];
     const converted = app.is_converted === 1;
@@ -154,6 +155,13 @@ export function buildApplicationPayments(input: ApplicationPaymentsInput): Appli
       studentCode: (student?.student_id ?? '').trim(),
     }];
   });
+}
+
+export function buildApplicationPayments(input: ApplicationPaymentsInput): ApplicationPaymentRow[] {
+  const { byApp, byUser } = indexInstallments(input.installments);
+  const courseTitle = (id: number | null) => (id ? input.courseTitles.get(id) ?? '' : '');
+
+  const resolved = resolveApps(input);
   const { claimed, share } = claimGroups(resolved, byUser);
   const linked = new Set(resolved.map((r) => r.userId).filter((id): id is number => id !== null));
 
@@ -191,4 +199,43 @@ export function buildApplicationPayments(input: ApplicationPaymentsInput): Appli
     }
   }
   return rows.sort((a, b) => b.date.localeCompare(a.date) || a.key.localeCompare(b.key));
+}
+
+/**
+ * The Payment Status rows behind each row of buildApplicationPayments, by row
+ * key — the SAME attribution (plan rows to their application; each (student,
+ * course) group of student_payments to the one application that claims it,
+ * else to the student's own row), so a row's instalments always sum to its
+ * fee. Rows with nothing scheduled are absent. Centre portal Wallet & Payment
+ * uses it for the student payment view (2026-10-22).
+ */
+export function applicationPaymentInstalments(input: ApplicationPaymentsInput): Map<string, Array<Record<string, unknown>>> {
+  const { byUser } = indexInstallments(input.installments);
+  const resolved = resolveApps(input);
+  const { owner } = claimGroups(resolved, byUser);
+  const appIds = new Set(resolved.map((r) => r.app.id));
+  // An application counting a student's payments shows those, not its plan (as buildApplicationPayments does).
+  const counted = new Set(owner.values());
+  const centreStudents = new Set(input.students.filter((s) => s.added_under_centre !== null).map((s) => s.id));
+  const out = new Map<string, Array<Record<string, unknown>>>();
+  const add = (key: string, row: Record<string, unknown>) => {
+    const list = out.get(key);
+    if (list) list.push(row);
+    else out.set(key, [row]);
+  };
+  for (const r of input.installments) {
+    const planRow = APP_PLAN_ROW.exec(typeof r.id === 'string' ? r.id : '');
+    if (planRow) {
+      const appId = Number(planRow[1]);
+      if (appIds.has(appId) && !counted.has(appId)) add(`app-${appId}`, r);
+      continue;
+    }
+    const userId = Number(r.user_id);
+    if (!Number.isInteger(userId) || userId <= 0) continue;
+    const courseId = Number(r.course_id) || 0;
+    const claimedBy = owner.get(`${userId}|${courseId}`);
+    if (claimedBy !== undefined) add(`app-${claimedBy}`, r);
+    else if (centreStudents.has(userId)) add(`user-${userId}-${courseId}`, r);
+  }
+  return out;
 }
