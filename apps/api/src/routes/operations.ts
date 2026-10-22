@@ -21,6 +21,7 @@ import { EnrolmentFeePlanService } from '../operations/enrolment-fee-plan-servic
 import type { CounsellorTeamsService } from '../operations/counsellor-teams-service.js';
 import type { CounsellorGroupsService } from '../operations/counsellor-groups-service.js';
 import { registerCounsellorTeamsRoutes } from './counsellor-teams-routes.js';
+import { registerCentreOnboardingRoutes } from './centre-onboarding-routes.js';
 import { AssociateAdminService } from '../operations/associate-admin-service.js';
 import { ASSOCIATE_STUDENT_TABS, type AssociateStudentTab } from '../operations/associate-admin-model.js';
 import {
@@ -2184,6 +2185,11 @@ export function registerOperationsRoutes(
     ...(options.counsellorTeamsService ? { teamsService: options.counsellorTeamsService } : {}),
     ...(options.counsellorGroupsService ? { groupsService: options.counsellorGroupsService } : {}),
   });
+
+  // Centres v2 (Naji 2026-10-22) — Centre Onboarding, Affiliation & Agreements
+  // and the PUBLIC centre application form (/centre-form/:token, rate-limited).
+  // Admin/Subadmin only for every /admin/centres/onboarding|affiliation route.
+  registerCentreOnboardingRoutes(app, { requireAuth, requireAdminOnlyRole, storage: options.storage });
 
   // TTII 2026-10-12 — Associate Management in Naji's design. Read-only
   // (operations/associate-admin-service.ts) except Log Communication, which
