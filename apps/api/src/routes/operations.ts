@@ -27,6 +27,7 @@ import { registerCentreDashboardRoutes } from './centre-dashboard-routes.js';
 import type { CentreDashboardService } from '../operations/centre-dashboard-service.js';
 import { registerCentreOnboardingRoutes } from './centre-onboarding-routes.js';
 import { registerCentrePortalAppsRoutes } from './centre-portal-apps-routes.js';
+import { CentrePortalAppsService } from '../operations/centre-portal-apps-service.js';
 import { registerCentrePortalShellRoutes } from './centre-portal-shell-routes.js';
 import type { CentrePortalDashboardService } from '../operations/centre-portal-dashboard-service.js';
 import type { CentrePortalProfileService } from '../operations/centre-portal-profile-service.js';
@@ -100,6 +101,8 @@ interface RegisterOperationsRoutesOptions {
   centreDashboardService?: CentreDashboardService;
   centrePortalDashboardService?: CentrePortalDashboardService;
   centrePortalProfileService?: CentrePortalProfileService;
+  /** Only selectionRefusal is used here (legacy /centre/applications/add for role 7). */
+  centrePortalAppsService?: Pick<CentrePortalAppsService, 'selectionRefusal'>;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -625,6 +628,24 @@ export function registerOperationsRoutes(
         pipelineUser: toStringValue(payload.pipeline_user),
         status: toStringValue(payload.status) || 'pending',
       };
+
+      // A centre owner (role 7) gets the same course / offering / combination checks as
+      // /centre/portal/applications/add (security review 2026-10-22). Associates (role 10)
+      // keep the legacy behaviour until their own flow is reviewed.
+      if (request.authContext?.user.role_id === LEGACY_ROLE.CENTRE) {
+        const refusal = await (options.centrePortalAppsService ?? new CentrePortalAppsService({ ops: operationsService }))
+          .selectionRefusal(requestUserId(request), {
+            courseId: toInteger(input.courseId),
+            offeringId: toInteger(payload.offering_id) || null,
+            combinationId: toInteger(payload.certificate_combination_id ?? payload.combination_id) || null,
+          });
+        if (refusal) {
+          reply.code(200).send({ status: 0, message: refusal });
+          return;
+        }
+        input.offeringId = toStringValue(payload.offering_id);
+        input.certificateCombinationId = toStringValue(payload.certificate_combination_id ?? payload.combination_id);
+      }
 
       const result = await operationsService.addCentreApplication(requestUserId(request), input);
       reply.code(200).send(result);

@@ -282,43 +282,65 @@ export class CentrePortalAppsService {
 
   // ─── Add Application ──────────────────────────────────────────────────────
 
-  /** The centre's courses (centre_course_plans) with their open offerings and certificate combinations. No fees. */
-  async applicationOptions(actorUserId: string): Promise<{ courses: OptionCourse[] }> {
+  /** The centre's courses (centre_course_plans), every status, with their open offerings and certificate combinations. No fees. */
+  private async optionCourses(actorUserId: string): Promise<OptionCourse[]> {
     const owner = await this.owner(actorUserId);
-    if (!owner?.centreId) return { courses: [] };
+    if (!owner?.centreId) return [];
     const plans = await this.prisma.centre_course_plans.findMany({
       where: { centre_id: owner.centreId, deleted_at: null },
       select: { course_id: true, start_date: true, end_date: true },
     });
     const today = this.today();
     const catalog = await loadCourseCatalog(this.prisma, uniq(plans.map((p) => p.course_id)), today);
-    const courses = catalog
+    return catalog
       .map((c): OptionCourse => ({ ...c, planStatus: coursePlanStatus(plans.filter((p) => p.course_id === c.id), today), offerings: c.offerings.filter((o) => o.open) }))
       .sort((a, b) => a.title.localeCompare(b.title));
-    return { courses };
+  }
+
+  /** What the Add Application form may pick: the centre's courses that are active in the TTII catalogue, with open offerings and combinations. No fees. */
+  async applicationOptions(actorUserId: string): Promise<{ courses: OptionCourse[] }> {
+    return { courses: (await this.optionCourses(actorUserId)).filter((c) => c.status === 'active') };
+  }
+
+  /**
+   * Why this course / offering / combination may not take a new application from
+   * the caller's centre, or null when it may. The offering is optional only for the
+   * legacy add route, which never sent one; whatever IS sent must belong.
+   */
+  async selectionRefusal(
+    actorUserId: string,
+    sel: { courseId: number; offeringId: number | null; combinationId: number | null },
+  ): Promise<string | null> {
+    const courses = await this.optionCourses(actorUserId);
+    if (courses.length === 0) return 'No courses are assigned to your centre yet. Please contact TTII.';
+    const course = courses.find((c) => c.id === sel.courseId);
+    if (!course) return 'This course is not assigned to your centre.';
+    if (course.status !== 'active') return 'This course is not open for new applications.';
+    if (course.planStatus !== 'active') {
+      return course.planStatus === 'upcoming'
+        ? "Your centre's validity for this course has not started yet."
+        : "Your centre's validity for this course has ended. Please contact TTII.";
+    }
+    if (!sel.offeringId) {
+      return sel.combinationId ? 'Choose the offering for this certificate combination.' : null;
+    }
+    const offering = course.offerings.find((o) => o.id === sel.offeringId);
+    if (!offering) return 'Choose an offering of this course that is open for enrolment.';
+    if (offering.combinations.length > 0 && !offering.combinations.some((c) => c.id === sel.combinationId)) {
+      return 'Choose a certificate combination offered for this offering.';
+    }
+    if (offering.combinations.length === 0 && sel.combinationId) {
+      return 'This offering has no certificate combinations to choose from.';
+    }
+    return null;
   }
 
   async addApplication(actorUserId: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const checked = checkAddApplication(payload);
     if (!checked.ok) return { status: 0, message: checked.message };
     const input = checked.value;
-    const { courses } = await this.applicationOptions(actorUserId);
-    if (courses.length === 0) return { status: 0, message: 'No courses are assigned to your centre yet. Please contact TTII.' };
-    const course = courses.find((c) => c.id === input.courseId);
-    if (!course) return { status: 0, message: 'This course is not assigned to your centre.' };
-    if (course.planStatus !== 'active') {
-      return { status: 0, message: course.planStatus === 'upcoming'
-        ? "Your centre's validity for this course has not started yet."
-        : "Your centre's validity for this course has ended. Please contact TTII." };
-    }
-    const offering = course.offerings.find((o) => o.id === input.offeringId);
-    if (!offering) return { status: 0, message: 'Choose an offering of this course that is open for enrolment.' };
-    if (offering.combinations.length > 0 && !offering.combinations.some((c) => c.id === input.combinationId)) {
-      return { status: 0, message: 'Choose a certificate combination offered for this offering.' };
-    }
-    if (offering.combinations.length === 0 && input.combinationId) {
-      return { status: 0, message: 'This offering has no certificate combinations to choose from.' };
-    }
+    const refusal = await this.selectionRefusal(actorUserId, input);
+    if (refusal) return { status: 0, message: refusal };
     return this.ops.addCentreApplication(actorUserId, {
       name: input.name,
       countryCode: input.countryCode,

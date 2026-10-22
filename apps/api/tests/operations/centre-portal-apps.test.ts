@@ -7,6 +7,7 @@ import {
 } from '../../src/operations/centre-portal-apps-model.js';
 import { CentrePortalAppsService, type CentrePortalAppsOps } from '../../src/operations/centre-portal-apps-service.js';
 import { OperationsService } from '../../src/operations/operations-service.js';
+import { registerOperationsRoutes } from '../../src/routes/operations.js';
 import { registerCentrePortalAppsRoutes } from '../../src/routes/centre-portal-apps-routes.js';
 import { memoryPrisma } from './support/memory-prisma.js';
 
@@ -31,9 +32,9 @@ function seed(): Record<string, Row[]> {
       { id: 950, role_id: 2, added_under_centre: 30, student_id: 'TTS0150', name: 'Other centre student', application_id: 0, deleted_at: null },
     ],
     course: [
-      { id: 16, title: 'Diploma in Montessori', short_name: 'DMTT', course_code: 'TTII-101', duration: '12 months', category_id: 4, short_description: '<p>Learn <b>Montessori</b> &amp; more</p>', description: '', level: 'Diploma', language: 'English', deleted_at: null },
-      { id: 18, title: 'PG Diploma', short_name: 'PGD', course_code: '', duration: '18 months', category_id: null, deleted_at: null },
-      { id: 20, title: 'Advanced AI Educator', short_name: 'CAIE', deleted_at: null },
+      { id: 16, title: 'Diploma in Montessori', status: 'active', short_name: 'DMTT', course_code: 'TTII-101', duration: '12 months', category_id: 4, short_description: '<p>Learn <b>Montessori</b> &amp; more</p>', description: '', level: 'Diploma', language: 'English', deleted_at: null },
+      { id: 18, title: 'PG Diploma', status: 'active', short_name: 'PGD', course_code: '', duration: '18 months', category_id: null, deleted_at: null },
+      { id: 20, title: 'Advanced AI Educator', status: 'active', short_name: 'CAIE', deleted_at: null },
     ],
     category: [{ id: 4, name: 'Diploma' }],
     centre_course_plans: [
@@ -100,8 +101,8 @@ function makeOps(overrides: Partial<CentrePortalAppsOps> = {}) {
   };
 }
 
-function makeService(ops = makeOps()) {
-  const db = memoryPrisma(seed());
+function makeService(ops = makeOps(), data: ReturnType<typeof seed> = seed()) {
+  const db = memoryPrisma(data);
   const service = new CentrePortalAppsService({ ops: ops as unknown as CentrePortalAppsOps, prisma: db.prisma, now: () => NOW });
   return { db, ops, service };
 }
@@ -396,6 +397,50 @@ describe('routes', () => {
     expect(add.json()).toEqual({ status: 0, message: 'This course is not assigned to your centre.', data: {} });
     expect(service.addApplication).toHaveBeenCalledWith('501', { auth_token: 'centre', course_id: 20, centre_id: 30 });
     expect((await app.inject({ method: 'POST', url: '/centre/portal/applications/add', payload: { auth_token: 'student' } })).statusCode).toBe(403);
+    await app.close();
+  });
+});
+
+describe('security review 2026-10-22: inactive courses and the legacy add route', () => {
+  test('options hide a course that is not active in the catalogue, and add refuses it with a clear reason', async () => {
+    const data = seed();
+    data.course = data.course.map((c) => (c.id === 16 ? { ...c, status: 'inactive' } : c));
+    const { service, ops } = makeService(undefined, data);
+    expect((await service.applicationOptions('501')).courses.map((c) => c.title)).toEqual(['PG Diploma']);
+    const res = await service.addApplication('501', { name: 'Ravi Kumar', code: '+91', phone: '9847012345', email: 'ravi@example.com', course_id: 16, offering_id: 61, combination_id: 4 });
+    expect(res).toMatchObject({ status: 0, message: 'This course is not open for new applications.' });
+    expect(ops.addCentreApplication).not.toHaveBeenCalled();
+  });
+
+  test('selectionRefusal: course must be assigned and active-plan; an offering, when sent, must belong', async () => {
+    const { service } = makeService();
+    expect(await service.selectionRefusal('501', { courseId: 16, offeringId: null, combinationId: null })).toBeNull();
+    expect(await service.selectionRefusal('501', { courseId: 20, offeringId: null, combinationId: null })).toMatch(/not assigned/);
+    expect(await service.selectionRefusal('501', { courseId: 18, offeringId: null, combinationId: null })).toMatch(/validity/);
+    expect(await service.selectionRefusal('501', { courseId: 16, offeringId: 71, combinationId: null })).toMatch(/offering of this course/);
+    expect(await service.selectionRefusal('501', { courseId: 16, offeringId: 61, combinationId: 9 })).toMatch(/combination offered/);
+    expect(await service.selectionRefusal('501', { courseId: 16, offeringId: null, combinationId: 4 })).toMatch(/Choose the offering/);
+  });
+
+  test('legacy POST /centre/applications/add: a centre owner is validated, an associate keeps the old behaviour', async () => {
+    const refusal = vi.fn().mockImplementation((_actor: string, sel: { courseId: number }) => Promise.resolve(sel.courseId === 20 ? 'This course is not assigned to your centre.' : null));
+    const ops = { addCentreApplication: vi.fn().mockResolvedValue({ status: 1, message: 'Application Added Successfully!', application_id: 5 }) };
+    const authService = {
+      authenticateAuthToken: (t: string) => Promise.resolve({ centre: { user: { id: 501, role_id: 7, name: 'c' } }, associate: { user: { id: 503, role_id: 10, name: 'a' } } }[t] ?? null),
+      logAuthDenied: () => Promise.resolve(),
+      logRbacDenied: () => Promise.resolve(),
+    };
+    const app = Fastify({ logger: false });
+    registerOperationsRoutes(app, { authService: authService as never, operationsService: ops as never, centrePortalAppsService: { selectionRefusal: refusal } });
+    const post = (auth_token: string, course_id: string) =>
+      app.inject({ method: 'POST', url: '/centre/applications/add', payload: { auth_token, name: 'X', phone: '9000000000', email: 'x@e.com', course_id } });
+
+    expect((await post('centre', '20')).json()).toEqual({ status: 0, message: 'This course is not assigned to your centre.' });
+    expect(ops.addCentreApplication).not.toHaveBeenCalled();
+    expect((await post('centre', '16')).json()).toMatchObject({ status: 1 });
+    expect(ops.addCentreApplication).toHaveBeenCalledTimes(1);
+    expect((await post('associate', '20')).json()).toMatchObject({ status: 1 });
+    expect(refusal).toHaveBeenCalledTimes(2); // never asked for the associate
     await app.close();
   });
 });

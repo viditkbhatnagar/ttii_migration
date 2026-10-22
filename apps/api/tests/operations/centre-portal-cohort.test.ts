@@ -173,7 +173,7 @@ describe('centre cohort security (review 2026-10-22)', () => {
 
   test('view: a cohort code that equals another centre\'s cohort id leaks none of its learners', async () => {
     const data = seed();
-    data.cohorts.push({ id: 80, cohort_id: '76', title: 'Mine named 76', course_id: 16, subject_id: null, language_id: 1, instructor_id: 30, start_date: day('2026-10-01'), end_date: day('2027-03-31'), centre_id: 1, deleted_at: null });
+    data.cohorts.push({ id: 80, cohort_id: '76', title: 'Mine named 76', course_id: 16, subject_id: 40, language_id: 1, instructor_id: 30, start_date: day('2026-10-01'), end_date: day('2027-03-31'), centre_id: 1, deleted_at: null });
     const svc = new CentrePortalCohortService({ prisma: memoryPrisma(data).prisma, now: () => NOW });
     const out = await svc.view(700, '80');
     expect(out.data?.learners).toEqual([]); // student 503 (centre 28) is in cohort 76, not here

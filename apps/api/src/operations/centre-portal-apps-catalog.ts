@@ -32,6 +32,8 @@ export interface CatalogCourse {
   code: string;
   category: string;
   duration: string;
+  /** course.status — only 'active' courses may take new applications. */
+  status: string;
   /** Active offerings of the course (open and not yet open / closed). */
   offerings: CatalogOffering[];
   /** Every combination a student of this course can be enrolled with. */
@@ -56,7 +58,7 @@ export async function loadCourseCatalog(prisma: PrismaClient, courseIds: number[
   const [courses, offerings, combos] = await Promise.all([
     prisma.course.findMany({
       where: { id: { in: courseIds }, deleted_at: null },
-      select: { id: true, title: true, short_name: true, course_code: true, duration: true, category_id: true },
+      select: { id: true, title: true, short_name: true, course_code: true, duration: true, category_id: true, status: true },
     }),
     prisma.offerings.findMany({
       where: { course_id: { in: courseIds }, deleted_at: null },
@@ -129,6 +131,7 @@ export async function loadCourseCatalog(prisma: PrismaClient, courseIds: number[
       code: text(course.course_code),
       category: course.category_id ? categoryName.get(course.category_id) ?? '' : '',
       duration: text(course.duration),
+      status: text(course.status).toLowerCase(),
       offerings: courseOfferings,
       combinations: open.length === 0 ? courseCombos : courseCombos.filter((c) => offered.has(c.id)),
     };
