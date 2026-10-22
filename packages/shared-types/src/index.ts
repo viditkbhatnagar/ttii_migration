@@ -78,3 +78,7 @@ export {
   IMPORTED_LIVE_SESSION_PLATFORM,
   isImportedLiveSessionPlatform,
 } from './imported-live-session.js';
+
+// Centres v2 (Naji 2026-10-22) — the centre application form rules and the
+// agreement / certificate date rules, shared so the browser and the API agree.
+export * from './centre-onboarding.js';
