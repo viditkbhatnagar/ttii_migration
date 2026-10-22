@@ -490,10 +490,13 @@ export type CohortInput = {
   title: string;
   cohortCode?: string;
   courseId: string;
+  /** '' for a course-wide cohort (stored as NULL, like admin-created ones). */
   subjectId: string;
   instructorId: string;
   startDate: string;
   endDate: string;
+  /** languages.id; optional (Centre portal v2, 2026-10-22). */
+  languageId?: string;
 };
 
 export type AddCohortStudentsInput = {
@@ -2909,9 +2912,13 @@ export class OperationsService {
     }
 
     const courseIdInt = toIntId(input.courseId);
-    const subjectIdInt = toIntId(input.subjectId);
+    // Centre portal v2 (2026-10-22): a course-wide cohort has no subject. It used
+    // to be stored as subject_id 0, which no reader treats as "no subject" (the
+    // intake auto-join looks for NULL), so store NULL as admin-created ones do.
+    const subjectIdInt = toNullableIntId(input.subjectId) || null;
 
-    const duplicateCount = await this.prisma.cohorts.count({
+    // One cohort per subject per course; course-wide cohorts may repeat (one per intake).
+    const duplicateCount = subjectIdInt === null ? 0 : await this.prisma.cohorts.count({
       where: { deleted_at: null, centre_id: toIntId(centreId), course_id: courseIdInt, subject_id: subjectIdInt },
     });
 
@@ -2930,6 +2937,7 @@ export class OperationsService {
         title: input.title,
         course_id: courseIdInt,
         subject_id: subjectIdInt,
+        language_id: toNullableIntId(input.languageId) || null,
         instructor_id: toNullableIntId(input.instructorId),
         start_date: new Date(input.startDate),
         end_date: new Date(input.endDate),
@@ -2988,12 +2996,23 @@ export class OperationsService {
       };
     }
 
+    // Only the centre's own students (users.added_under_centre) can join its
+    // cohorts. Any user id used to be accepted, so a centre could put another
+    // centre's student — or any login — into its cohort and its live classes.
+    // (Centre portal v2, 2026-10-22.)
+    const requestedIds = [...new Set(input.studentIds.map((id) => toIntId(id)).filter((id) => id > 0))];
+    const ownStudents = requestedIds.length === 0 ? [] : await this.prisma.users.findMany({
+      where: { id: { in: requestedIds }, role_id: 2, added_under_centre: toIntId(centreId), deleted_at: null },
+      select: { id: true },
+    });
+    const allowedIds = new Set(ownStudents.map((u) => u.id));
+
     const now = new Date();
     let inserted = 0;
 
     for (const studentId of input.studentIds) {
       const studentIdInt = toIntId(studentId);
-      if (!studentIdInt) {
+      if (!studentIdInt || !allowedIds.has(studentIdInt)) {
         continue;
       }
 

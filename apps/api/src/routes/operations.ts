@@ -30,6 +30,8 @@ import { registerCentrePortalAppsRoutes } from './centre-portal-apps-routes.js';
 import { registerCentrePortalShellRoutes } from './centre-portal-shell-routes.js';
 import type { CentrePortalDashboardService } from '../operations/centre-portal-dashboard-service.js';
 import type { CentrePortalProfileService } from '../operations/centre-portal-profile-service.js';
+import { registerCentrePortalMoneyRoutes } from './centre-portal-money-routes.js';
+import { registerCentrePortalCohortRoutes } from './centre-portal-cohort-routes.js';
 import { AssociateAdminService } from '../operations/associate-admin-service.js';
 import { ASSOCIATE_STUDENT_TABS, type AssociateStudentTab } from '../operations/associate-admin-model.js';
 import {
@@ -1251,6 +1253,7 @@ export function registerOperationsRoutes(
         instructorId: toStringValue(payload.instructor_id),
         startDate: toStringValue(payload.start_date),
         endDate: toStringValue(payload.end_date),
+        languageId: toStringValue(payload.language_id),
       };
 
       const result = await operationsService.addCentreCohort(requestUserId(request), input);
@@ -1544,6 +1547,16 @@ export function registerOperationsRoutes(
       sendOperationsError(reply, error);
     }
   });
+
+  // Centre portal v2 (Naji's centre login design, 2026-10-22): Wallet & Payment
+  // reads and the Cohorts pick lists / detail view. Centre logins (role 7)
+  // only, each read scoped to the caller's own centre.
+  registerCentrePortalMoneyRoutes(app, {
+    requireAuth,
+    authService,
+    loadPaymentStatus: (scope) => operationsService.listPaymentStatus({ scope }),
+  });
+  registerCentrePortalCohortRoutes(app, { requireAuth, authService });
 
   app.get('/admin/settings/system_settings', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
