@@ -430,6 +430,72 @@ describe('status, documents and logo', () => {
   });
 });
 
+describe('course plans (Course & Fee Structure)', () => {
+  const base = { centre_id: 30, course_id: 16, assigned_amount: '10,000', start_date: '2026-10-01', end_date: '2027-03-31' };
+
+  test('adds a plan, stores the fee as a plain string and UTC-midnight dates', async () => {
+    const { service, db } = world();
+    const res = await service.savePlan(1, base);
+    expect(res).toMatchObject({ status: 1, message: 'Course assigned' });
+    const row = await findRow(db, 'centre_course_plans', { id: res.data!.id });
+    expect(row).toMatchObject({ centre_id: 30, course_id: 16, assigned_amount: '10000', created_by: 1 });
+    expect((row!.start_date as Date).toISOString()).toBe('2026-10-01T00:00:00.000Z');
+    const plans = (await service.profile(30)).data!.course_plans;
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({ course_id: 16, amount: 10000, status: 'Active' });
+  });
+
+  test('validates centre, course, fee and dates', async () => {
+    const { service } = world();
+    expect((await service.savePlan(1, { ...base, centre_id: 999 })).message).toBe('Centre not found');
+    expect((await service.savePlan(1, { ...base, course_id: 999 })).message).toBe('Choose a course.');
+    for (const fee of ['', 'abc', '-5', '1e3']) expect((await service.savePlan(1, { ...base, assigned_amount: fee })).status).toBe(0);
+    expect((await service.savePlan(1, { ...base, assigned_amount: '0' })).status).toBe(1);
+    expect((await service.savePlan(1, { ...base, course_id: 18, start_date: '2026-02-30' })).message).toBe('Enter a valid start date.');
+    expect((await service.savePlan(1, { ...base, course_id: 18, end_date: '2026-09-30' })).message).toBe('The end date cannot be before the start date.');
+  });
+
+  test('refuses a second LIVE plan for the course but allows a renewal after expiry', async () => {
+    const { service } = world();
+    const dup = await service.savePlan(1, { ...base, centre_id: 28, course_id: 16 });
+    expect(dup.message).toBe('This course is already assigned to this centre — edit the existing plan instead');
+    // Plan 2 (course 18, centre 28) ended 2025-12-31: a new plan is a renewal.
+    expect((await service.savePlan(1, { ...base, centre_id: 28, course_id: 18 })).status).toBe(1);
+    // Ending today still blocks.
+    const { service: s2 } = world();
+    await s2.savePlan(1, { ...base, end_date: '2026-10-22' });
+    expect((await s2.savePlan(1, base)).status).toBe(0);
+  });
+
+  test('edit keeps the course, is scoped to the centre, and ignores deleted plans', async () => {
+    const { service, db } = world();
+    expect((await service.savePlan(1, { ...base, id: 1, centre_id: 30 })).message).toBe('Course plan not found');
+    const ok = await service.savePlan(2, { id: 1, centre_id: 28, course_id: 18, assigned_amount: '31000', start_date: '2026-01-01', end_date: '2027-01-31' });
+    expect(ok).toMatchObject({ status: 1, message: 'Course plan updated' });
+    expect(await findRow(db, 'centre_course_plans', { id: 1 })).toMatchObject({ course_id: 16, assigned_amount: '31000', updated_by: 2 });
+    await service.deletePlan(1, 1, 28);
+    expect((await service.savePlan(1, { id: 1, centre_id: 28, assigned_amount: '1', start_date: '2026-01-01', end_date: '2026-02-01' })).message).toBe('Course plan not found');
+  });
+
+  test('delete is a soft delete scoped to the centre', async () => {
+    const { service, db } = world();
+    expect(await service.deletePlan(1, 1, 30)).toEqual({ status: 0, message: 'Course plan not found' });
+    expect(await service.deletePlan(1, 0, 28)).toEqual({ status: 0, message: 'Course plan not found' });
+    expect(await service.deletePlan(7, 1, 28)).toEqual({ status: 1, message: 'Course removed' });
+    expect(await findRow(db, 'centre_course_plans', { id: 1 })).toMatchObject({ deleted_by: 7 });
+    expect((await service.profile(28)).data!.course_plans.map((p) => p.id)).toEqual([2]);
+    expect((await service.deletePlan(1, 1, 28)).status).toBe(0);
+  });
+
+  test('course options list active, non-deleted courses by title', async () => {
+    const { service, db } = world();
+    db.tables.course.push({ id: 19, title: 'Archived', status: 'inactive', deleted_at: null }, { id: 20, title: 'Gone', status: 'active', deleted_at: new Date() });
+    for (const c of db.tables.course) if (c.status === undefined) c.status = 'active';
+    const res = await service.courseOptions();
+    expect(res.data!.courses.map((c) => c.id)).toEqual([16, 18]);
+  });
+});
+
 describe('routes', () => {
   test('every route sits behind the admin-only guard', async () => {
     const app = Fastify();
@@ -438,7 +504,8 @@ describe('routes', () => {
     const deny = async (_req: unknown, reply: { code: (n: number) => { send: (b: unknown) => Promise<void> } }) => { await reply.code(403).send({ status: 0 }); };
     registerCentreProfileRoutes(app, { requireAuth: allow, requireAdminOnlyRole: deny as never, service });
     for (const [method, url] of [['GET', '/admin/centres/profile?id=28'], ['GET', '/admin/centres/next_code'], ['POST', '/admin/centres/save'],
-      ['POST', '/admin/centres/status'], ['POST', '/admin/centres/documents/add'], ['POST', '/admin/centres/documents/delete'], ['POST', '/admin/centres/logo']] as const) {
+      ['POST', '/admin/centres/status'], ['POST', '/admin/centres/documents/add'], ['POST', '/admin/centres/documents/delete'], ['POST', '/admin/centres/logo'],
+      ['GET', '/admin/centres/course_options'], ['POST', '/admin/centres/course_plan/save'], ['POST', '/admin/centres/course_plan/delete']] as const) {
       const res = await app.inject({ method, url, ...(method === 'POST' ? { payload: {} } : {}) });
       expect(res.statusCode, url).toBe(403);
     }

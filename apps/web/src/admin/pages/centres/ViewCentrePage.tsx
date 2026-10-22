@@ -172,7 +172,7 @@ export default function ViewCentrePage({ api, session, onNavigate }: AdminPagePr
 
       <div role="tabpanel">
         {tab === 'overview' ? <OverviewTab profile={profile} today={today} onEdit={edit} /> : null}
-        {tab === 'fees' ? <FeesTab plans={profile.plans} /> : null}
+        {tab === 'fees' ? <FeesTab api={api} token={session.token} centreId={centreId} plans={profile.plans} onChanged={reload} /> : null}
         {tab === 'applications' ? <ApplicationsTab applications={profile.applications} /> : null}
         {tab === 'students' ? <StudentsTab students={profile.students} onOpen={(id) => onNavigate(`/admin/students/view/${id}`)} /> : null}
         {tab === 'cohorts' ? <CohortsTab cohorts={profile.cohorts} onOpen={(id) => onNavigate(`/admin/cohorts/view/${id}`)} /> : null}

@@ -3075,6 +3075,33 @@ export class AdminPortalApi {
     return this.centreWrite('/admin/centres/documents/delete', authToken, { id, centre_id: centreId });
   }
 
+  async loadCentreCourseOptions(authToken: string): Promise<Array<{ id: string; title: string }>> {
+    const payload = await this.get<LegacyEnvelope<{ courses?: unknown }>>('/admin/centres/course_options', authToken);
+    const rows = Array.isArray(payload.data?.courses) ? (payload.data.courses as unknown[]) : [];
+    return rows.flatMap((r) => {
+      const rec = asRecord(r);
+      return rec ? [{ id: asString(rec.id), title: asString(rec.title) }] : [];
+    });
+  }
+
+  async saveCentreCoursePlan(
+    authToken: string,
+    input: { id?: string; centreId: string; courseId: string; fee: string; start: string; end: string },
+  ): Promise<CentreWriteResult> {
+    return this.centreWrite('/admin/centres/course_plan/save', authToken, {
+      ...(input.id ? { id: input.id } : {}),
+      centre_id: input.centreId,
+      course_id: input.courseId,
+      assigned_amount: input.fee,
+      start_date: input.start,
+      end_date: input.end,
+    });
+  }
+
+  async deleteCentreCoursePlan(authToken: string, id: string, centreId: string): Promise<CentreWriteResult> {
+    return this.centreWrite('/admin/centres/course_plan/delete', authToken, { id, centre_id: centreId });
+  }
+
   async setCentreLogo(authToken: string, centreId: string, url: string): Promise<CentreWriteResult> {
     return this.centreWrite('/admin/centres/logo', authToken, { centre_id: centreId, url });
   }

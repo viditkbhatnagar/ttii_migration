@@ -55,7 +55,7 @@ export interface ProfileKyc {
   logo: string;
 }
 
-export interface PlanRow { id: string; course: string; amount: number; start: string; end: string; status: 'Active' | 'Inactive' }
+export interface PlanRow { id: string; courseId: string; course: string; amount: number; start: string; end: string; status: 'Active' | 'Inactive' }
 export interface AppRow { id: string; appId: string; date: string; student: string; course: string; combination: string; fee: number | null; stage: string }
 export interface StudentRow { id: string; roll: string; name: string; cohort: string; course: string; joined: string; status: string }
 export interface WalletTxn { id: string; type: 'credit' | 'debit' | 'other'; amount: number; remarks: string; at: string }
@@ -124,7 +124,7 @@ export function toProfile(data: Record<string, unknown>): CentreProfile {
     } : null,
     login: login ? { userId: asString(login.user_id), email: asString(login.email), disabled: login.disabled === true } : null,
     plans: toRecords(data.course_plans).map((p) => ({
-      id: asString(p.id), course: asString(p.course), amount: moneyOf(p.amount), start: asString(p.start), end: asString(p.end),
+      id: asString(p.id), courseId: asString(p.course_id), course: asString(p.course), amount: moneyOf(p.amount), start: asString(p.start), end: asString(p.end),
       status: asString(p.status) === 'Inactive' ? 'Inactive' : 'Active',
     })),
     applications: toRecords(data.applications).map((a) => ({

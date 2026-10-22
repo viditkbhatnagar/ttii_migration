@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient, centre_kyc } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
+import { CentreCoursePlans } from './centre-course-plans.js';
 import { isCentreCodeTaken, nextCentreCode, sameCentreCode } from './centre-code.js';
 import { CENTRE_ROLE_ID, createCentreInTx, emailCentreCredentials, kycColumns, type CentreKycInput } from './centre-create.js';
 import {
@@ -80,7 +81,7 @@ export interface KycView {
   updated_at: string;
 }
 
-export interface CoursePlanRow { id: number; course: string; amount: number; start: string; end: string; status: 'Active' | 'Inactive' }
+export interface CoursePlanRow { id: number; course_id: number; course: string; amount: number; start: string; end: string; status: 'Active' | 'Inactive' }
 export interface ApplicationRow { id: number; application_id: string; date: string; student: string; course: string; combination: string; fee: number | null; stage: string }
 export interface StudentRow { id: number; roll: string; name: string; cohort: string; course: string; joined: string; status: string }
 export interface WalletTxnRow { id: number; type: 'credit' | 'debit' | 'other'; amount: number; remarks: string; at: string }
@@ -239,6 +240,14 @@ export class CentreProfileService {
     return this.deps.now ? this.deps.now() : new Date();
   }
 
+  private plans(): CentreCoursePlans {
+    return new CentreCoursePlans(this.prisma, () => this.now());
+  }
+
+  courseOptions() { return this.plans().options(); }
+  savePlan(actor: number | null, payload: Record<string, unknown>) { return this.plans().save(actor, payload); }
+  deletePlan(actor: number | null, id: number, centreId: number) { return this.plans().remove(actor, id, centreId); }
+
   /** True once the 2026-10-22 migration has created centre_kyc. */
   async kycReady(db: Db = this.prisma): Promise<boolean> {
     return optional(async () => { await db.centre_kyc.findFirst({ select: { centre_id: true } }); return true; }, false);
@@ -351,7 +360,7 @@ export class CentreProfileService {
     return plans.map((p) => {
       const start = ymdOfDate(p.start_date);
       const end = ymdOfDate(p.end_date);
-      return { id: p.id, course: titles.get(p.course_id) ?? '', amount: money(p.assigned_amount), start, end, status: planStatus(start, end, today) };
+      return { id: p.id, course_id: p.course_id, course: titles.get(p.course_id) ?? '', amount: money(p.assigned_amount), start, end, status: planStatus(start, end, today) };
     });
   }
 
