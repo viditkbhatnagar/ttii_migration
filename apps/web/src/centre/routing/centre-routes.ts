@@ -24,6 +24,7 @@ const CentreViewCohortPage = lazy(() => import('../pages/cohorts/CentreViewCohor
 const CentreLiveClassPage = lazy(() => import('../pages/live/CentreLiveClassPage.js'));
 const CentreResourcesPage = lazy(() => import('../pages/resources/CentreResourcesPage.js'));
 const CentreTrainingPage = lazy(() => import('../pages/training/CentreTrainingPage.js'));
+const CentreTrainingVideoPage = lazy(() => import('../pages/training/CentreTrainingVideoPage.js'));
 const CentreWalletPage = lazy(() => import('../pages/wallet/CentreWalletPage.js'));
 const CentreSupportPage = lazy(() => import('../pages/support/CentreSupportPage.js'));
 const CentreProfilePage = lazy(() => import('../pages/profile/CentreProfilePage.js'));
@@ -38,6 +39,7 @@ export const CENTRE_ROUTES: CentreRouteConfig[] = [
   { path: '/centre/live', pageComponent: CentreLiveClassPage, title: 'Live Classes' },
   { path: '/centre/resources', pageComponent: CentreResourcesPage, title: 'Resources' },
   { path: '/centre/training', pageComponent: CentreTrainingPage, title: 'Training' },
+  { path: '/centre/training/view/:id', pageComponent: CentreTrainingVideoPage, title: 'Training Video' },
   { path: '/centre/wallet', pageComponent: CentreWalletPage, title: 'Wallet' },
   { path: '/centre/support', pageComponent: CentreSupportPage, title: 'Support' },
   { path: '/centre/profile', pageComponent: CentreProfilePage, title: 'Profile' },
