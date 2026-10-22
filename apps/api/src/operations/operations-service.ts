@@ -10088,11 +10088,20 @@ export class OperationsService {
       data.rejected_by = toIntId(actorUserId);
       if (rejectReason) data.rejection_reason = rejectReason;
     }
+    // A centre owner (role 7) may only reject (the Centre portal never sends anything
+    // else): 'approved' would mark the application converted with no student behind
+    // it. Associates keep their Approve button on the shared view page.
+    // Security review 2026-10-22.
+    const actor = await this.currentUser(actorUserId);
+    if (actor?.role_id === 7 && normalised !== 'rejected') {
+      return { status: 0, message: 'A centre can only reject an application. Approval is done by TTII.' };
+    }
+    // Never touch an application that already became a student.
     const result = await this.prisma.applications.updateMany({
-      where: { id: toIntId(id), deleted_at: null, OR: ownershipOr },
+      where: { id: toIntId(id), deleted_at: null, is_converted: 0, OR: ownershipOr },
       data,
     });
-    if (result.count === 0) return { status: 0, message: 'Application not found.' };
+    if (result.count === 0) return { status: 0, message: 'Application not found, or it is already converted and can no longer be changed.' };
     return { status: 1, message: `Application ${status} successfully.` };
   }
 

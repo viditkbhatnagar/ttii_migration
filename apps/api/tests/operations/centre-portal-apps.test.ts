@@ -444,3 +444,32 @@ describe('security review 2026-10-22: inactive courses and the legacy add route'
     await app.close();
   });
 });
+
+describe('update_status (centre / associate)', () => {
+  const run = async (actor: string, id: string, status: string) => {
+    const db = memoryPrisma(seed());
+    const res = await new OperationsService(db.prisma).updateAssociateApplicationStatus(actor, id, status, 'Not eligible');
+    const row = (db.tables as unknown as Record<string, Row[]>).applications?.find((a) => String(a.id) === id);
+    return { res, row };
+  };
+
+  test('a centre can reject its own pending application', async () => {
+    const { res, row } = await run('501', '1', 'rejected');
+    expect(res).toMatchObject({ status: 1 });
+    expect(row).toMatchObject({ status: 'rejected', stage: 'rejected', rejection_reason: 'Not eligible' });
+  });
+
+  test('a centre can never set approved, and an already converted application is untouched', async () => {
+    const approve = await run('501', '1', 'approved');
+    expect(approve.res).toMatchObject({ status: 0, message: expect.stringContaining('only reject') });
+    expect(approve.row).toMatchObject({ status: 'pending' });
+    const converted = await run('501', '2', 'rejected');
+    expect(converted.res).toMatchObject({ status: 0, message: expect.stringContaining('already converted') });
+    expect(converted.row).toMatchObject({ status: 'converted', is_converted: 1 });
+  });
+
+  test('another centre\'s application is not found; an associate cannot reject a converted one either', async () => {
+    expect((await run('501', '4', 'rejected')).res).toMatchObject({ status: 0 });
+    expect((await run('503', '2', 'rejected')).row).toMatchObject({ status: 'converted' });
+  });
+});
