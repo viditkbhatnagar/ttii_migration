@@ -404,7 +404,7 @@ describe('routes', () => {
 describe('security review 2026-10-22: inactive courses and the legacy add route', () => {
   test('options hide a course that is not active in the catalogue, and add refuses it with a clear reason', async () => {
     const data = seed();
-    data.course = data.course.map((c) => (c.id === 16 ? { ...c, status: 'inactive' } : c));
+    data.course = (data.course ?? []).map((c) => (c.id === 16 ? { ...c, status: 'inactive' } : c));
     const { service, ops } = makeService(undefined, data);
     expect((await service.applicationOptions('501')).courses.map((c) => c.title)).toEqual(['PG Diploma']);
     const res = await service.addApplication('501', { name: 'Ravi Kumar', code: '+91', phone: '9847012345', email: 'ravi@example.com', course_id: 16, offering_id: 61, combination_id: 4 });
