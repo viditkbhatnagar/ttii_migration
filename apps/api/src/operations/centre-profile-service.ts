@@ -665,10 +665,10 @@ export class CentreProfileService {
 
   /** Soft delete of an UPLOADED document (centre_documents). Registration / KYC files are changed through Edit Centre. */
   async deleteDocument(actor: number | null, documentId: number, centreId = 0): Promise<Outcome> {
-    if (!documentId) return fail('Document not found');
+    if (!documentId || !centreId) return fail('Document not found');
     try {
       const res = await this.prisma.centre_documents.updateMany({
-        where: { id: documentId, deleted_at: null, ...(centreId ? { centre_id: centreId } : {}) },
+        where: { id: documentId, deleted_at: null, centre_id: centreId },
         data: { deleted_at: this.now(), deleted_by: actor },
       });
       return res.count > 0 ? { status: 1, message: 'Document deleted' } : fail('Document not found');

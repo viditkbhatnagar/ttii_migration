@@ -214,7 +214,8 @@ const PIN_INDIA = /^\d{6}$/;
 const PIN_OTHER = /^[A-Za-z0-9][A-Za-z0-9 -]{1,11}$/;
 const MOBILE_INDIA = /^[6-9]\d{9}$/;
 const MOBILE_OTHER = /^\d{7,15}$/;
-const EMAIL = /^\S+@\S+\.\S+$/;
+/** ONE address: no whitespace, commas or semicolons (SMTP fans a comma list out), quotes or angle brackets. */
+const EMAIL = /^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']+$/;
 const PAN = /^[A-Z]{5}\d{4}[A-Z]$/;
 const GSTIN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const ACCOUNT = /^\d{9,18}$/;

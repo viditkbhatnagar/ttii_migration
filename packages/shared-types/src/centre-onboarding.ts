@@ -124,7 +124,8 @@ export const CENTRE_FIELD_MAX: Record<keyof CentreApplicationValues, number> = {
 const VALUE_KEYS = Object.keys(CENTRE_FIELD_MAX) as Array<keyof CentreApplicationValues>;
 const UPPER_KEYS: ReadonlyArray<keyof CentreApplicationValues> = ['pan', 'gstin', 'ifsc'];
 
-export const EMAIL_PATTERN = /^\S+@\S+\.\S+$/;
+/** ONE address: no whitespace, commas or semicolons (SMTP fans a comma list out to every address), quotes or angle brackets. */
+export const EMAIL_PATTERN = /^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']+$/;
 export const MOBILE_PATTERN = /^\+?[\d\s()-]{7,20}$/;
 export const PAN_PATTERN = /^[A-Z]{5}\d{4}[A-Z]$/;
 export const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;

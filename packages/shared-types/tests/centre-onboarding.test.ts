@@ -133,3 +133,15 @@ describe('centre application validation', () => {
     expect('extra' in f).toBe(false);
   });
 });
+
+describe('isValidEmail (one address only)', () => {
+  it('rejects comma / semicolon lists, spaces, quotes and angle brackets', async () => {
+    const { isValidEmail } = await import('../src/centre-onboarding.js');
+    expect(isValidEmail('centre@example.in')).toBe(true);
+    expect(isValidEmail('a@b.co,c@d.co')).toBe(false);
+    expect(isValidEmail('a@b.co;c@d.co')).toBe(false);
+    expect(isValidEmail('a b@c.co')).toBe(false);
+    expect(isValidEmail('"x"@c.co')).toBe(false);
+    expect(isValidEmail('<a@b.co>')).toBe(false);
+  });
+});

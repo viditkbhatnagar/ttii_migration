@@ -113,7 +113,7 @@ export function validateForm(f: CentreForm, m: FormMode): FormErrors {
     }
   }
   if (f.email && !e.email) {
-    if (!/^\S+@\S+\.\S+$/.test(f.email.trim())) e.email = 'Enter a valid email';
+    if (!/^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']+$/.test(f.email.trim())) e.email = 'Enter a valid email';
     else if (f.email.trim().length > 50) e.email = 'At most 50 characters';
   }
   if (f.centreId.trim().length > 30) e.centreId = 'At most 30 characters';

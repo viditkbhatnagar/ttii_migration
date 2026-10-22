@@ -410,14 +410,15 @@ describe('status, documents and logo', () => {
     expect(added.status).toBe(1);
     expect((await service.addDocument(1, { centre_id: 28, title: 'x', file_url: 'javascript:alert(1)' })).status).toBe(0);
     expect(await service.deleteDocument(1, added.data!.id, 30)).toEqual({ status: 0, message: 'Document not found' });
-    expect(await service.deleteDocument(1, added.data!.id, 28)).toEqual({ status: 1, message: 'Document deleted' });
+    // No centre given: refused rather than deleting another centre's document by id.
     expect(await service.deleteDocument(1, added.data!.id)).toEqual({ status: 0, message: 'Document not found' });
+    expect(await service.deleteDocument(1, added.data!.id, 28)).toEqual({ status: 1, message: 'Document deleted' });
     const profile = await service.profile(28);
     expect(profile.data!.documents.filter((d) => d.source === 'uploaded')).toHaveLength(1);
 
     const missing = world({ missing: ['centre_documents', 'centre_kyc'] }).service;
     expect(await missing.addDocument(1, { centre_id: 28, title: 'a', file_url: 'https://x.y/a.pdf' })).toEqual({ status: 0, message: NOT_SET_UP_MESSAGE });
-    expect(await missing.deleteDocument(1, 1)).toEqual({ status: 0, message: NOT_SET_UP_MESSAGE });
+    expect(await missing.deleteDocument(1, 1, 28)).toEqual({ status: 0, message: NOT_SET_UP_MESSAGE });
     expect(await missing.setLogo(1, 28, 'https://x.y/logo.png')).toEqual({ status: 0, message: NOT_SET_UP_MESSAGE });
   });
 

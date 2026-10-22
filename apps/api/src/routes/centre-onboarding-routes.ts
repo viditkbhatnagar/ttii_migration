@@ -71,9 +71,10 @@ interface UploadedFile { filename: string; mimetype: string; toBuffer: () => Pro
 
 /** Read the single multipart file with a hard size cap. A string is a refusal message. */
 async function readUpload(request: FastifyRequest, maxBytes: number, tooLarge: string): Promise<{ name: string; body: Buffer } | string> {
-  const fileFn = (request as unknown as { file?: (opts?: { limits?: { fileSize?: number } }) => Promise<UploadedFile | undefined> }).file;
+  const fileFn = (request as unknown as { file?: (opts?: { limits?: { fileSize?: number; files?: number; fields?: number; parts?: number; fieldSize?: number } }) => Promise<UploadedFile | undefined> }).file;
   if (typeof fileFn !== 'function' || !request.isMultipart()) return 'Choose a file to upload.';
-  const file = await fileFn.call(request, { limits: { fileSize: maxBytes } });
+  // One file and a few small fields: a token holder cannot pad the request with large non-file parts.
+  const file = await fileFn.call(request, { limits: { fileSize: maxBytes, files: 1, fields: 5, parts: 6, fieldSize: 1024 } });
   if (!file) return 'Choose a file to upload.';
   try {
     const body = await file.toBuffer();
