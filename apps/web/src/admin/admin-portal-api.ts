@@ -1271,6 +1271,30 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  // ─── Centres v2 (Naji 2026-10-22): Centre Dashboard + Wallet & Payment ─────
+  // Admin/Subadmin-only reads (centre-dashboard-routes.ts on the API).
+
+  async loadCentreDashboard(
+    authToken: string,
+    input: { period?: string; centreId?: string } = {},
+  ): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/dashboard', authToken, {
+      ...(input.period ? { period: input.period } : {}),
+      ...(input.centreId ? { centre_id: input.centreId } : {}),
+    });
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadCentreAffiliationFees(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/affiliation_fees', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadCentreApplicationPayments(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/application_payments', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
   // ─── Phase 1: Notifications (admin) ───────────────────────────────────────
 
   async loadNotifications(authToken: string): Promise<Record<string, unknown>[]> {

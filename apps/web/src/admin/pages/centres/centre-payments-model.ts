@@ -3,6 +3,9 @@ import type { Tone } from '../../shared/components/ui-tones.js';
 import { dmy, matchesSearch, sortRows, ymdOf, type SortDir } from '../cohorts/list-model.js';
 
 // Centre Payments view model (TTII 2026-10-12, Naji's CentrePaymentsModule).
+// Since Centres v2 (2026-10-22) the Centre Payments page is gone: its fund
+// requests are Wallet & Payment's "Top-up Requests" (pages/wallet), which
+// reuses the row mapping and the settled-status helpers below.
 // Rows come from GET /admin/centres/centre_payments (listAdminCentrePayments):
 // `fund_requests` (centre_fund_requests) and `wallet_transactions`. Filters run
 // here on the loaded rows so both tab counts follow them live; the status
@@ -17,6 +20,8 @@ export interface FundRequestRow {
   user: string;
   /** transaction_receipt, else the request id (what the old page showed). */
   txnNo: string;
+  /** transaction_receipt as entered ('' when none) — Wallet & Payment's "Txn / Ref No". */
+  receipt: string;
   amount: number;
   /** centre_fund_requests.date (@db.Date) as YYYY-MM-DD. */
   ymd: string;
@@ -98,6 +103,7 @@ export function toFundRequestRows(data: Record<string, unknown>[]): FundRequestR
         centre: asString(r.centre_name),
         user: asString(r.user_name),
         txnNo: asString(r.transaction_receipt) || id,
+        receipt: asString(r.transaction_receipt).trim(),
         amount: asNumber(r.amount),
         ymd: ymdOf(asString(r.date)),
         status: asString(r.status).toLowerCase(),
