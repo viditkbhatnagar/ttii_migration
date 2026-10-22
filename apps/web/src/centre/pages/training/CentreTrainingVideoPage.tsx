@@ -38,7 +38,7 @@ export default function CentreTrainingVideoPage({ api, session, onNavigate }: Ce
           <Card className="overflow-hidden border-border/70 p-0 shadow-[var(--shadow-elegant)]">
             {embed?.kind === 'file' && <video key={embed.src} src={embed.src} controls preload="metadata" className="aspect-video w-full bg-black" />}
             {embed?.kind === 'iframe' && (
-              <iframe key={embed.src} src={embed.src} title={v.title} className="aspect-video w-full bg-black" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
+              <iframe key={embed.src} src={embed.src} title={v.title} className="aspect-video w-full bg-black" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
             )}
             {!embed && (
               <Thumb v={v} className="aspect-video">
