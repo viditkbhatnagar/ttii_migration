@@ -26,6 +26,7 @@ const CentreResourcesPage = lazy(() => import('../pages/resources/CentreResource
 const CentreTrainingPage = lazy(() => import('../pages/training/CentreTrainingPage.js'));
 const CentreWalletPage = lazy(() => import('../pages/wallet/CentreWalletPage.js'));
 const CentreSupportPage = lazy(() => import('../pages/support/CentreSupportPage.js'));
+const CentreProfilePage = lazy(() => import('../pages/profile/CentreProfilePage.js'));
 
 export const CENTRE_ROUTES: CentreRouteConfig[] = [
   { path: '/centre/dashboard', aliases: ['/centre', '/centre/'], pageComponent: CentreDashboardPage, title: 'Dashboard' },
@@ -39,6 +40,7 @@ export const CENTRE_ROUTES: CentreRouteConfig[] = [
   { path: '/centre/training', pageComponent: CentreTrainingPage, title: 'Training' },
   { path: '/centre/wallet', pageComponent: CentreWalletPage, title: 'Wallet' },
   { path: '/centre/support', pageComponent: CentreSupportPage, title: 'Support' },
+  { path: '/centre/profile', pageComponent: CentreProfilePage, title: 'Profile' },
 ];
 
 export function resolveCentreRoute(pathname: string): CentreRouteConfig | null {

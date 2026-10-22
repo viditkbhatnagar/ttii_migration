@@ -5,17 +5,20 @@ export interface CentreNavItem {
   icon: string;
 }
 
+// Order: Naji's 2026-10-22 centre portal design (Lovable "centrelogin" export).
+// Held until he answers the centre application / fee / offering questions:
+// Offerings, Certificates, Reports. Live classes moved into the cohort detail
+// view and Support moved to the top-bar chat panel (both routes stay).
 export const CENTRE_NAV_TREE: readonly CentreNavItem[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/centre/dashboard', icon: 'LayoutDashboard' },
   { id: 'applications', label: 'Applications', href: '/centre/applications', icon: 'FileText' },
   { id: 'students', label: 'Students', href: '/centre/students', icon: 'GraduationCap' },
-  { id: 'courses', label: 'Courses', href: '/centre/courses', icon: 'BookOpen' },
   { id: 'cohorts', label: 'Cohorts', href: '/centre/cohorts', icon: 'Users' },
-  { id: 'live', label: 'Live Classes', href: '/centre/live', icon: 'Video' },
+  { id: 'courses', label: 'Courses & Fees', href: '/centre/courses', icon: 'BookOpen' },
+  { id: 'wallet', label: 'Wallet & Payment', href: '/centre/wallet', icon: 'Wallet' },
   { id: 'resources', label: 'Resources', href: '/centre/resources', icon: 'FolderOpen' },
   { id: 'training', label: 'Training', href: '/centre/training', icon: 'PlayCircle' },
-  { id: 'wallet', label: 'Wallet', href: '/centre/wallet', icon: 'Wallet' },
-  { id: 'support', label: 'Support', href: '/centre/support', icon: 'HeadphonesIcon' },
+  { id: 'profile', label: 'Profile', href: '/centre/profile', icon: 'Building2' },
 ];
 
 /** Nav item IDs visible to Associate (role_id=10) */
