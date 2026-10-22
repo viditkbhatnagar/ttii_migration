@@ -448,6 +448,10 @@ export type CentreApplicationInput = {
   pipeline: string;
   pipelineUser: string;
   status: string;
+  /** offerings.id — only the validated centre portal add (centre-portal-apps-service) sets it. */
+  offeringId?: string;
+  /** certificate_combinations.id — same. */
+  certificateCombinationId?: string;
 };
 
 export type StudentFilters = {
@@ -2152,13 +2156,18 @@ export class OperationsService {
 
     const email = `${input.countryCode}${input.phone}`;
 
-    const duplicateCount = await this.prisma.applications.count({
+    // A blank email (or phone) is "not given", never a match: comparing
+    // user_email = '' flagged every centre application without an email as a
+    // duplicate of every other one (centre portal v2, 2026-10-22).
+    const userEmail = (input.email ?? '').trim();
+    const duplicateOr: Prisma.applicationsWhereInput[] = [
+      ...(input.phone.trim() ? [{ email }] : []),
+      ...(userEmail ? [{ user_email: userEmail }] : []),
+    ];
+    const duplicateCount = duplicateOr.length === 0 ? 0 : await this.prisma.applications.count({
       where: {
         deleted_at: null,
-        OR: [
-          { email },
-          { user_email: input.email },
-        ],
+        OR: duplicateOr,
       },
     });
 
@@ -2181,6 +2190,8 @@ export class OperationsService {
         email,
         user_email: input.email,
         course_id: toNullableIntId(input.courseId),
+        offering_id: toNullableIntId(input.offeringId ?? ''),
+        certificate_combination_id: toNullableIntId(input.certificateCombinationId ?? ''),
         pipeline: input.pipeline,
         pipeline_user: toNullableIntId(input.pipelineUser),
         status: input.status as $Enums.applications_status | null,

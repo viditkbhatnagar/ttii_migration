@@ -26,6 +26,7 @@ import { CentreProfileService } from '../operations/centre-profile-service.js';
 import { registerCentreDashboardRoutes } from './centre-dashboard-routes.js';
 import type { CentreDashboardService } from '../operations/centre-dashboard-service.js';
 import { registerCentreOnboardingRoutes } from './centre-onboarding-routes.js';
+import { registerCentrePortalAppsRoutes } from './centre-portal-apps-routes.js';
 import { AssociateAdminService } from '../operations/associate-admin-service.js';
 import { ASSOCIATE_STUDENT_TABS, type AssociateStudentTab } from '../operations/associate-admin-model.js';
 import {
@@ -690,6 +691,10 @@ export function registerOperationsRoutes(
       sendOperationsError(reply, error);
     }
   });
+
+  // Centre portal v2 (Naji 2026-10-22): Applications / Students / Courses & Fees
+  // (/centre/portal/*), every read and write scoped to the caller's centre.
+  registerCentrePortalAppsRoutes(app, { authService, operationsService });
 
   // ── Associate CRM reads (role 10) — associate-scoped siblings of the
   // /admin/counsellor/* endpoints. Each returns the same payload shape as its
