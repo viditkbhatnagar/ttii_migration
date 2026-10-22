@@ -65,7 +65,7 @@ export function WalletTxnTable({
   );
 }
 
-/** The old page's confirmation, word for word; the confirm button is locked while the request runs. */
+/** Approve / reject confirmation for a top-up (fund) request; the confirm button is locked while the request runs. */
 export function FundDecisionDialog({
   decision, processing, amountLabel, onCancel, onConfirm,
 }: {
@@ -81,12 +81,12 @@ export function FundDecisionDialog({
       <DialogContent>
         <form onSubmit={(e) => { e.preventDefault(); onConfirm(); }}>
           <DialogHeader>
-            <DialogTitle>{approve ? 'Approve Fund Request' : 'Reject Fund Request'}</DialogTitle>
+            <DialogTitle>{approve ? 'Approve Top-up Request' : 'Reject Top-up Request'}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to {decision?.action} the fund request
+              Are you sure you want to {decision?.action} the top-up request
               {decision ? ` of ${amountLabel}` : ''}
               {decision ? ` from ${decision.row.centre}` : ''}?
-              This action cannot be undone.
+              {approve ? ' The amount is credited to the centre wallet.' : ''} This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-4">

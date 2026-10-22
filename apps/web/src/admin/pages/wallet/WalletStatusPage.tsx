@@ -50,6 +50,8 @@ function settledSlice<T>(result: PromiseSettledResult<T[]>): Slice<T> {
 export default function WalletStatusPage({ api, session }: AdminPageProps) {
   const link = useMemo(() => parseWalletLink(typeof window === 'undefined' ? '' : window.location.search), []);
   const [tab, setTab] = useState<WalletTab>(link.tab);
+  // The linked status pill applies once, to the linked tab, until another tab is picked.
+  const [linkStatus, setLinkStatus] = useState(link.status);
   const [details, setDetails] = useState<TopUpRow | null>(null);
   const [decision, setDecision] = useState<FundDecision | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -130,7 +132,7 @@ export default function WalletStatusPage({ api, session }: AdminPageProps) {
     applications: data.applications.rows.length,
     affiliation: data.affiliation.rows.length,
   };
-  const startStatus = (t: WalletTab) => (t === link.tab ? link.status : '');
+  const startStatus = (t: WalletTab) => (t === link.tab ? linkStatus : '');
   const sliceError = { topups: data.topUps.error, wallets: data.wallets.error, applications: data.applications.error, affiliation: data.affiliation.error }[tab];
 
   return (
@@ -144,7 +146,7 @@ export default function WalletStatusPage({ api, session }: AdminPageProps) {
             type="button"
             role="tab"
             aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => { setTab(t.id); setLinkStatus(''); }}
             className={cn(
               'relative inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
               tab === t.id ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
