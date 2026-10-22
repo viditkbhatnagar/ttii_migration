@@ -43,7 +43,7 @@ function AgreementCard({ agreement, today }: { agreement: ProfileAgreement; toda
   const c = countdown(daysBetweenYmd(today, agreement.expiryDate));
   const used = periodUsedPct(agreement.effectiveDate, agreement.expiryDate, today);
   return (
-    <Card className="space-y-5 p-6 lg:col-span-2">
+    <Card className="gap-0 space-y-5 p-6 lg:col-span-2">
       <div className="flex items-center gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-success-soft text-success"><ShieldCheck aria-hidden="true" className="h-5 w-5" /></div>
         <div className="min-w-0">
@@ -76,13 +76,13 @@ export function ProfileAffiliationTab({ profile }: { profile: ProfileData }) {
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-3">
         {agreement ? <AgreementCard agreement={agreement} today={profile.today} /> : (
-          <Card className="space-y-2 p-6 lg:col-span-2">
+          <Card className="gap-0 space-y-2 p-6 lg:col-span-2">
             <p className="font-semibold">TTII Affiliation Agreement</p>
             <p className="text-sm text-muted-foreground">No signed agreement is on file yet. TTII adds it to your profile once it is signed.</p>
             {expiry ? <p className="text-sm">Affiliation valid until <span className="font-medium">{formatYmd(expiry)}</span> · <span className={TONE_CLASS[overall.tone]}>{overall.text}</span></p> : null}
           </Card>
         )}
-        <Card className="space-y-3 p-6">
+        <Card className="gap-0 space-y-3 p-6">
           <div className="flex items-center gap-2"><CalendarClock aria-hidden="true" className="h-4 w-4 text-muted-foreground" /><p className="text-sm font-semibold">Agreement History</p></div>
           {agreements.length === 0 ? <p className="text-sm text-muted-foreground">No agreements yet.</p> : agreements.map((a) => (
             <div key={a.id} className="flex items-start gap-3 text-sm">
@@ -95,7 +95,7 @@ export function ProfileAffiliationTab({ profile }: { profile: ProfileData }) {
           ))}
         </Card>
       </div>
-      <Card className="space-y-3 p-6">
+      <Card className="gap-0 space-y-3 p-6">
         <p className="text-sm font-semibold">Affiliation Certificates</p>
         {certificates.length === 0 ? <p className="text-sm text-muted-foreground">No affiliation certificate has been issued yet.</p> : (
           <ul className="divide-y divide-border">

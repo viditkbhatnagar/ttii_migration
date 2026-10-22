@@ -36,7 +36,7 @@ export function ProfileSecurityTab({ api, session }: { api: CentrePortalApi; ses
 
   const type = show ? 'text' : 'password';
   return (
-    <Card className="max-w-xl p-6">
+    <Card className="gap-0 max-w-xl p-6">
       <form className="space-y-4" onSubmit={(e) => void submit(e)} noValidate>
         <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground"><Lock aria-hidden="true" className="h-4 w-4" />Change Password</h2>
         <div className="space-y-2">

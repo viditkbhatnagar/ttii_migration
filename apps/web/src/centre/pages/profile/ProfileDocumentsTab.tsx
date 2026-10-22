@@ -46,7 +46,7 @@ export function ProfileDocumentsTab({ api, session, profile, onChanged }: Props)
   };
 
   return (
-    <Card className="overflow-hidden p-0">
+    <Card className="gap-0 overflow-hidden p-0">
       <div className="border-b border-border p-4">
         <p className="font-semibold">KYC &amp; Compliance Documents</p>
         <p className="text-xs text-muted-foreground">{onFile} of {total} on file</p>

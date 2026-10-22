@@ -58,7 +58,7 @@ function KpiCard({ kpi, progress, onOpen }: { kpi: DashboardKpi; progress: numbe
   const Icon = KPI_ICONS[kpi.id] ?? ClipboardList;
   const up = (kpi.delta ?? 0) >= 0;
   return (
-    <Card className="border-border/70 p-0 shadow-[var(--shadow-soft)] transition-shadow hover:shadow-[var(--shadow-card)]">
+    <Card className="gap-0 border-border/70 p-0 shadow-[var(--shadow-soft)] transition-shadow hover:shadow-[var(--shadow-card)]">
       <button type="button" onClick={onOpen} className="block w-full rounded-xl p-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <div className="flex items-start justify-between">
           <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', t.bg, t.fg)}>
@@ -91,7 +91,7 @@ function KpiCard({ kpi, progress, onOpen }: { kpi: DashboardKpi; progress: numbe
 
 function ChartCard({ title, subtitle, aside, children }: { title: string; subtitle: string; aside?: ReactNode; children: ReactNode }) {
   return (
-    <Card className="border-border/70 p-6 shadow-[var(--shadow-soft)]">
+    <Card className="gap-0 border-border/70 p-6 shadow-[var(--shadow-soft)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">{title}</h2>
@@ -180,7 +180,7 @@ interface QuickAction { id: string; label: string; icon: LucideIcon; tone: strin
 
 function QuickActions({ actions }: { actions: QuickAction[] }) {
   return (
-    <Card className="border-border/70 p-6 shadow-[var(--shadow-soft)]">
+    <Card className="gap-0 border-border/70 p-6 shadow-[var(--shadow-soft)]">
       <h2 className="text-sm font-semibold">Quick Actions</h2>
       <p className="text-xs text-muted-foreground">Shortcuts to common tasks</p>
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -204,7 +204,7 @@ const EmptyRows = ({ cols, text }: { cols: number; text: string }) => (
 function RecentActivity({ data, onNavigate }: { data: DashboardData; onNavigate: (href: string) => void }) {
   const money = data.money;
   return (
-    <Card className="border-border/70 p-6 shadow-[var(--shadow-soft)]">
+    <Card className="gap-0 border-border/70 p-6 shadow-[var(--shadow-soft)]">
       <h2 className="text-sm font-semibold">Recent Activity</h2>
       <p className="mb-4 text-xs text-muted-foreground">{money ? 'Applications, student payments and wallet' : 'Your latest applications'}</p>
       <Tabs defaultValue="apps">

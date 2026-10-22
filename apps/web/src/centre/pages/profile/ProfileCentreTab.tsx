@@ -48,7 +48,7 @@ export function ProfileCentreTab({ profile, onContactSupport }: { profile: Profi
         To change these details, contact TTII support.
       </p>
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="space-y-6 p-6 lg:col-span-2">
+        <Card className="gap-0 space-y-6 p-6 lg:col-span-2">
           <div className="flex items-center gap-4">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-accent-foreground">
               <Building2 aria-hidden="true" className="h-7 w-7" />
@@ -81,7 +81,7 @@ export function ProfileCentreTab({ profile, onContactSupport }: { profile: Profi
           </div>
           {!profile.kycReady ? <p className="text-xs text-muted-foreground">KYC details are not available yet.</p> : null}
         </Card>
-        <Card className="space-y-4 p-6">
+        <Card className="gap-0 space-y-4 p-6">
           <div className="flex items-center gap-2">
             <Landmark aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
             <p className="text-sm font-semibold">Bank Details</p>
