@@ -6,7 +6,7 @@ import {
 } from './centre-application-payments.js';
 import { roundMoney } from './centre-dashboard-model.js';
 import {
-  NO_CENTRE, buildLedger, collectionTotals, isCollectionKey, ok, pendingTopUps, refuse, sortInstalments,
+  NO_CENTRE, buildLedger, collectionTotals, isCollectionKey, ok, pendingTopUps, positiveInt, refuse, sortInstalments,
   toCollectionRow, toFundRequestView, toInstalment,
   type CollectionInstalment, type CollectionRow, type CollectionTotals, type FundRequestView, type Outcome, type WalletLedger,
 } from './centre-portal-money-model.js';
@@ -66,10 +66,6 @@ interface CollectionData {
   students: StudentRecord[];
 }
 
-function positiveInt(value: unknown): number | null {
-  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
-  return Number.isInteger(n) && n > 0 ? n : null;
-}
 
 export class CentrePortalMoneyService {
   private readonly prisma: PrismaClient;

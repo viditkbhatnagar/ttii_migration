@@ -5,7 +5,7 @@ import {
   cohortStatus, dayOf, hhmm, httpLink, istToday, plainText, platformLabel, sessionState,
   type CohortStatus, type SessionState,
 } from './centre-portal-cohort-model.js';
-import { NO_CENTRE, ok, refuse, type Outcome } from './centre-portal-money-model.js';
+import { NO_CENTRE, ok, positiveInt, refuse, type Outcome } from './centre-portal-money-model.js';
 
 // Centre portal → Cohorts (Naji's centre login design, 2026-10-22). READ-ONLY
 // companions of the existing /centre/cohorts/* and /centre/live_class/* routes:
@@ -78,10 +78,6 @@ export interface CohortView {
   announcements: CohortAnnouncement[];
 }
 
-function positiveInt(value: unknown): number | null {
-  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
-  return Number.isInteger(n) && n > 0 ? n : null;
-}
 
 const byTitle = (a: Option, b: Option) => a.title.localeCompare(b.title);
 

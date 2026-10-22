@@ -24,6 +24,12 @@ export const refuse = <T>(message: string): Outcome<T> => ({ status: 0, message 
 
 export const NO_CENTRE = 'Your login is not linked to a centre. Please contact TTII support.';
 
+/** A positive integer id from a number or a numeric string (users.centre_id is a VarChar), else null. */
+export function positiveInt(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value.trim(), 10) : Number.NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 /** Half a paisa: below this, two rupee totals are the same amount. */
 export const RECONCILE_TOLERANCE = 0.005;
 
@@ -228,7 +234,7 @@ export function toInstalment(r: Record<string, unknown>, extra?: { reference?: s
   const status = instalmentState(r.computed_status);
   const label = typeof r.installment_details === 'string' ? r.installment_details.trim() : '';
   return {
-    id: String(r.id ?? ''),
+    id: typeof r.id === 'number' || typeof r.id === 'string' ? String(r.id) : '',
     label: label || 'Instalment',
     dueYmd: ymdOf(r.due_date),
     amount: roundMoney(money(r.amount)),
