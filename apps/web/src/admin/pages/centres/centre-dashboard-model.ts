@@ -11,11 +11,25 @@ import { STAGE_LABEL, STAGE_TONE } from '../applications/application-list-model.
 
 export type DashboardPeriod = 'month' | 'quarter' | 'year';
 
-export const PERIOD_OPTIONS: Array<{ value: DashboardPeriod; label: string }> = [
-  { value: 'month', label: 'This month' },
-  { value: 'quarter', label: 'This quarter' },
-  { value: 'year', label: 'This year' },
+/** Calendar periods in IST, to date (the API's periodWindow). */
+export const PERIOD_OPTIONS: Array<{ value: DashboardPeriod; label: string; hint: string }> = [
+  { value: 'month', label: 'This month', hint: 'From the 1st of this month to today (IST)' },
+  { value: 'quarter', label: 'This quarter', hint: 'From the first day of this calendar quarter to today (IST)' },
+  { value: 'year', label: 'This year', hint: 'From 1 January to today (IST)' },
 ];
+
+export function periodLabel(period: DashboardPeriod): string {
+  return PERIOD_OPTIONS.find((p) => p.value === period)?.label ?? 'This year';
+}
+
+/** "1 Oct – 22 Oct 2026 (IST)" for the loaded window; '' when it is missing. */
+export function periodRange(window: { fromYmd: string; toYmd: string }): string {
+  const from = dayMonthYear(window.fromYmd);
+  const to = dayMonthYear(window.toYmd);
+  if (!from || !to) return '';
+  const sameYear = window.fromYmd.slice(0, 4) === window.toYmd.slice(0, 4);
+  return `${sameYear ? from.slice(0, -5) : from} – ${to} (IST)`;
+}
 
 export const HREF = {
   directory: '/admin/centres/index',
@@ -59,6 +73,7 @@ export interface DashboardActivity {
 
 export interface CentreDashboardData {
   period: DashboardPeriod;
+  window: { fromYmd: string; toYmd: string };
   centres: Array<{ id: number; code: string; name: string }>;
   kpis: {
     totalCentres: number; activeCentres: number; inactiveCentres: number; enrollments: number; inProgress: number;
@@ -110,8 +125,10 @@ export function toCentreDashboard(raw: Record<string, unknown>): CentreDashboard
   const k = asRecord(raw.kpis) ?? {};
   const a = asRecord(raw.actions) ?? {};
   const period = asString(raw.period);
+  const w = asRecord(raw.window) ?? {};
   return {
     period: period === 'month' || period === 'quarter' ? period : 'year',
+    window: { fromYmd: ymdOf(asString(w.fromYmd)), toYmd: ymdOf(asString(w.toYmd)) },
     centres: toRecords(raw.centres).map((c) => ({ id: asNumber(c.id), code: asString(c.code), name: asString(c.name) })).filter((c) => c.id > 0),
     kpis: {
       totalCentres: asNumber(k.totalCentres), activeCentres: asNumber(k.activeCentres), inactiveCentres: asNumber(k.inactiveCentres),

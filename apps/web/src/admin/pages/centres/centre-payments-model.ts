@@ -1,4 +1,4 @@
-import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
+import { asString } from '../../shared/utils/admin-data-utils.js';
 import type { Tone } from '../../shared/components/ui-tones.js';
 import { dmy, matchesSearch, sortRows, ymdOf, type SortDir } from '../cohorts/list-model.js';
 
@@ -60,6 +60,21 @@ export type WalletSortKey = 'centre' | 'txnNo' | 'type' | 'amount' | 'date';
 
 export const FUND_STATUS_TONE: Record<string, Tone> = { pending: 'amber', approved: 'emerald', rejected: 'rose' };
 
+/**
+ * A money amount from a VarChar column ("3,201", "₹ 1,000.50", " 250 "):
+ * commas, spaces and the rupee sign are stripped first, as the API's money()
+ * does. 0 for blanks and anything that still is not a number. (The shared
+ * asNumber would read "3,201" as 0.)
+ */
+export function moneyOf(value: unknown): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value !== 'string') return 0;
+  const cleaned = value.replace(/[,\s₹]/g, '').replace(/^Rs\.?/i, '');
+  if (cleaned === '') return 0;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function titleCase(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
@@ -104,7 +119,7 @@ export function toFundRequestRows(data: Record<string, unknown>[]): FundRequestR
         user: asString(r.user_name),
         txnNo: asString(r.transaction_receipt) || id,
         receipt: asString(r.transaction_receipt).trim(),
-        amount: asNumber(r.amount),
+        amount: moneyOf(r.amount),
         ymd: ymdOf(asString(r.date)),
         status: asString(r.status).toLowerCase(),
         attachment: safeHref(r.attachment_file),
@@ -124,7 +139,7 @@ export function toWalletTxnRows(data: Record<string, unknown>[]): WalletTxnRow[]
         centreId: asString(r.centre_id),
         centre: asString(r.centre_name),
         type: asString(r.transaction_type).toLowerCase(),
-        amount: asNumber(r.amount),
+        amount: moneyOf(r.amount),
         ymd: istYmdOf(created),
         at: Number.isNaN(at) ? 0 : at,
         remarks: asString(r.remarks),

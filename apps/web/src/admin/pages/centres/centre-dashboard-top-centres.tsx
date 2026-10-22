@@ -41,7 +41,7 @@ export function TopCentresCard({ rows, onNavigate }: { rows: DashboardRow[]; onN
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="mr-auto">
           <h2 className="text-sm font-semibold text-foreground">Top centres</h2>
-          <p className="text-[11px] text-muted-foreground">All-time. Approved = enrolled; Revenue = wallet top-ups credited.</p>
+          <p className="text-[11px] text-muted-foreground">All time. Approved = enrolled; Revenue = wallet top-ups credited.</p>
         </div>
         <div className="relative w-full sm:w-64">
           <Search aria-hidden="true" className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

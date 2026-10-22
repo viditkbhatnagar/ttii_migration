@@ -6,6 +6,7 @@ import { EnrollmentsCard, RevenueTrendCard } from '../src/admin/pages/centres/ce
 import { ActionCard, ActivityCard, KpiRow, LowWalletsCard, PipelineCard, RenewalsCard } from '../src/admin/pages/centres/centre-dashboard-sections';
 import { TopCentresCard } from '../src/admin/pages/centres/centre-dashboard-top-centres';
 import { LedgerTable } from '../src/admin/pages/wallet/ledger-table';
+import { WalletTabBar } from '../src/admin/pages/wallet/wallet-tabbar';
 import { AFFILIATION_COLUMNS, AFFILIATION_SPEC, topUpColumns, TOPUP_SPEC } from '../src/admin/pages/wallet/wallet-columns';
 import { AFFILIATION_STATUSES, TOPUP_STATUSES, toAffiliationFees, toTopUpRows } from '../src/admin/pages/wallet/wallet-payment-model';
 
@@ -19,6 +20,7 @@ const go = () => undefined;
 
 const data = toCentreDashboard({
   period: 'year',
+  window: { fromYmd: '2026-01-01', toYmd: '2026-10-22' },
   centres: [{ id: 1, code: 'TTC0001', name: 'TTC Bepur svk' }],
   kpis: {
     totalCentres: 3, activeCentres: 2, inactiveCentres: 1, enrollments: 1234, inProgress: 3, awaitingApproval: 2,
@@ -45,7 +47,10 @@ describe('Centre Dashboard cards', () => {
     expect(html).toContain('2 active · 1 inactive');
     expect(html).toContain('1,234');
     expect(html).toContain('₹70,000');
-    expect(html).toContain('Wallet top-ups + affiliation fees');
+    expect(html).toContain('Wallet top-ups + affiliation fees · this year');
+    expect(html).toContain('All time · across selected centres');
+    expect(html).toContain('All time · needs your decision');
+    expect(html).toContain('Lead to Approval Waiting · this year');
     expect(html).toContain('1 pending top-ups');
   });
 
@@ -139,7 +144,23 @@ describe('Wallet & Payment ledgers', () => {
         emptyTitle="Affiliation records are not set up yet."
       />,
     );
-    for (const label of ['Record No', 'Period', 'Due Date', 'Paid On', 'All Centres', 'All Periods']) expect(html).toContain(label);
+    for (const label of ['Record No', 'Period', 'Due Date (agreement start)', 'Paid On', 'All Centres', 'All Periods']) expect(html).toContain(label);
     expect(html).toContain('Affiliation records are not set up yet.');
+  });
+});
+
+describe('Wallet & Payment tabs', () => {
+  test('a tablist with one tab in the Tab order, each controlling its panel; unloaded counts are hidden', () => {
+    const html = render(<WalletTabBar tab="wallets" counts={{ topups: 5, wallets: 3, affiliation: 0 }} onSelect={go} />);
+    expect(html).toContain('role="tablist"');
+    expect(html.match(/role="tab"/g)).toHaveLength(4);
+    expect(html).toContain('id="wallet-tab-wallets"');
+    expect(html).toContain('aria-controls="wallet-panel-wallets"');
+    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(html.match(/tabindex="-1"/g)).toHaveLength(3);
+    expect(html).toMatch(/aria-selected="true"[^>]*tabindex="0"[^>]*>Centre Wallets/);
+    const text = html.replace(/<[^>]+>/g, '|');
+    expect(text).toContain('Application Payments|'); // no count until it loads
+    expect(text).not.toMatch(/Application Payments\|+\d/);
   });
 });

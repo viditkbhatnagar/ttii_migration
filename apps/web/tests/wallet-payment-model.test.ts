@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  AFFILIATION_STATUSES, APP_PAYMENT_STATUSES, TOPUP_STATUSES, filterLedger, filterOptions, isLedgerFiltered,
-  parseWalletLink, requestNo, sortLedger, statusPills, statusTone, toAffiliationFees, toAppPaymentRows,
+  AFFILIATION_STATUSES, APP_PAYMENT_STATUSES, TOPUP_STATUSES, filterLedger, filterOptions, isLedgerFiltered, nextTabIndex,
+  panelId, parseWalletLink, requestNo, sortLedger, statusPills, statusTone, tabId, toAffiliationFees, toAppPaymentRows,
   toCentreWalletRows, toTopUpRows, topUpStatus,
 } from '../src/admin/pages/wallet/wallet-payment-model';
+import { moneyOf, toWalletTxnRows } from '../src/admin/pages/centres/centre-payments-model';
 import { AFFILIATION_SPEC, APP_PAYMENT_SPEC, TOPUP_SPEC, WALLET_SPEC } from '../src/admin/pages/wallet/wallet-columns';
 
 const topUps = toTopUpRows([
@@ -109,5 +110,46 @@ describe('tones and deep links', () => {
     expect(parseWalletLink('?tab=wallets')).toEqual({ tab: 'wallets', status: '' });
     expect(parseWalletLink('?tab=nope&status=<script>')).toEqual({ tab: 'topups', status: '' });
     expect(parseWalletLink('')).toEqual({ tab: 'topups', status: '' });
+  });
+});
+
+describe('money from VarChar columns', () => {
+  test('commas, spaces and the rupee sign are stripped; blanks and junk are 0', () => {
+    expect(moneyOf('3,201')).toBe(3201);
+    expect(moneyOf('1,000.50')).toBe(1000.5);
+    expect(moneyOf(' ₹ 2,500 ')).toBe(2500);
+    expect(moneyOf('Rs. 250')).toBe(250);
+    expect(moneyOf('')).toBe(0);
+    expect(moneyOf(null)).toBe(0);
+    expect(moneyOf(undefined)).toBe(0);
+    expect(moneyOf('abc')).toBe(0);
+    expect(moneyOf(75000)).toBe(75000);
+    expect(moneyOf(Number.NaN)).toBe(0);
+  });
+
+  test('wallet balances, top-up and wallet-transaction amounts keep their thousands', () => {
+    expect(toCentreWalletRows([{ id: 1, centre_id: 'TTC0001', centre_name: 'A', wallet_balance: '3,201', transaction_count: 1, status: 1 }])[0]?.balance).toBe(3201);
+    const rows = toTopUpRows([
+      { id: 1, centre_name: 'A', amount: '1,000.50', date: '2026-01-01', status: 'pending' },
+      { id: 2, centre_name: 'A', amount: '25,000', date: '2026-01-02', status: 'pending' },
+      { id: 3, centre_name: 'A', amount: '', date: '2026-01-03', status: 'pending' },
+    ]);
+    expect(rows.map((r) => r.amount)).toEqual([1000.5, 25000, 0]);
+    // The amount sort is numeric, not text.
+    expect(sortLedger(rows, (r) => r.amount, 'desc').map((r) => r.id)).toEqual(['2', '1', '3']);
+    expect(toWalletTxnRows([{ id: 9, transaction_type: 'credit', amount: '3,201', created_at: '2026-01-01T00:00:00Z' }])[0]?.amount).toBe(3201);
+  });
+});
+
+describe('tab keyboard', () => {
+  test('Left / Right wrap, Home / End jump, other keys do nothing', () => {
+    expect(nextTabIndex('ArrowRight', 0, 4)).toBe(1);
+    expect(nextTabIndex('ArrowRight', 3, 4)).toBe(0);
+    expect(nextTabIndex('ArrowLeft', 0, 4)).toBe(3);
+    expect(nextTabIndex('Home', 2, 4)).toBe(0);
+    expect(nextTabIndex('End', 0, 4)).toBe(3);
+    expect(nextTabIndex('Enter', 1, 4)).toBeNull();
+    expect(nextTabIndex('ArrowRight', 0, 0)).toBeNull();
+    expect([tabId('wallets'), panelId('wallets')]).toEqual(['wallet-tab-wallets', 'wallet-panel-wallets']);
   });
 });

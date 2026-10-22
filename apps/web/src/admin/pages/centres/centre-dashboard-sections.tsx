@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Pill } from '../../shared/components/ui-kit.js';
 import {
-  AFFILIATION_TONE, HREF, activityText, daysLeftLabel, expiryLabel, inr, istDateTime, pipelineBars, renewalState,
+  AFFILIATION_TONE, HREF, activityText, daysLeftLabel, expiryLabel, inr, istDateTime, periodLabel, pipelineBars, renewalState,
   type CentreDashboardData,
 } from './centre-dashboard-model.js';
 import { DashCard, DashTitle } from './centre-dashboard-ui.js';
@@ -16,14 +16,16 @@ type Go = (href: string) => void;
 
 interface KpiDef { icon: LucideIcon; label: string; value: string; sub: string; href: string }
 
+// Each sub-line says its scope: the selected period, or "All time".
 function kpiDefs(d: CentreDashboardData): KpiDef[] {
   const k = d.kpis;
+  const inPeriod = periodLabel(d.period).toLowerCase();
   return [
     { icon: Building2, label: 'Total Centres', value: String(k.totalCentres), sub: `${k.activeCentres} active · ${k.inactiveCentres} inactive`, href: HREF.directory },
-    { icon: Users, label: 'Total Enrollments', value: k.enrollments.toLocaleString('en-IN'), sub: 'Across selected centres', href: HREF.directory },
-    { icon: FileText, label: 'Applications in progress', value: String(k.inProgress), sub: 'Lead to Approval Waiting', href: HREF.applications },
-    { icon: Clock, label: 'Awaiting TTII Approval', value: String(k.awaitingApproval), sub: 'Needs your decision', href: HREF.applications },
-    { icon: IndianRupee, label: 'Collected from Centres', value: inr(k.collected), sub: 'Wallet top-ups + affiliation fees', href: HREF.topUps },
+    { icon: Users, label: 'Total Enrollments', value: k.enrollments.toLocaleString('en-IN'), sub: 'All time · across selected centres', href: HREF.directory },
+    { icon: FileText, label: 'Applications in progress', value: String(k.inProgress), sub: `Lead to Approval Waiting · ${inPeriod}`, href: HREF.applications },
+    { icon: Clock, label: 'Awaiting TTII Approval', value: String(k.awaitingApproval), sub: 'All time · needs your decision', href: HREF.applications },
+    { icon: IndianRupee, label: 'Collected from Centres', value: inr(k.collected), sub: `Wallet top-ups + affiliation fees · ${inPeriod}`, href: HREF.topUps },
     { icon: Wallet, label: 'Total Wallet Balance', value: inr(k.walletTotal), sub: `${k.pendingTopUps} pending top-ups`, href: HREF.wallets },
   ];
 }
@@ -57,7 +59,7 @@ export function PipelineCard({ data, onNavigate }: { data: CentreDashboardData; 
   const bars = pipelineBars(data.pipeline);
   return (
     <DashCard className="lg:col-span-2">
-      <DashTitle aside={<span className="text-[11px] text-muted-foreground">Centre applications created in the period</span>}>
+      <DashTitle aside={<span className="text-[11px] text-muted-foreground">Centre applications created {periodLabel(data.period).toLowerCase()}</span>}>
         Application pipeline
       </DashTitle>
       <div className="space-y-2.5">
@@ -109,7 +111,7 @@ export function ActionCard({ data, onNavigate }: { data: CentreDashboardData; on
 export function RenewalsCard({ data, onNavigate }: { data: CentreDashboardData; onNavigate: Go }) {
   return (
     <DashCard>
-      <DashTitle>Affiliation renewals due</DashTitle>
+      <DashTitle aside={<span className="text-[11px] text-muted-foreground">Active centres</span>}>Affiliation renewals due</DashTitle>
       {data.renewals.length === 0 ? (
         <p className="text-sm text-muted-foreground">No affiliation expiry dates on record.</p>
       ) : (
@@ -134,7 +136,7 @@ export function RenewalsCard({ data, onNavigate }: { data: CentreDashboardData; 
 export function LowWalletsCard({ data, onNavigate }: { data: CentreDashboardData; onNavigate: Go }) {
   return (
     <DashCard>
-      <DashTitle>Low wallet balances (under ₹5,000)</DashTitle>
+      <DashTitle aside={<span className="text-[11px] text-muted-foreground">Active centres</span>}>Low wallet balances (under ₹5,000)</DashTitle>
       {data.lowWallets.length === 0 ? (
         <p className="text-sm text-muted-foreground">All wallets are healthy.</p>
       ) : (

@@ -2,7 +2,7 @@ import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-uti
 import type { Tone } from '../../shared/components/ui-tones.js';
 import { compareValues, matchesSearch, sortRows, ymdOf, type SortDir } from '../cohorts/list-model.js';
 import { centreStatusOf } from '../centres/centre-list-model.js';
-import { titleCase, toFundRequestRows, type FundRequestRow } from '../centres/centre-payments-model.js';
+import { moneyOf, titleCase, toFundRequestRows, type FundRequestRow } from '../centres/centre-payments-model.js';
 
 // Wallet & Payment view model (Naji 2026-10-22, WalletStatusModule). Four
 // ledgers on real data:
@@ -105,7 +105,7 @@ export function toCentreWalletRows(data: unknown): CentreWalletRow[] {
       id: asString(r.id),
       code: asString(r.centre_id),
       name: asString(r.centre_name).trim(),
-      balance: asNumber(r.wallet_balance),
+      balance: moneyOf(r.wallet_balance),
       transactions: asNumber(r.transaction_count),
       phone: asString(r.phone),
       email: asString(r.email),
@@ -123,9 +123,9 @@ export function toAppPaymentRows(data: Record<string, unknown>): AppPaymentRow[]
       studentCode: asString(r.studentCode),
       centre: asString(r.centreName),
       course: asString(r.course),
-      fee: asNumber(r.fee),
-      paid: asNumber(r.paid),
-      balance: asNumber(r.balance),
+      fee: moneyOf(r.fee),
+      paid: moneyOf(r.paid),
+      balance: moneyOf(r.balance),
       ymd: ymdOf(asString(r.date)),
       status: APP_STATUS[asString(r.status)] ?? titleCase(asString(r.status)),
     }))
@@ -140,7 +140,7 @@ export function toAffiliationFees(data: Record<string, unknown>): AffiliationFee
       centre: asString(r.centreName),
       onboarding: r.onboarding === true,
       period: asString(r.period),
-      amount: asNumber(r.amount),
+      amount: moneyOf(r.amount),
       dueYmd: ymdOf(asString(r.dueDate)),
       paidYmd: ymdOf(asString(r.paidOn)),
       status: FEE_STATUS[asString(r.status)] ?? titleCase(asString(r.status)),
@@ -213,3 +213,20 @@ export function parseWalletLink(search: string): { tab: WalletTab; status: strin
   const status = params.get('status') ?? '';
   return { tab: known, status: /^[A-Za-z ]{1,20}$/.test(status) ? status : '' };
 }
+
+// ─── Tab keyboard (WAI-ARIA tabs: Left / Right wrap, Home / End) ───────────
+
+/** The tab index a key moves to, or null when the key is not a tab key. */
+export function nextTabIndex(key: string, index: number, count: number): number | null {
+  if (count <= 0) return null;
+  switch (key) {
+    case 'ArrowRight': return (index + 1) % count;
+    case 'ArrowLeft': return (index - 1 + count) % count;
+    case 'Home': return 0;
+    case 'End': return count - 1;
+    default: return null;
+  }
+}
+
+export const tabId = (tab: WalletTab): string => `wallet-tab-${tab}`;
+export const panelId = (tab: WalletTab): string => `wallet-panel-${tab}`;

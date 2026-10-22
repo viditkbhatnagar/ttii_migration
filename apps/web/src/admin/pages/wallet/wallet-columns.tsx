@@ -124,7 +124,7 @@ export const AFFILIATION_COLUMNS: Array<LedgerColumn<AffiliationFeeRow>> = [
   },
   { key: 'period', label: 'Period', sortValue: (r) => r.period, render: (r) => dash(r.period) },
   { key: 'amount', label: 'Amount', align: 'right', sortValue: (r) => r.amount, render: (r) => rupees(r.amount) },
-  { key: 'dueDate', label: 'Due Date', sortValue: (r) => r.dueYmd, render: (r) => date(r.dueYmd) },
+  { key: 'dueDate', label: 'Due Date (agreement start)', sortValue: (r) => r.dueYmd, render: (r) => date(r.dueYmd) },
   { key: 'paidOn', label: 'Paid On', sortValue: (r) => r.paidYmd, render: (r) => date(r.paidYmd) },
   { key: 'status', label: 'Status', sortValue: (r) => r.status, render: (r) => status(r.status) },
 ];

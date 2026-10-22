@@ -82,6 +82,9 @@ describe('centre-dashboard-model', () => {
 
   test('small helpers', () => {
     expect(money('75,000')).toBe(75000);
+    expect(money('₹ 1,000.50')).toBe(1000.5);
+    expect(money('Rs. 250')).toBe(250);
+    expect(money(null)).toBe(0);
     expect(money('abc')).toBe(0);
     expect(money('')).toBe(0);
     expect(money({ toNumber: () => 1234.5 })).toBe(1234.5);

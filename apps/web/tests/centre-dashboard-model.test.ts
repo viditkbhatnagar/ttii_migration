@@ -2,12 +2,13 @@ import { describe, expect, test } from 'vitest';
 
 import {
   DEFAULT_TOP_SORT, EMPTY_TOP_FILTERS, activityText, daysLeftLabel, enrollmentBars, filterTopCentres, inr, inrThousands,
-  istDateTime, nextTopSort, pipelineBars, renewalState, sortTopCentres, stateOptions, toCentreDashboard,
+  istDateTime, nextTopSort, periodLabel, periodRange, pipelineBars, renewalState, sortTopCentres, stateOptions, toCentreDashboard,
   type DashboardActivity,
 } from '../src/admin/pages/centres/centre-dashboard-model';
 
 const raw = {
   period: 'quarter',
+  window: { fromYmd: '2026-10-01', toYmd: '2026-10-22' },
   centres: [{ id: 30, code: '30', name: 'Hanahadhi' }, { id: 1, code: 'TTC0001', name: 'TTC Bepur svk' }, { id: 0, name: 'bad' }],
   kpis: {
     totalCentres: 2, activeCentres: 1, inactiveCentres: 1, enrollments: 3, inProgress: 2, awaitingApproval: 1,
@@ -115,5 +116,15 @@ describe('top centres', () => {
     const many = Array.from({ length: 9 }, (_, i) => ({ ...data.rows[0]!, id: i + 1, name: `C${i + 1}`, enrollments: i }));
     expect(enrollmentBars(many).map((b) => b.enrollments)).toEqual([8, 7, 6, 5, 4, 3, 2]);
     expect(enrollmentBars(data.rows)[0]).toEqual({ name: 'TTC Bepur svk', enrollments: 3 });
+  });
+});
+
+describe('period labels', () => {
+  test('calendar period to date, named and dated', () => {
+    expect(data.window).toEqual({ fromYmd: '2026-10-01', toYmd: '2026-10-22' });
+    expect(periodLabel('quarter')).toBe('This quarter');
+    expect(periodRange(data.window)).toBe('01 Oct – 22 Oct 2026 (IST)');
+    expect(periodRange({ fromYmd: '2025-12-01', toYmd: '2026-01-05' })).toBe('01 Dec 2025 – 05 Jan 2026 (IST)');
+    expect(periodRange({ fromYmd: '', toYmd: '' })).toBe('');
   });
 });

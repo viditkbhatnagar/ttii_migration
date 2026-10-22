@@ -7,7 +7,7 @@ import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { FilterSelect } from '../students/list-chrome.js';
 import { RevenueTrendCard, EnrollmentsCard } from './centre-dashboard-charts.js';
-import { PERIOD_OPTIONS, toCentreDashboard, type DashboardPeriod } from './centre-dashboard-model.js';
+import { PERIOD_OPTIONS, periodLabel, periodRange, toCentreDashboard, type DashboardPeriod } from './centre-dashboard-model.js';
 import { ActionCard, ActivityCard, KpiRow, LowWalletsCard, PipelineCard, RenewalsCard } from './centre-dashboard-sections.js';
 import { TopCentresCard } from './centre-dashboard-top-centres.js';
 
@@ -35,11 +35,17 @@ export default function CentreDashboardPage({ api, session, onNavigate }: AdminP
       <div className="min-w-0">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Centre Dashboard</h1>
         <p className="mt-1 text-sm text-muted-foreground">Overview of all centres, applications, payments and affiliations.</p>
+        {data && periodRange(data.window) ? (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {periodLabel(data.period)}: {periodRange(data.window)}. Enrolments, approvals waiting and per-centre figures are all time.
+          </p>
+        ) : null}
       </div>
       <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
         {loading && data ? <RefreshCw aria-label="Updating" className="size-4 animate-spin text-muted-foreground" /> : null}
         <select
           aria-label="Period"
+          title={PERIOD_OPTIONS.find((p) => p.value === period)?.hint}
           value={period}
           onChange={(e) => setPeriod(e.target.value as DashboardPeriod)}
           className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm sm:w-36"

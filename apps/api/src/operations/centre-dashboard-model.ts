@@ -126,11 +126,14 @@ export function trendMonths(now: Date, count = 6): TrendMonth[] {
 
 // ─── Values ─────────────────────────────────────────────────────────────────
 
-/** A money value from a VarChar / Decimal column; 0 when it is not a finite number. */
+/** A money value from a VarChar / Decimal column (commas, spaces, ₹ / Rs stripped); 0 when it is not a finite number. */
 export function money(value: unknown): number {
   let n: number;
   if (typeof value === 'number') n = value;
-  else if (typeof value === 'string') n = value.trim() === '' ? 0 : Number(value.replace(/,/g, '').trim());
+  else if (typeof value === 'string') {
+    const cleaned = value.replace(/[,\s₹]/g, '').replace(/^Rs\.?/i, '');
+    n = cleaned === '' ? 0 : Number(cleaned);
+  }
   else if (typeof value === 'object' && value !== null && typeof (value as { toNumber?: unknown }).toNumber === 'function') {
     n = (value as { toNumber: () => number }).toNumber(); // Prisma Decimal
   } else return 0;
