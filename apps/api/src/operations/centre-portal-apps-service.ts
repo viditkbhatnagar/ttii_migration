@@ -99,9 +99,22 @@ const APP_SELECT = {
 
 type AppRow = Prisma.applicationsGetPayload<{ select: typeof APP_SELECT }>;
 
-interface Owner { actorId: number; centreId: number; or: Prisma.applicationsWhereInput[] }
+interface Owner { actorId: number; roleId: number; centreId: number; or: Prisma.applicationsWhereInput[] }
 
 interface Hydrated { rows: CentreApplicationRow[]; installments: Array<Record<string, unknown>> }
+
+/** Fees, payments and instalments are the centre owner's (role 7) — an associate (role 10) never receives them. */
+const ASSOCIATE_ROLE_ID = 10;
+const hidesMoney = (owner: Owner): boolean => owner.roleId === ASSOCIATE_ROLE_ID;
+
+export type MoneyFreeApplicationRow = Omit<CentreApplicationRow, 'fee' | 'paid'>;
+export type MoneyFreeApplicationDetail = Omit<CentreApplicationDetail, 'fee' | 'paid' | 'payments'>;
+export type MoneyFreeStudentRow = Omit<CentreStudentRow, 'fee' | 'paid' | 'balance' | 'feeState'>;
+
+function withoutApplicationMoney<T extends CentreApplicationRow>(row: T): Omit<T, 'fee' | 'paid'> {
+  const { fee: _fee, paid: _paid, ...rest } = row;
+  return rest;
+}
 
 const uniq = (values: Array<number | null | undefined>): number[] =>
   [...new Set(values.filter((v): v is number => typeof v === 'number' && v > 0))];
@@ -145,15 +158,15 @@ export class CentrePortalAppsService {
   private async owner(actorUserId: string): Promise<Owner | null> {
     const actorId = positiveInt(actorUserId);
     if (!actorId) return null;
-    const user = await this.prisma.users.findFirst({ where: { id: actorId, deleted_at: null }, select: { centre_id: true } });
+    const user = await this.prisma.users.findFirst({ where: { id: actorId, deleted_at: null }, select: { centre_id: true, role_id: true } });
     if (!user) return null;
     const centreId = positiveInt(user.centre_id);
-    return { actorId, centreId, or: [{ created_by: actorId }, ...(centreId ? [{ added_under_centre: centreId }] : [])] };
+    return { actorId, roleId: positiveInt(user.role_id), centreId, or: [{ created_by: actorId }, ...(centreId ? [{ added_under_centre: centreId }] : [])] };
   }
 
   // ─── Applications ─────────────────────────────────────────────────────────
 
-  async listApplications(actorUserId: string): Promise<{ rows: CentreApplicationRow[] }> {
+  async listApplications(actorUserId: string): Promise<{ rows: Array<CentreApplicationRow | MoneyFreeApplicationRow> }> {
     const owner = await this.owner(actorUserId);
     if (!owner) return { rows: [] };
     const apps = await this.prisma.applications.findMany({
@@ -161,10 +174,11 @@ export class CentrePortalAppsService {
       select: APP_SELECT,
       orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
     });
-    return { rows: (await this.hydrate(apps)).rows };
+    const { rows } = await this.hydrate(apps);
+    return { rows: hidesMoney(owner) ? rows.map(withoutApplicationMoney) : rows };
   }
 
-  async getApplication(actorUserId: string, id: string): Promise<CentreApplicationDetail | null> {
+  async getApplication(actorUserId: string, id: string): Promise<CentreApplicationDetail | MoneyFreeApplicationDetail | null> {
     const owner = await this.owner(actorUserId);
     const appId = positiveInt(id);
     if (!owner || !appId) return null;
@@ -198,7 +212,7 @@ export class CentrePortalAppsService {
       .map(paymentLine);
     const fee = roundMoney(lines.reduce((sum, l) => sum + l.amount, 0));
     const paid = roundMoney(lines.filter((l) => l.status === 'paid').reduce((sum, l) => sum + l.amount, 0));
-    return {
+    const detail: CentreApplicationDetail = {
       ...row,
       dob: dateYmd(app.date_of_birth ?? app.dob),
       gender: text(app.gender),
@@ -214,6 +228,9 @@ export class CentrePortalAppsService {
       payments: { fee, paid, balance: Math.max(0, roundMoney(fee - paid)), status: paymentState(fee, paid), lines },
       timeline: timelineOf(events, app.created_at),
     };
+    if (!hidesMoney(owner)) return detail;
+    const { fee: _fee, paid: _paid, payments: _payments, ...moneyFree } = detail;
+    return moneyFree;
   }
 
   /** "You" / "Your centre" / "TTII" — never another person's name. */
@@ -358,15 +375,17 @@ export class CentrePortalAppsService {
 
   // ─── Students ─────────────────────────────────────────────────────────────
 
-  async listStudents(actorUserId: string): Promise<{ rows: CentreStudentRow[] }> {
+  async listStudents(actorUserId: string): Promise<{ rows: Array<CentreStudentRow | MoneyFreeStudentRow> }> {
     // listStudents('centre') = role-2 users under the caller's centre — the
     // same list /centre/students/index has always returned (associates too).
     const base = await this.ops.listStudents('centre', actorUserId, {});
     const userIds = uniq(base.map((r) => positiveInt(r.id)));
     if (userIds.length === 0) return { rows: [] };
+    const owner = await this.owner(actorUserId);
+    const hide = owner !== null && hidesMoney(owner);
     const [users, payload] = await Promise.all([
       this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, application_id: true, country_code: true, created_at: true } }),
-      this.ops.listPaymentStatus({ scope: { userIds, applicationIds: [] } }),
+      hide ? Promise.resolve<Record<string, unknown>>({}) : this.ops.listPaymentStatus({ scope: { userIds, applicationIds: [] } }),
     ]);
     const links = await this.applicationLinks(users);
     const totals = feeTotalsByUser(installmentsOf(payload));
@@ -400,7 +419,8 @@ export class CentrePortalAppsService {
         loginDisabled: Boolean(r.disabled_at),
       };
     });
-    return { rows };
+    if (!hide) return { rows };
+    return { rows: rows.map(({ fee: _fee, paid: _paid, balance: _balance, feeState: _feeState, ...rest }) => rest) };
   }
 
   /** users.id → the offering / combination of the application the student came from. */
@@ -441,13 +461,15 @@ export class CentrePortalAppsService {
       },
     });
     if (!user) return null;
+    const owner = await this.owner(actorUserId);
+    const hide = owner !== null && hidesMoney(owner);
     const [enrolments, payload, cohortLinks, links] = await Promise.all([
       this.prisma.enrol.findMany({
         where: { user_id: userId, deleted_at: null },
         select: { id: true, course_id: true, enrollment_id: true, enrollment_date: true, enrollment_status: true, mode_of_study: true, created_at: true },
         orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
       }),
-      this.ops.listPaymentStatus({ scope: { userIds: [userId], applicationIds: [] } }),
+      hide ? Promise.resolve<Record<string, unknown>>({}) : this.ops.listPaymentStatus({ scope: { userIds: [userId], applicationIds: [] } }),
       this.prisma.cohort_students.findMany({ where: { user_id: userId, deleted_at: null }, select: { cohort_id: true } }),
       this.applicationLinks([user]),
     ]);
@@ -468,7 +490,7 @@ export class CentrePortalAppsService {
     const paid = roundMoney(lines.filter((l) => l.status === 'paid').reduce((sum, l) => sum + l.amount, 0));
     const today = this.today();
     const link = links.get(userId);
-    return {
+    const profile = {
       id: user.id,
       studentCode: text(user.student_id),
       name: text(user.name),
@@ -491,7 +513,6 @@ export class CentrePortalAppsService {
         status: enrolmentStatusOf(e.enrollment_status),
         mode: text(e.mode_of_study),
       })),
-      payments: { fee, paid, balance: Math.max(0, roundMoney(fee - paid)), status: paymentState(fee, paid), lines },
       cohorts: cohorts.map((c) => {
         const start = dateYmd(c.start_date);
         const end = dateYmd(c.end_date);
@@ -507,6 +528,8 @@ export class CentrePortalAppsService {
         };
       }),
     };
+    if (hide) return profile;
+    return { ...profile, payments: { fee, paid, balance: Math.max(0, roundMoney(fee - paid)), status: paymentState(fee, paid), lines } };
   }
 
   // ─── Courses & Fees (role 7 only — the route enforces it) ─────────────────

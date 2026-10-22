@@ -1,3 +1,4 @@
+import { canSeeMoney } from '../shared-money-access.js';
 import { useMemo, useState } from 'react';
 import { CheckCircle2, Download, Eye, GraduationCap, IndianRupee, MoreHorizontal, Plus, Search, UserCheck, Users } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -27,8 +28,8 @@ import {
 
 const PAGE_SIZE = 8;
 
-function downloadCsv(rows: readonly StudentRow[]): void {
-  const blob = new Blob([studentsCsv(rows)], { type: 'text/csv;charset=utf-8' });
+function downloadCsv(rows: readonly StudentRow[], showMoney: boolean): void {
+  const blob = new Blob([studentsCsv(rows, showMoney)], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -39,6 +40,7 @@ function downloadCsv(rows: readonly StudentRow[]): void {
 
 export default function CentreStudentsPage({ api, session, onNavigate }: CentrePageProps) {
   const portalTheme = usePortalThemeClass();
+  const showMoney = canSeeMoney(session.roleId);
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadStudentBoard(session.token),
     [session.token],
@@ -80,7 +82,7 @@ export default function CentreStudentsPage({ api, session, onNavigate }: CentreP
         subtitle={`${filtered.length} student${filtered.length === 1 ? '' : 's'}`}
         actions={
           <>
-            <Button variant="outline" size="sm" className="gap-1.5" disabled={sorted.length === 0} onClick={() => downloadCsv(sorted)}>
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={sorted.length === 0} onClick={() => downloadCsv(sorted, showMoney)}>
               <Download className="h-4 w-4" /> Export
             </Button>
             <Button size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" /> Add Student</Button>
@@ -94,7 +96,7 @@ export default function CentreStudentsPage({ api, session, onNavigate }: CentreP
             <StatCard label="Total Students" value={kpis.total} icon={Users} sub="Converted applications" />
             <StatCard label="Active Students" value={kpis.active} icon={UserCheck} tone="bg-info-soft text-info" />
             <StatCard label="Completed Students" value={kpis.completed} icon={CheckCircle2} tone="bg-success-soft text-success" sub="Completed or graduated" />
-            <StatCard label="Fees Collected" value={inr(kpis.paid)} icon={IndianRupee} sub="Paid instalments" />
+            {showMoney ? <StatCard label="Fees Collected" value={inr(kpis.paid)} icon={IndianRupee} sub="Paid instalments" /> : null}
           </div>
 
           <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by status">
@@ -143,8 +145,8 @@ export default function CentreStudentsPage({ api, session, onNavigate }: CentreP
                     <SortHead label="Course" k="course" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <SortHead label="Offering" k="offering" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <SortHead label="Enrolled" k="enrolledOn" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <SortHead label="Fee" k="fee" align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <SortHead label="Paid" k="paid" align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    {showMoney ? <SortHead label="Fee" k="fee" align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /> : null}
+                    {showMoney ? <SortHead label="Paid" k="paid" align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /> : null}
                     <SortHead label="Status" k="status" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <TableHead className="text-right text-muted-foreground">Action</TableHead>
                   </TableRow>
@@ -152,7 +154,7 @@ export default function CentreStudentsPage({ api, session, onNavigate }: CentreP
                 <TableBody>
                   {current.rows.length === 0 ? (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={9}>
+                      <TableCell colSpan={showMoney ? 9 : 7}>
                         {rows.length === 0
                           ? <EmptyState icon={GraduationCap} title="No students yet" body="Students appear here once an application is converted." />
                           : <EmptyState icon={Search} title="No students match your filters." />}
@@ -176,15 +178,19 @@ export default function CentreStudentsPage({ api, session, onNavigate }: CentreP
                       <TableCell className="text-sm text-foreground">{r.course || '—'}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{r.offering || '—'}</TableCell>
                       <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{fmtYmd(r.enrolledOn)}</TableCell>
-                      <TableCell className="text-right text-sm font-medium tabular-nums">{r.feeState === 'no_plan' ? <span className="text-muted-foreground">—</span> : inr(r.fee)}</TableCell>
-                      <TableCell className="text-right">
-                        {r.feeState === 'no_plan' ? <span className="text-muted-foreground">—</span> : (
-                          <div className="flex flex-col items-end gap-1">
-                            <span className="text-sm tabular-nums text-foreground">{inr(r.paid)}</span>
-                            <Tag className={FEE_STATE[r.feeState].tone}>{FEE_STATE[r.feeState].label}</Tag>
-                          </div>
-                        )}
-                      </TableCell>
+                      {showMoney ? (
+                        <>
+                        <TableCell className="text-right text-sm font-medium tabular-nums">{r.feeState === 'no_plan' ? <span className="text-muted-foreground">—</span> : inr(r.fee)}</TableCell>
+                        <TableCell className="text-right">
+                          {r.feeState === 'no_plan' ? <span className="text-muted-foreground">—</span> : (
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="text-sm tabular-nums text-foreground">{inr(r.paid)}</span>
+                              <Tag className={FEE_STATE[r.feeState].tone}>{FEE_STATE[r.feeState].label}</Tag>
+                            </div>
+                          )}
+                        </TableCell>
+                        </>
+                      ) : null}
                       <TableCell><DotBadge tone={STATUS_TONE[r.status]} label={r.status} /></TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>

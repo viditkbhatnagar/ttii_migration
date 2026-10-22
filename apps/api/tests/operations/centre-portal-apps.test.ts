@@ -5,7 +5,7 @@ import {
   CENTRE_VISIBLE_EVENTS, centreAppState, checkAddApplication, combinationsForOffering, coursePlanStatus, enrolmentStatusOf,
   feeTotalsByUser, offeringOpenOn, planStatusOn, plainText, timelineOf,
 } from '../../src/operations/centre-portal-apps-model.js';
-import { CentrePortalAppsService, type CentrePortalAppsOps } from '../../src/operations/centre-portal-apps-service.js';
+import { CentrePortalAppsService, type CentreApplicationDetail, type CentrePortalAppsOps } from '../../src/operations/centre-portal-apps-service.js';
 import { OperationsService } from '../../src/operations/operations-service.js';
 import { registerOperationsRoutes } from '../../src/routes/operations.js';
 import { registerCentrePortalAppsRoutes } from '../../src/routes/centre-portal-apps-routes.js';
@@ -191,7 +191,7 @@ describe('applications', () => {
     const { service } = makeService();
     expect(await service.getApplication('502', '2')).toBeNull();
     expect(await service.getApplication('501', '5')).toBeNull(); // deleted
-    const enrolled = await service.getApplication('501', '2');
+    const enrolled = (await service.getApplication('501', '2')) as CentreApplicationDetail | null;
     expect(enrolled?.timeline.map((e) => e.type)).toEqual(['converted', 'created']);
     expect(enrolled?.payments).toMatchObject({ fee: 35000, paid: 20000, balance: 15000, status: 'partial' });
     expect(enrolled?.payments.lines.map((l) => [l.label, l.dueDate, l.status])).toEqual([['Registration', '2026-09-01', 'paid'], ['Instalment 1', '2026-10-01', 'overdue']]);
@@ -471,5 +471,41 @@ describe('update_status (centre / associate)', () => {
   test('another centre\'s application is not found; an associate cannot reject a converted one either', async () => {
     expect((await run('501', '4', 'rejected')).res).toMatchObject({ status: 0 });
     expect((await run('503', '2', 'rejected')).row).toMatchObject({ status: 'converted' });
+  });
+});
+
+describe('associates (role 10) never receive money', () => {
+  const MONEY = /fee|paid|balance|payments|instal|amount/i;
+
+  test('applications: list and detail carry no fee, paid or payment lines', async () => {
+    const { service, ops } = makeService();
+    const list = await service.listApplications('503');
+    expect(list.rows.length).toBeGreaterThan(0);
+    for (const row of list.rows) {
+      expect(Object.keys(row).filter((k) => MONEY.test(k))).toEqual([]);
+    }
+    const detail = await service.getApplication('503', '2');
+    expect(detail).toMatchObject({ id: 2, state: 'enrolled' });
+    expect(Object.keys(detail ?? {}).filter((k) => MONEY.test(k))).toEqual([]);
+    // The centre owner still gets them.
+    expect((await service.listApplications('501')).rows[0]).toHaveProperty('fee');
+    expect(await service.getApplication('501', '2')).toHaveProperty('payments');
+    expect(ops.listPaymentStatus).toHaveBeenCalled();
+  });
+
+  test('students: list and profile carry no fee / paid / balance / payments, and the payment read is skipped', async () => {
+    const ops = makeOps({ listStudents: vi.fn().mockResolvedValue([{ id: 900, student_id: 'TTS0101', name: 'Amina C', course_title: 'Diploma in Montessori', user_email: 'amina@example.com', phone: '9000000001', course_enrol_status: 'Active' }]) });
+    const { service } = makeService(ops);
+    const list = await service.listStudents('503');
+    expect(list.rows).toHaveLength(1);
+    expect(Object.keys(list.rows[0] ?? {}).filter((k) => MONEY.test(k))).toEqual([]);
+    const profile = await service.getStudent('503', '900');
+    expect(profile).toMatchObject({ id: 900, studentCode: 'TTS0101' });
+    expect(Object.keys(profile ?? {}).filter((k) => MONEY.test(k))).toEqual([]);
+    expect(ops.listPaymentStatus).not.toHaveBeenCalled();
+
+    const owner = (await service.listStudents('501')).rows[0];
+    expect(owner).toMatchObject({ fee: 35000, paid: 20000 });
+    expect(await service.getStudent('501', '900')).toHaveProperty('payments');
   });
 });

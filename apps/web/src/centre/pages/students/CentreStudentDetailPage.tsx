@@ -1,3 +1,4 @@
+import { canSeeMoney } from '../shared-money-access.js';
 import { useMemo } from 'react';
 import { CalendarDays, CreditCard, GraduationCap, IndianRupee, Mail, Phone, User, Users, Wallet } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -26,6 +27,7 @@ export default function CentreStudentDetailPage({ api, session, onNavigate }: Ce
   );
   const s = useMemo(() => parseStudentProfile(data ?? {}), [data]);
   const back = () => onNavigate('/centre/students');
+  const showMoney = canSeeMoney(session.roleId);
 
   if (loading && !data) return <PageLoader label="Loading student..." />;
   if (error || !s) {
@@ -73,9 +75,13 @@ export default function CentreStudentDetailPage({ api, session, onNavigate }: Ce
         </div>
         <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard label="Enrolments" value={s.enrolments.length} icon={GraduationCap} />
-          <StatCard label="Total Fee" value={hasPlan ? inr(s.payments.fee) : '—'} icon={IndianRupee} tone="bg-info-soft text-info" />
-          <StatCard label="Fee Paid" value={hasPlan ? inr(s.payments.paid) : '—'} icon={CreditCard} tone="bg-success-soft text-success" />
-          <StatCard label="Pending" value={hasPlan ? inr(s.payments.balance) : '—'} icon={Wallet} tone="bg-warning-soft text-warning-foreground" />
+          {showMoney ? (
+            <>
+              <StatCard label="Total Fee" value={hasPlan ? inr(s.payments.fee) : '—'} icon={IndianRupee} tone="bg-info-soft text-info" />
+              <StatCard label="Fee Paid" value={hasPlan ? inr(s.payments.paid) : '—'} icon={CreditCard} tone="bg-success-soft text-success" />
+              <StatCard label="Pending" value={hasPlan ? inr(s.payments.balance) : '—'} icon={Wallet} tone="bg-warning-soft text-warning-foreground" />
+            </>
+          ) : null}
         </div>
       </Card>
 
@@ -83,7 +89,7 @@ export default function CentreStudentDetailPage({ api, session, onNavigate }: Ce
         <TabsList className="bg-muted/60">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="enrolments">Enrolments</TabsTrigger>
-          <TabsTrigger value="finance">Payments</TabsTrigger>
+          {showMoney ? <TabsTrigger value="finance">Payments</TabsTrigger> : null}
           <TabsTrigger value="cohorts">Cohorts</TabsTrigger>
         </TabsList>
 
@@ -133,7 +139,7 @@ export default function CentreStudentDetailPage({ api, session, onNavigate }: Ce
           </SectionCard>
         </TabsContent>
 
-        <TabsContent value="finance" className="mt-4">
+        {showMoney ? <TabsContent value="finance" className="mt-4">
           <SectionCard
             title="Payment Schedule"
             icon={IndianRupee}
@@ -143,7 +149,7 @@ export default function CentreStudentDetailPage({ api, session, onNavigate }: Ce
               ? <EmptyState icon={IndianRupee} title="No payment plan yet" body="TTII has not set up a payment schedule for this student." />
               : <PaymentLines lines={s.payments.lines} />}
           </SectionCard>
-        </TabsContent>
+        </TabsContent> : null}
 
         <TabsContent value="cohorts" className="mt-4">
           <SectionCard title="Cohorts" icon={Users}>

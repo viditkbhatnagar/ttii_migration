@@ -1,3 +1,4 @@
+import { canSeeMoney } from '../shared-money-access.js';
 import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarRange, CheckCircle2, ClipboardCheck, Eye, FileText, GraduationCap, MoreHorizontal, Plus, Search, UserCheck, XCircle,
@@ -52,6 +53,7 @@ function useNewApplicationFlag(open: () => void) {
 
 export default function CentreApplicationsPage({ api, session, onNavigate }: CentrePageProps) {
   const portalTheme = usePortalThemeClass();
+  const showMoney = canSeeMoney(session.roleId);
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadApplicationBoard(session.token),
     [session.token],
@@ -172,7 +174,7 @@ export default function CentreApplicationsPage({ api, session, onNavigate }: Cen
                     <SortHead label="Student" k="name" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <SortHead label="Course & Offering" k="course" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <SortHead label="Certificate Combination" k="combination" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <SortHead label="Fee" k="fee" align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    {showMoney ? <SortHead label="Fee" k="fee" align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /> : null}
                     <SortHead label="Stage" k="state" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <TableHead className="text-right text-muted-foreground">Action</TableHead>
                   </TableRow>
@@ -180,7 +182,7 @@ export default function CentreApplicationsPage({ api, session, onNavigate }: Cen
                 <TableBody>
                   {current.rows.length === 0 ? (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={9}>
+                      <TableCell colSpan={showMoney ? 9 : 8}>
                         {rows.length === 0
                           ? <EmptyState icon={ClipboardCheck} title="No applications yet" body="Add an application for a student, then convert it to enrol them." />
                           : <EmptyState icon={Search} title="No applications match your filters." />}
@@ -211,14 +213,16 @@ export default function CentreApplicationsPage({ api, session, onNavigate }: Cen
                         <p className="text-[11px] text-muted-foreground">{r.offering || 'No offering'}</p>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{r.combination || '—'}</TableCell>
-                      <TableCell className="text-right text-sm tabular-nums" title={r.fee === null ? 'No payment plan yet' : undefined}>
-                        {r.fee === null ? <span className="text-muted-foreground">—</span> : (
-                          <>
-                            <p className="font-medium text-foreground">{inr(r.fee)}</p>
-                            <p className="text-[11px] text-muted-foreground">{inr(r.paid)} paid</p>
-                          </>
-                        )}
-                      </TableCell>
+                      {showMoney ? (
+                        <TableCell className="text-right text-sm tabular-nums" title={r.fee === null ? 'No payment plan yet' : undefined}>
+                          {r.fee === null ? <span className="text-muted-foreground">—</span> : (
+                            <>
+                              <p className="font-medium text-foreground">{inr(r.fee)}</p>
+                              <p className="text-[11px] text-muted-foreground">{inr(r.paid)} paid</p>
+                            </>
+                          )}
+                        </TableCell>
+                      ) : null}
                       <TableCell><DotBadge tone={STATE_TONE[r.state]} label={STATE_LABEL[r.state]} /></TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>

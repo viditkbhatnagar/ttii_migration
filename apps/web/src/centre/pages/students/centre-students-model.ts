@@ -145,15 +145,15 @@ export function offeringOptions(rows: readonly StudentRow[], course: string) {
 }
 
 /** CSV of the rows on screen (Export button). */
-export function studentsCsv(rows: readonly StudentRow[]): string {
+export function studentsCsv(rows: readonly StudentRow[], showMoney = true): string {
   const cell = (v: string | number) => {
     const s = String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const head = ['Student ID', 'Name', 'Email', 'Phone', 'Course', 'Offering', 'Combination', 'Enrolled On', 'Fee', 'Paid', 'Balance', 'Fee Status', 'Status'];
+  const head = ['Student ID', 'Name', 'Email', 'Phone', 'Course', 'Offering', 'Combination', 'Enrolled On', ...(showMoney ? ['Fee', 'Paid', 'Balance', 'Fee Status'] : []), 'Status'];
   const lines = rows.map((r) => [
     r.studentCode, r.name, r.email, r.phone, r.course, r.offering, r.combination, r.enrolledOn,
-    r.fee, r.paid, r.balance, FEE_STATE[r.feeState].label, r.status,
+    ...(showMoney ? [r.fee, r.paid, r.balance, FEE_STATE[r.feeState].label] : []), r.status,
   ].map(cell).join(','));
   return [head.join(','), ...lines].join('\n');
 }

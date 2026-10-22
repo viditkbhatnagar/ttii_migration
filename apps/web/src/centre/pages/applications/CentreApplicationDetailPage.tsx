@@ -1,3 +1,4 @@
+import { canSeeMoney } from '../shared-money-access.js';
 import { useMemo, useState } from 'react';
 import {
   CheckCircle2, ClipboardList, FileText, GraduationCap, History, Mail, Phone, User, UserCheck, Wallet, XCircle,
@@ -129,7 +130,7 @@ export default function CentreApplicationDetailPage({ api, session, onNavigate }
                   <Field label="Mode of Study" value={app.modeOfStudy} />
                 </FieldGrid>
               </SectionCard>
-              <PaymentSection app={app} />
+              {canSeeMoney(session.roleId) ? <PaymentSection app={app} /> : null}
             </TabsContent>
             <TabsContent value="timeline" className="mt-4">
               <Card className={cn(CARD, 'gap-0 p-6')}>
