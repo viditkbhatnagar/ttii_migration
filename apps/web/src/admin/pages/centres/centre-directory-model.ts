@@ -1,4 +1,5 @@
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
+import { moneyOf } from './centre-payments-model.js';
 import { statesFor } from '@/lib/location-tree';
 import { dayMonthYear, matchesSearch, sortRows, type SortDir } from '../cohorts/list-model.js';
 import { centreStatusOf, type CentreStatus } from './centre-list-model.js';
@@ -72,7 +73,7 @@ export function toDirectoryRow(r: Record<string, unknown>): DirectoryRow {
     phone: asString(r.phone),
     email: asString(r.email),
     students: asNumber(r.students_count),
-    walletBalance: asNumber(r.wallet_balance),
+    walletBalance: moneyOf(r.wallet_balance),
     expiry: expiryYmd(r.date_of_expiry),
     status: centreStatusOf(r.status),
     linkedUserId: asString(r.linked_user_id),

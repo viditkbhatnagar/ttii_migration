@@ -1,4 +1,5 @@
-import { asNumber, asRecord, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asRecord, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { moneyOf } from './centre-payments-model.js';
 import type { Tone } from '../../shared/components/ui-tones.js';
 import { STAGE_LABEL, STAGE_TONE } from '../applications/application-list-model.js';
 import { toCohortRow, type CohortRow } from '../cohorts/cohort-list-model.js';
@@ -112,7 +113,7 @@ export function toProfile(data: Record<string, unknown>): CentreProfile {
       affiliationExpiry: asString(c.affiliation_expiry),
       registrationDoc: safeUrl(c.registration_doc),
       affiliationDocument: safeUrl(c.affiliation_document),
-      walletBalance: asNumber(c.wallet_balance),
+      walletBalance: moneyOf(c.wallet_balance),
       createdAt: asString(c.created_at),
     },
     kyc: k ? {
@@ -123,26 +124,26 @@ export function toProfile(data: Record<string, unknown>): CentreProfile {
     } : null,
     login: login ? { userId: asString(login.user_id), email: asString(login.email), disabled: login.disabled === true } : null,
     plans: toRecords(data.course_plans).map((p) => ({
-      id: asString(p.id), course: asString(p.course), amount: asNumber(p.amount), start: asString(p.start), end: asString(p.end),
+      id: asString(p.id), course: asString(p.course), amount: moneyOf(p.amount), start: asString(p.start), end: asString(p.end),
       status: asString(p.status) === 'Inactive' ? 'Inactive' : 'Active',
     })),
     applications: toRecords(data.applications).map((a) => ({
       id: asString(a.id), appId: asString(a.application_id), date: asString(a.date), student: asString(a.student),
       course: asString(a.course), combination: asString(a.combination),
-      fee: a.fee === null || a.fee === undefined || a.fee === '' ? null : asNumber(a.fee), stage: asString(a.stage) || 'lead',
+      fee: a.fee === null || a.fee === undefined || a.fee === '' ? null : moneyOf(a.fee), stage: asString(a.stage) || 'lead',
     })),
     students: toRecords(data.students).map((s) => ({
       id: asString(s.id), roll: asString(s.roll), name: asString(s.name), cohort: asString(s.cohort), course: asString(s.course),
       joined: asString(s.joined), status: asString(s.status) || 'Active',
     })),
     cohorts: toRecords(data.cohorts).map(toCohortRow).filter((r) => r.id),
-    walletBalance: asNumber(wallet.balance),
+    walletBalance: moneyOf(wallet.balance),
     transactions: toRecords(wallet.transactions).map((t) => {
       const type = asString(t.type);
-      return { id: asString(t.id), type: type === 'credit' || type === 'debit' ? type : 'other', amount: asNumber(t.amount), remarks: asString(t.remarks), at: asString(t.at) };
+      return { id: asString(t.id), type: type === 'credit' || type === 'debit' ? type : 'other', amount: moneyOf(t.amount), remarks: asString(t.remarks), at: asString(t.at) };
     }),
     fundRequests: toRecords(wallet.fund_requests).map((f) => ({
-      id: asString(f.id), amount: asNumber(f.amount), date: asString(f.date), status: asString(f.status) || 'pending',
+      id: asString(f.id), amount: moneyOf(f.amount), date: asString(f.date), status: asString(f.status) || 'pending',
       description: asString(f.description), at: asString(f.at),
     })),
     documents: toRecords(data.documents).map((d) => ({
