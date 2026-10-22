@@ -463,6 +463,8 @@ export function registerOperationsRoutes(
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
   const requireCentreRole = requireLegacyRoles(authService, CENTRE_PORTAL_ROLES);
+  // Centre owner (7) only — money and commercial terms (security review 2026-10-22).
+  const requireCentreOwnerOnly = requireLegacyRoles(authService, [LEGACY_ROLE.CENTRE]);
   const requireInstructorRole = requireLegacyRoles(authService, INSTRUCTOR_PORTAL_ROLES);
   // Editing a student (profile / enrolment / credentials) is admin-only —
   // counsellors (role 9) may only VIEW + add enrolments (Naji 2026-06-15).
@@ -1039,7 +1041,7 @@ export function registerOperationsRoutes(
     }
   });
 
-  app.get('/centre/courses/index', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+  app.get('/centre/courses/index', { preHandler: [requireAuth, requireCentreOwnerOnly] }, async (request, reply) => {
     try {
       const courses = await operationsService.listCentreCourses(requestUserId(request));
       reply.code(200).send({
@@ -1052,7 +1054,7 @@ export function registerOperationsRoutes(
     }
   });
 
-  app.get('/centre/wallet/index', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+  app.get('/centre/wallet/index', { preHandler: [requireAuth, requireCentreOwnerOnly] }, async (request, reply) => {
     try {
       const data = await operationsService.getCentreWallet(requestUserId(request));
       reply.code(200).send({
@@ -1065,7 +1067,7 @@ export function registerOperationsRoutes(
     }
   });
 
-  app.post('/centre/wallet/add', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+  app.post('/centre/wallet/add', { preHandler: [requireAuth, requireCentreOwnerOnly] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const input: AddCentreFundRequestInput = {
@@ -1154,7 +1156,7 @@ export function registerOperationsRoutes(
   registerCentrePortalShellRoutes(app, {
     requireAuth,
     requireCentreRole,
-    requireCentreOwnerRole: requireLegacyRoles(authService, [LEGACY_ROLE.CENTRE]),
+    requireCentreOwnerRole: requireCentreOwnerOnly,
     loadPaymentStatus: (scope) => operationsService.listPaymentStatus({ scope }),
     ...(options.centrePortalDashboardService ? { dashboardService: options.centrePortalDashboardService } : {}),
     ...(options.centrePortalProfileService ? { profileService: options.centrePortalProfileService } : {}),

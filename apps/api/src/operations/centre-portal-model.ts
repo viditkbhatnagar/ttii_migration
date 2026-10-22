@@ -8,6 +8,7 @@
 // instants (→ IST day); @db.Date columns are read with UTC getters;
 // centres.date_of_expiry is free text.
 
+import { env } from '../env.js';
 import {
   affiliationState, daysBetween, istYmd, laterYmd, type AffiliationState, type TrendMonth,
 } from './centre-dashboard-model.js';
@@ -155,17 +156,62 @@ export function isCentreDocType(value: string): value is CentreDocType {
 
 const CENTRE_UPLOAD_KEY = /\/public\/uploads\/\d{10,16}-[a-z0-9]{1,16}\.(pdf|png|jpe?g|webp|gif)$/i;
 
+export interface UploadStorageConfig {
+  provider: 'local' | 's3';
+  bucket?: string | undefined;
+  region: string;
+  endpoint?: string | undefined;
+  forcePathStyle: boolean;
+  publicBaseUrl?: string | undefined;
+}
+
 /**
- * True when `url` has the shape of a file /centre/upload stored
- * (public/uploads/{ms}-{random}.{pdf|png|jpg|jpeg|webp|gif}) — never a
- * javascript:/data: link or an arbitrary page that would later open inside the
- * admin Centre Profile.
+ * Where /centre/upload files are served from, mirroring how the storage provider
+ * builds the `location` it returns: the public base URL when set, else the bucket
+ * URL (path- or host-style); the local provider answers file:// locations.
+ * Returns origins ("https://host"), plus the literal "file:" for local storage.
  */
-export function isCentreUploadUrl(url: string): boolean {
+export function uploadOriginsOf(cfg: UploadStorageConfig): string[] {
+  if (cfg.provider === 'local') return ['file:'];
+  try {
+    if (cfg.publicBaseUrl) return [new URL(cfg.publicBaseUrl).origin];
+    const endpoint = new URL(cfg.endpoint?.trim() || `https://s3.${cfg.region}.amazonaws.com`);
+    if (cfg.forcePathStyle || !cfg.bucket) return [endpoint.origin];
+    return [`${endpoint.protocol}//${cfg.bucket}.${endpoint.host}`];
+  } catch {
+    return [];
+  }
+}
+
+function defaultUploadOrigins(): string[] {
+  return uploadOriginsOf({
+    provider: env.STORAGE_PROVIDER,
+    bucket: env.S3_BUCKET,
+    region: env.S3_REGION,
+    endpoint: env.S3_ENDPOINT,
+    forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    publicBaseUrl: env.S3_PUBLIC_BASE_URL,
+  });
+}
+
+/**
+ * True when `url` is a file /centre/upload stored: served from the storage
+ * provider's own origin and shaped public/uploads/{ms}-{random}.{pdf|png|jpg|jpeg|
+ * webp|gif} — never a javascript:/data: link, another host, or an arbitrary page
+ * that would later open inside the admin Centre Profile / Wallet pages.
+ */
+export function isCentreUploadUrl(url: string, allowedOrigins: readonly string[] = defaultUploadOrigins()): boolean {
   if (url.length === 0 || url.length > 500 || /\s/.test(url)) return false;
-  if (!/^(https?|file):\/\//i.test(url)) return false;
-  const path = url.split(/[?#]/)[0] ?? '';
-  return CENTRE_UPLOAD_KEY.test(path);
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return false; }
+  if (parsed.protocol === 'file:') {
+    if (!allowedOrigins.includes('file:')) return false;
+  } else if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+    if (!allowedOrigins.includes(parsed.origin)) return false;
+  } else {
+    return false;
+  }
+  return CENTRE_UPLOAD_KEY.test(parsed.pathname);
 }
 
 /** The last path segment of a file URL, for the Documents tab. */

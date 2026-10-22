@@ -2,13 +2,19 @@ import { describe, expect, test, vi } from 'vitest';
 
 import { CentrePortalDashboardService, recentPayments } from '../../src/operations/centre-portal-dashboard-service.js';
 import {
-  affiliationSummary, buildDocumentRows, cohortPhase, countByMonth, courseBreakdown, isCentreUploadUrl, previousMonth,
+  affiliationSummary, buildDocumentRows, cohortPhase, countByMonth, courseBreakdown, isCentreUploadUrl, previousMonth, uploadOriginsOf,
   thisAndLastMonth,
 } from '../../src/operations/centre-portal-model.js';
 import { CentrePortalProfileService } from '../../src/operations/centre-portal-profile-service.js';
 import { NOT_SET_UP_MESSAGE } from '../../src/operations/centre-profile-model.js';
 import { trendMonths } from '../../src/operations/centre-dashboard-model.js';
 import { memoryPrisma } from './support/memory-prisma.js';
+
+// The upload-URL check reads the storage origin from env; production serves /centre/upload files from a Space.
+vi.hoisted(() => {
+  process.env.STORAGE_PROVIDER = 's3';
+  process.env.S3_PUBLIC_BASE_URL = 'https://ttii.blr1.digitaloceanspaces.com';
+});
 
 // Centre portal v2 (Naji 2026-10-22): the centre's OWN shell, dashboard and
 // profile. A centre only ever sees its own rows (users.centre_id), money and
@@ -18,6 +24,25 @@ const NOW = new Date('2026-10-22T06:00:00Z'); // 11:30 IST, 22 Oct 2026
 const d = (iso: string) => new Date(iso);
 const day = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`);
 const UPLOAD = 'https://ttii.blr1.digitaloceanspaces.com/public/uploads/1761112345678-ab12cd.pdf';
+
+describe('uploadOriginsOf', () => {
+  test('mirrors where the storage provider serves a public upload from', () => {
+    const base = { region: 'sgp1', forcePathStyle: false };
+    expect(uploadOriginsOf({ ...base, provider: 'local' })).toEqual(['file:']);
+    expect(uploadOriginsOf({ ...base, provider: 's3', publicBaseUrl: 'https://cdn.example.com/x/' })).toEqual(['https://cdn.example.com']);
+    expect(uploadOriginsOf({ ...base, provider: 's3', bucket: 'ttii', endpoint: 'https://sgp1.digitaloceanspaces.com' })).toEqual(['https://ttii.sgp1.digitaloceanspaces.com']);
+    expect(uploadOriginsOf({ ...base, provider: 's3', bucket: 'ttii', endpoint: 'https://minio.local:9000', forcePathStyle: true })).toEqual(['https://minio.local:9000']);
+    expect(uploadOriginsOf({ ...base, provider: 's3', bucket: 'ttii' })).toEqual(['https://ttii.s3.sgp1.amazonaws.com']);
+  });
+
+  test('local storage accepts file:// only; an explicit origin list is honoured', () => {
+    const key = '/public/uploads/1761112345678-x1.png';
+    expect(isCentreUploadUrl(`file:///srv/storage${key}`, ['file:'])).toBe(true);
+    expect(isCentreUploadUrl(`https://cdn.example.com${key}`, ['file:'])).toBe(false);
+    expect(isCentreUploadUrl(`https://cdn.example.com${key}`, ['https://cdn.example.com'])).toBe(true);
+    expect(isCentreUploadUrl(`https://cdn.example.com${key}`, [])).toBe(false);
+  });
+});
 
 describe('centre-portal-model', () => {
   test('affiliation expiry is the later of the legacy date and the agreements', () => {
@@ -56,11 +81,18 @@ describe('centre-portal-model', () => {
 
   test('only /centre/upload files can be filed as documents', () => {
     expect(isCentreUploadUrl(UPLOAD)).toBe(true);
-    expect(isCentreUploadUrl('file:///srv/storage/public/uploads/1761112345678-x1.png')).toBe(true);
+    // Production storage is an S3-compatible Space: file:// and other hosts are refused.
+    expect(isCentreUploadUrl('file:///srv/storage/public/uploads/1761112345678-x1.png')).toBe(false);
+    expect(isCentreUploadUrl('https://evil.example/public/uploads/1761112345678-ab12cd.pdf')).toBe(false);
+    expect(isCentreUploadUrl('https://ttii.blr1.digitaloceanspaces.com.evil.example/public/uploads/1761112345678-ab12cd.pdf')).toBe(false);
+    expect(isCentreUploadUrl('https://user@evil.example/public/uploads/1761112345678-ab12cd.pdf')).toBe(false);
+    expect(isCentreUploadUrl('javascript:alert(1)')).toBe(false);
+    expect(isCentreUploadUrl('data:text/html,<script>1</script>')).toBe(false);
     expect(isCentreUploadUrl('https://evil.example/phish.html')).toBe(false);
     expect(isCentreUploadUrl('javascript:alert(1)//public/uploads/1761112345678-ab.pdf')).toBe(false);
     expect(isCentreUploadUrl('https://x.example/public/uploads/1761112345678-ab.exe')).toBe(false);
     expect(isCentreUploadUrl(`${UPLOAD} `)).toBe(false);
+    expect(isCentreUploadUrl('http://ttii.blr1.digitaloceanspaces.com/public/uploads/1761112345678-ab12cd.pdf')).toBe(false); // other scheme = other origin
     expect(isCentreUploadUrl('')).toBe(false);
   });
 

@@ -3,6 +3,8 @@ import type { PrismaClient, $Enums } from '@prisma/client';
 
 import { hashPassword } from '../auth/password.js';
 import { validJoinUrl } from './live-class-join-url.js';
+import { isCentreUploadUrl } from './centre-portal-model.js';
+
 import { getPrismaClient } from '../data/prisma-client.js';
 import { normaliseQuestionText, shapeChanged, toArray, validateQuestionShape, type QuestionShape } from './question-rules.js';
 import { questionBankCourseScope, questionUsage, type QuestionUsage } from './question-usage.js';
@@ -33,6 +35,9 @@ import { agreedPayableByCourse, agreedPayableByStudentCourse, loadCoursePricing 
 import { liveClassJoinWindowFromStrings, IMPORTED_LIVE_SESSION_PLATFORM } from '@ttii/shared-types';
 import type { TeamsHostCandidate, TeamsHostSelection, TeamsMeetingAttempt } from '../integrations/teams-scheduling.js';
 import type { TeamsMeetingService } from '../integrations/teams-meeting-service.js';
+
+/** One fund request may not exceed 10,00,000 (security review 2026-10-22). */
+const MAX_FUND_REQUEST_AMOUNT = 1_000_000;
 
 type SqlRow = Record<string, unknown>;
 
@@ -2022,10 +2027,23 @@ export class OperationsService {
       };
     }
 
-    if (input.amount <= 0) {
+    if (!Number.isFinite(input.amount) || input.amount <= 0) {
       return {
         status: 0,
         message: 'Amount is required',
+      };
+    }
+    if (input.amount > MAX_FUND_REQUEST_AMOUNT) {
+      return {
+        status: 0,
+        message: 'A single fund request can be at most 10,00,000. Send more than one request for a larger amount.',
+      };
+    }
+    const attachment = (input.attachmentFile ?? '').trim();
+    if (attachment && !isCentreUploadUrl(attachment)) {
+      return {
+        status: 0,
+        message: 'Upload the proof again: the attached file link is invalid.',
       };
     }
 
@@ -2040,7 +2058,7 @@ export class OperationsService {
         date: new Date(date),
         transaction_receipt: toNullableString(input.transactionReceipt),
         description: toNullableString(input.description),
-        attachment_file: toNullableString(input.attachmentFile),
+        attachment_file: toNullableString(attachment),
         status: 'pending',
         created_by: toNullableIntId(actorUserId),
         updated_by: toNullableIntId(actorUserId),
