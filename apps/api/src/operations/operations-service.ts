@@ -1506,16 +1506,6 @@ export class OperationsService {
     return toStringValue(user?.centre_id);
   }
 
-  private async resolveSupportRecipientId(): Promise<string> {
-    const admin = await this.prisma.users.findFirst({
-      where: { role_id: 1, deleted_at: null },
-      orderBy: { id: 'asc' },
-      select: { id: true },
-    });
-
-    return admin ? String(admin.id) : '';
-  }
-
   private async nextStudentCode(tx: Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>): Promise<string> {
     // Allocate from the MAX numeric suffix across ALL TTS student codes, not
     // just the latest row (Naji 2026-07-09). Reading a single latest row would
@@ -2117,12 +2107,16 @@ export class OperationsService {
       };
     }
 
+    // A support conversation is keyed by its OWNER: chat_id = the centre's own
+    // user id, exactly like students (EngagementService.submitSupportMessage).
+    // Until 2026-10-22 centre messages were filed under the first Super Admin,
+    // so every centre shared one admin-owned thread in Chat Support and admin
+    // replies (stored with chat_id = that admin) never came back to the centre.
     const now = new Date();
-    const recipientId = await this.resolveSupportRecipientId();
 
     const created = await this.prisma.support_chat.create({
       data: {
-        chat_id: toNullableIntId(recipientId),
+        chat_id: toNullableIntId(actorUserId),
         sender_id: toNullableIntId(actorUserId),
         message,
         created_at: now,
