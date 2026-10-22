@@ -14,8 +14,19 @@ import { istYmd, money, paymentState, pipelineStageOf, roundMoney, type PaymentS
 // the rest. Centre students with no centre application (added directly under
 // the centre) get a row per course they have payments for, or one "No plan"
 // row. Rejected applications are left out: they owe nothing.
+//
+// "Enrolled" is is_converted = 1 — the SAME test listPaymentStatus uses to
+// stop listing the plan — so an application marked converted / enrolled by
+// stage alone keeps its plan rows. Each (student, course) group of
+// student_payments is counted on exactly ONE row: the newest converted
+// application of that student for that course; an application with no course
+// takes only the groups no other application claimed; the rest become the
+// student's own rows.
 
-export type PaymentStatusLoader = () => Promise<Record<string, unknown>>;
+/** listPaymentStatus narrowed to the centre students (users.id) and centre applications (applications.id). */
+export interface PaymentStatusScope { userIds: number[]; applicationIds: number[] }
+
+export type PaymentStatusLoader = (scope: PaymentStatusScope) => Promise<Record<string, unknown>>;
 
 export interface ApplicationPaymentRow {
   /** Stable row key: "app-12", or "user-5-9" (user 5, course 9) for a student with no centre application. */
@@ -43,6 +54,8 @@ export interface ApplicationPaymentRow {
 interface Totals { fee: number; paid: number }
 interface CourseTotals extends Totals { course: string }
 
+type AppInput = ApplicationPaymentsInput['apps'][number];
+
 export interface ApplicationPaymentsInput {
   centreNames: Map<number, string>;
   courseTitles: Map<number, string>;
@@ -61,28 +74,32 @@ export interface ApplicationPaymentsInput {
 const APP_PLAN_ROW = /^app-(\d+)-\d+$/;
 const ZERO: Totals = { fee: 0, paid: 0 };
 
-function add<T extends Totals>(map: Map<string | number, T>, key: string | number, extra: T): void {
-  const prev = map.get(key);
-  map.set(key, prev ? { ...prev, fee: prev.fee + extra.fee, paid: prev.paid + extra.paid } : extra);
-}
-
+/** Plan rows by application id; student_payments by user id, then course id (O(1) lookups). */
 function indexInstallments(installments: Array<Record<string, unknown>>) {
-  const byApp = new Map<string | number, Totals>();
-  const byUserCourse = new Map<string | number, CourseTotals>();
+  const byApp = new Map<number, Totals>();
+  const byUser = new Map<number, Map<number, CourseTotals>>();
   for (const r of installments) {
     const amount = money(r.amount);
-    const totals = { fee: amount, paid: r.computed_status === 'paid' ? amount : 0 };
+    const paid = r.computed_status === 'paid' ? amount : 0;
     const planRow = APP_PLAN_ROW.exec(typeof r.id === 'string' ? r.id : '');
     if (planRow) {
-      add(byApp, Number(planRow[1]), totals);
+      const appId = Number(planRow[1]);
+      const prev = byApp.get(appId) ?? ZERO;
+      byApp.set(appId, { fee: prev.fee + amount, paid: prev.paid + paid });
       continue;
     }
     const userId = Number(r.user_id);
     if (!Number.isInteger(userId) || userId <= 0) continue;
     const courseId = Number(r.course_id) || 0;
-    add(byUserCourse, `${userId}|${courseId}`, { ...totals, course: typeof r.course_title === 'string' ? r.course_title.trim() : '' });
+    const courses = byUser.get(userId) ?? new Map<number, CourseTotals>();
+    const prev = courses.get(courseId);
+    const course = typeof r.course_title === 'string' ? r.course_title.trim() : '';
+    courses.set(courseId, prev
+      ? { fee: prev.fee + amount, paid: prev.paid + paid, course: prev.course || course }
+      : { fee: amount, paid, course });
+    byUser.set(userId, courses);
   }
-  return { byApp, byUserCourse };
+  return { byApp, byUser };
 }
 
 function finish(row: Omit<ApplicationPaymentRow, 'fee' | 'paid' | 'balance' | 'status'>, totals: Totals): ApplicationPaymentRow {
@@ -91,46 +108,67 @@ function finish(row: Omit<ApplicationPaymentRow, 'fee' | 'paid' | 'balance' | 's
   return { ...row, fee, paid, balance: Math.max(0, roundMoney(fee - paid)), status: paymentState(fee, paid) };
 }
 
+const createdMs = (app: AppInput): number => app.created_at?.getTime() ?? 0;
+
+interface ResolvedApp { app: AppInput & { added_under_centre: number }; converted: boolean; userId: number | null; studentCode: string }
+
+/** Each (user, course) group goes to one application: newest first, course-specific claims before course-less ones. */
+function claimGroups(resolved: ResolvedApp[], byUser: Map<number, Map<number, CourseTotals>>) {
+  const claimed = new Set<string>();
+  const share = new Map<number, Totals>();
+  const newestFirst = [...resolved].sort((a, b) => createdMs(b.app) - createdMs(a.app) || b.app.id - a.app.id);
+  const take = (r: ResolvedApp, courseId: number, group: CourseTotals) => {
+    const key = `${r.userId}|${courseId}`;
+    if (claimed.has(key)) return;
+    claimed.add(key);
+    const prev = share.get(r.app.id) ?? ZERO;
+    share.set(r.app.id, { fee: prev.fee + group.fee, paid: prev.paid + group.paid });
+  };
+  for (const r of newestFirst) {
+    if (r.userId === null || !r.app.course_id) continue;
+    const group = byUser.get(r.userId)?.get(r.app.course_id);
+    if (group) take(r, r.app.course_id, group);
+  }
+  for (const r of newestFirst) {
+    if (r.userId === null || r.app.course_id) continue;
+    for (const [courseId, group] of byUser.get(r.userId) ?? []) take(r, courseId, group);
+  }
+  return { claimed, share };
+}
+
 export function buildApplicationPayments(input: ApplicationPaymentsInput): ApplicationPaymentRow[] {
-  const { byApp, byUserCourse } = indexInstallments(input.installments);
+  const { byApp, byUser } = indexInstallments(input.installments);
   const studentsById = new Map(input.students.map((s) => [s.id, s]));
   const studentByApp = new Map(input.students.filter((s) => s.application_id > 0).map((s) => [s.application_id, s]));
-  const covered = new Set<string>();
-  const linked = new Set<number>();
   const courseTitle = (id: number | null) => (id ? input.courseTitles.get(id) ?? '' : '');
-  const rows: ApplicationPaymentRow[] = [];
 
-  for (const app of input.apps) {
-    const stage = pipelineStageOf(app);
-    if (stage === 'rejected' || app.added_under_centre === null) continue;
-    const enrolled = stage === 'enrolled';
-    const student = enrolled ? (app.student_id ? studentsById.get(app.student_id) : undefined) ?? studentByApp.get(app.id) : undefined;
-    const userId = enrolled ? student?.id ?? app.student_id ?? null : null;
-    let totals: Totals = ZERO;
-    if (userId !== null) {
-      linked.add(userId);
-      for (const [key, t] of byUserCourse) {
-        const [uid, cid] = String(key).split('|').map(Number);
-        if (uid !== userId || (app.course_id && cid !== app.course_id)) continue;
-        covered.add(String(key));
-        totals = { fee: totals.fee + t.fee, paid: totals.paid + t.paid };
-      }
-    } else if (!enrolled) {
-      totals = byApp.get(app.id) ?? ZERO;
-    }
-    rows.push(finish({
-      key: `app-${app.id}`,
-      applicationId: (app.application_id ?? '').trim() || `#${app.id}`,
-      studentName: (app.name ?? '').trim(),
+  const resolved: ResolvedApp[] = input.apps.flatMap((app) => {
+    const centreId = app.added_under_centre;
+    if (centreId === null || pipelineStageOf(app) === 'rejected') return [];
+    const converted = app.is_converted === 1;
+    const student = converted ? (app.student_id ? studentsById.get(app.student_id) : undefined) ?? studentByApp.get(app.id) : undefined;
+    return [{
+      app: { ...app, added_under_centre: centreId },
+      converted,
+      userId: converted ? student?.id ?? app.student_id ?? null : null,
       studentCode: (student?.student_id ?? '').trim(),
-      studentUserId: userId,
-      centreId: app.added_under_centre,
-      centreName: input.centreNames.get(app.added_under_centre) ?? '',
-      course: courseTitle(app.course_id),
-      date: istYmd(app.created_at),
-      source: enrolled ? 'enrolment' : 'application',
-    }, totals));
-  }
+    }];
+  });
+  const { claimed, share } = claimGroups(resolved, byUser);
+  const linked = new Set(resolved.map((r) => r.userId).filter((id): id is number => id !== null));
+
+  const rows: ApplicationPaymentRow[] = resolved.map(({ app, converted, userId, studentCode }) => finish({
+    key: `app-${app.id}`,
+    applicationId: (app.application_id ?? '').trim() || `#${app.id}`,
+    studentName: (app.name ?? '').trim(),
+    studentCode,
+    studentUserId: userId,
+    centreId: app.added_under_centre,
+    centreName: input.centreNames.get(app.added_under_centre) ?? '',
+    course: courseTitle(app.course_id),
+    date: istYmd(app.created_at),
+    source: converted ? 'enrolment' : 'application',
+  }, share.get(app.id) ?? byApp.get(app.id) ?? ZERO));
 
   for (const s of input.students) {
     if (s.added_under_centre === null) continue;
@@ -144,10 +182,9 @@ export function buildApplicationPayments(input: ApplicationPaymentsInput): Appli
       date: istYmd(s.created_at),
       source: 'enrolment' as const,
     };
-    const own = [...byUserCourse].filter(([key]) => String(key).startsWith(`${s.id}|`) && !covered.has(String(key)));
-    for (const [key, t] of own) {
-      const courseId = Number(String(key).split('|')[1]) || null;
-      rows.push(finish({ ...base, key: `user-${s.id}-${courseId ?? 0}`, course: t.course || courseTitle(courseId) }, t));
+    const own = [...(byUser.get(s.id) ?? [])].filter(([courseId]) => !claimed.has(`${s.id}|${courseId}`));
+    for (const [courseId, t] of own) {
+      rows.push(finish({ ...base, key: `user-${s.id}-${courseId}`, course: t.course || courseTitle(courseId || null) }, t));
     }
     if (own.length === 0 && !linked.has(s.id)) {
       rows.push(finish({ ...base, key: `user-${s.id}-${s.course_id ?? 0}`, course: courseTitle(s.course_id) }, ZERO));

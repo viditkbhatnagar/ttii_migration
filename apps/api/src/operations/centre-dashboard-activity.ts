@@ -6,6 +6,8 @@ import { approvedRequestIdOf, fundRequestNo, isCredit, money } from './centre-da
 // (created / enrolled) and, once its table exists, Centre Onboarding events.
 // An approval is dated by the wallet credit it wrote ("Fund request approved
 // #id"); a legacy approval with no such credit falls back to updated_at.
+// The service passes only the newest few rows of each source (orderBy + take),
+// which always contains the overall newest events.
 
 export type ActivityKind =
   | 'topup_requested' | 'topup_approved' | 'topup_rejected' | 'wallet_credit' | 'wallet_debit'
@@ -34,6 +36,8 @@ export interface ActivityInput {
     created_at: Date | null; converted_at: Date | null;
   }>;
   onboarding: Array<{ id: number; at: Date; name: string; ref: string; message: string }>;
+  /** Approved requests whose wallet credit exists (anywhere, not just in `txns`). */
+  creditedRequestIds?: Set<number>;
 }
 
 export const ACTIVITY_SHOWN = 6;
@@ -45,7 +49,7 @@ function iso(value: Date | null | undefined): string {
 function moneyEvents(input: ActivityInput): DashboardActivity[] {
   const centre = (id: number) => input.centreNames.get(id) ?? '';
   const out: DashboardActivity[] = [];
-  const creditedRequests = new Set<number>();
+  const creditedRequests = new Set<number>(input.creditedRequestIds ?? []);
   for (const t of input.txns) {
     const requestId = approvedRequestIdOf(t.remarks);
     const credit = isCredit(t.transaction_type);

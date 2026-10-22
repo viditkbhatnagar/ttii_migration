@@ -1788,8 +1788,10 @@ export function registerOperationsRoutes(
   });
 
   // ─── Phase 1: Admin Centre Payments ─────────────────────────────────────
+  // Centre money (top-ups, wallets, approvals) is Admin/Subadmin only since
+  // Centres v2 (2026-10-22): no counsellor or associate screen reads it.
 
-  app.get('/admin/centres/centre_payments', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/centres/centre_payments', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listAdminCentrePayments({
@@ -1811,13 +1813,13 @@ export function registerOperationsRoutes(
   registerCentreDashboardRoutes(app, {
     requireAuth,
     requireAdminOnlyRole,
-    loadPaymentStatus: () => operationsService.listPaymentStatus({}),
+    loadPaymentStatus: (scope) => operationsService.listPaymentStatus({ scope }),
     ...(options.centreDashboardService ? { service: options.centreDashboardService } : {}),
   });
 
   // ─── Phase 1: Admin Wallet Status ───────────────────────────────────────
 
-  app.get('/admin/wallet/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/wallet/index', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listAdminWalletStatus({
@@ -4990,7 +4992,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/centres/fund_request/approve', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/centres/fund_request/approve', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.approveFundRequest(requestUserId(request), toStringValue(payload.id));
@@ -4998,7 +5000,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/centres/fund_request/reject', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/centres/fund_request/reject', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.rejectFundRequest(requestUserId(request), toStringValue(payload.id));

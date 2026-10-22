@@ -1,11 +1,12 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import {
-  addDays, affiliationState, approvedRequestIdOf, daysBetween, feePeriod, feeStatus, istYmd, looseYmd, money,
+  addDays, affiliationState, approvedRequestIdOf, daysBetween, feePeriod, feeStatus, istDayStart, istYmd, looseYmd, money,
   parsePeriod, paymentState, periodWindow, pipelineStageOf, stateName, toPositiveInt, trendMonths,
 } from '../../src/operations/centre-dashboard-model.js';
 import { buildActivity } from '../../src/operations/centre-dashboard-activity.js';
-import { CentreDashboardService } from '../../src/operations/centre-dashboard-service.js';
+import { buildApplicationPayments } from '../../src/operations/centre-application-payments.js';
+import { CentreDashboardService, feePaidYmd } from '../../src/operations/centre-dashboard-service.js';
 import { memoryPrisma } from './support/memory-prisma.js';
 
 // Centres v2 (Naji 2026-10-22): Centre Dashboard, Affiliation Fee Records and
@@ -17,15 +18,19 @@ const d = (iso: string) => new Date(iso);
 const day = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`); // a @db.Date as Prisma returns it
 
 describe('centre-dashboard-model', () => {
-  test('period windows are rolling IST calendar days ending today', () => {
+  test('periods are IST calendar month / quarter / year, to date', () => {
     expect(parsePeriod('quarter')).toBe('quarter');
     expect(parsePeriod('decade')).toBe('year');
     expect(parsePeriod(undefined)).toBe('year');
-    expect(periodWindow('month', NOW)).toEqual({ period: 'month', days: 31, fromYmd: '2026-09-22', toYmd: '2026-10-22' });
-    expect(periodWindow('quarter', NOW).fromYmd).toBe('2026-07-23');
-    expect(periodWindow('year', NOW).fromYmd).toBe('2025-10-22');
-    // 20:00 UTC on 21 Oct is already 22 Oct in IST.
-    expect(periodWindow('month', d('2026-10-21T20:00:00Z')).toYmd).toBe('2026-10-22');
+    expect(periodWindow('month', NOW)).toEqual({ period: 'month', fromYmd: '2026-10-01', toYmd: '2026-10-22' });
+    expect(periodWindow('quarter', NOW).fromYmd).toBe('2026-10-01');
+    expect(periodWindow('quarter', d('2026-08-15T06:00:00Z')).fromYmd).toBe('2026-07-01');
+    expect(periodWindow('quarter', d('2026-03-31T06:00:00Z')).fromYmd).toBe('2026-01-01');
+    expect(periodWindow('year', NOW).fromYmd).toBe('2026-01-01');
+    // 20:00 UTC on 31 Oct is already 1 Nov in IST: a new month (and quarter) has begun.
+    expect(periodWindow('month', d('2026-10-31T20:00:00Z'))).toEqual({ period: 'month', fromYmd: '2026-11-01', toYmd: '2026-11-01' });
+    expect(periodWindow('year', d('2026-12-31T19:00:00Z')).fromYmd).toBe('2027-01-01');
+    expect(istDayStart('2026-10-01')).toEqual(d('2026-09-30T18:30:00.000Z'));
     expect(istYmd(d('2026-09-30T19:00:00Z'))).toBe('2026-10-01');
     expect(istYmd(null)).toBe('');
   });
@@ -136,13 +141,19 @@ function seed() {
       { id: 4, agreement_no: 'AGR-2026-104', centre_id: null, onboarding_id: 6, effective_date: day('2026-11-10'), expiry_date: day('2027-11-09'), fee_amount: '12000.00', fee_paid: false, fee_paid_on: null, deleted_at: null },
       { id: 5, agreement_no: 'AGR-2026-105', centre_id: 1, onboarding_id: null, effective_date: day('2026-01-01'), expiry_date: day('2030-01-01'), fee_amount: '1.00', fee_paid: false, fee_paid_on: null, deleted_at: d('2026-02-01T00:00:00Z') },
       { id: 6, agreement_no: 'AGR-2026-106', centre_id: 99, onboarding_id: null, effective_date: day('2026-01-01'), expiry_date: day('2030-01-01'), fee_amount: '9.00', fee_paid: true, fee_paid_on: day('2026-10-01'), deleted_at: null },
+      // Marked paid without a paid-on date: dated by updated_at (IST 11 Oct).
+      { id: 7, agreement_no: 'AGR-2026-107', centre_id: 28, onboarding_id: null, effective_date: day('2026-01-02'), expiry_date: day('2027-01-01'), fee_amount: '2500.00', fee_paid: true, fee_paid_on: null, updated_at: d('2026-10-10T20:00:00Z'), deleted_at: null },
     ],
     centre_onboarding: [
       { id: 5, centre_name: 'Kochi Learning Hub', ref_no: 'ONB-005', centre_id: null },
       { id: 6, centre_name: 'Thrissur Academy', ref_no: 'ONB-006', centre_id: null },
+      { id: 7, centre_name: 'Gone', ref_no: 'ONB-007', centre_id: 99 }, // onboarded into a since-deleted centre
+      { id: 8, centre_name: 'upCarrera Education', ref_no: 'ONB-008', centre_id: 28 },
     ],
     centre_onboarding_events: [
       { id: 1, onboarding_id: 5, message: 'Signed agreement uploaded', created_at: d('2026-10-21T10:00:00Z') },
+      { id: 2, onboarding_id: 7, message: 'Certificate issued', created_at: d('2026-10-22T05:00:00Z') },
+      { id: 3, onboarding_id: 8, message: 'Onboarded', created_at: d('2026-10-01T00:00:00Z') },
     ],
     course: [{ id: 16, title: 'Diploma' }, { id: 18, title: ' PG Diploma ' }],
   };
@@ -159,28 +170,30 @@ function service(missing: string[] = [], loadPaymentStatus = noPayments) {
 const AFFILIATION_TABLES = ['centre_agreements', 'centre_onboarding', 'centre_onboarding_events'];
 
 describe('CentreDashboardService.dashboard', () => {
-  test('KPIs, pipeline, actions and money over the default year', async () => {
+  test('KPIs, pipeline, actions and money over the default year (1 Jan to today, IST)', async () => {
     const out = await service().dashboard({}, NOW);
     expect(out.period).toBe('year');
-    expect(out.window).toEqual({ fromYmd: '2025-10-22', toYmd: '2026-10-22' });
+    expect(out.window).toEqual({ fromYmd: '2026-01-01', toYmd: '2026-10-22' });
     expect(out.centres.map((c) => c.id)).toEqual([30, 1, 28]); // live centres, A–Z (Hanahadhi, TTC…, upCarrera)
     expect(out.kpis).toEqual({
       totalCentres: 3, activeCentres: 2, inactiveCentres: 1,
       enrollments: 4,
-      inProgress: 3, // 101, 102, 106 (105 is older than a year; 103 enrolled; 104 rejected)
+      inProgress: 3, // 101, 102, 106 (105 is from 2024; 103 enrolled; 104 rejected)
       awaitingApproval: 2, // 102 + the form_submitted 105, any date
-      collectedTopUps: 30000, // credits 10 + 11; 13 is older than a year
-      collectedAffiliation: 40000, // AGR-101 + the onboarding AGR-103; a deleted centre's AGR-106 is out
-      collected: 70000,
+      collectedTopUps: 30000, // credits 10 + 11; 13 is from 2025
+      // AGR-101 + the onboarding AGR-103 + AGR-107 (paid, no date → updated_at); a deleted centre's AGR-106 is out
+      collectedAffiliation: 42500,
+      collected: 72500,
       walletTotal: 78201,
       pendingTopUps: 1,
     });
     expect(Object.fromEntries(out.pipeline.map((p) => [p.stage, p.count]))).toEqual({
       lead: 2, payment_pending: 0, paid: 0, form_pending: 0, approval_waiting: 1, enrolled: 1, rejected: 1,
     });
-    expect(out.actions).toEqual({ awaitingApproval: 2, pendingTopUps: 1, expiringSoon: 1, expired: 1 });
+    // Hanahadhi (inactive) has expired, but an inactive centre raises no alert.
+    expect(out.actions).toEqual({ awaitingApproval: 2, pendingTopUps: 1, expiringSoon: 1, expired: 0 });
     expect(out.trend.map((t) => t.month)).toEqual(['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10']);
-    expect(out.trend[5]).toEqual({ month: '2026-10', label: 'Oct', topUps: 5000, affiliation: 10000 });
+    expect(out.trend[5]).toEqual({ month: '2026-10', label: 'Oct', topUps: 5000, affiliation: 12500 });
     expect(out.trend.slice(0, 5).every((t) => t.topUps === 0 && t.affiliation === 0)).toBe(true);
     expect(out.affiliationReady).toBe(true);
   });
@@ -194,13 +207,15 @@ describe('CentreDashboardService.dashboard', () => {
       affiliationExpiry: '2026-12-15', daysLeft: 54, affiliation: 'due_soon',
     });
     expect(byId.get(28)).toMatchObject({ state: '', applications: 2, approved: 0, conversion: 0, revenue: 25000, affiliationExpiry: '2029-03-31', affiliation: 'valid' });
+    // Inactive centres stay in the table but not in renewals or low wallets.
     expect(byId.get(30)).toMatchObject({ status: 'inactive', affiliationExpiry: '2026-08-31', daysLeft: -52, affiliation: 'expired' });
-    expect(out.renewals.map((r) => [r.id, r.daysLeft])).toEqual([[30, -52], [1, 54], [28, daysBetween('2026-10-22', '2029-03-31')]]);
-    expect(out.lowWallets).toEqual([{ id: 30, name: 'Hanahadhi', balance: 0 }, { id: 1, name: 'TTC Bepur svk', balance: 3201 }]);
+    expect(out.renewals.map((r) => [r.id, r.daysLeft])).toEqual([[1, 54], [28, daysBetween('2026-10-22', '2029-03-31')]]);
+    expect(out.lowWallets).toEqual([{ id: 1, name: 'TTC Bepur svk', balance: 3201 }]);
   });
 
-  test('recent activity: real events, newest first', async () => {
+  test('recent activity: real events, newest first; a deleted centre\'s onboarding events are dropped', async () => {
     const out = await service().dashboard({}, NOW);
+    // onb-2 (newest of all) belongs to a lead onboarded into the deleted centre 99.
     expect(out.activity.map((a) => a.id)).toEqual(['txn-11', 'onb-1', 'app-106', 'app-101', 'app-103-enrolled', 'txn-12']);
     expect(out.activity[0]).toEqual({ id: 'txn-11', kind: 'wallet_credit', at: '2026-10-21T20:00:00.000Z', who: 'TTC Bepur svk', ref: '#11', amount: 5000, note: 'Manual credit' });
     expect(out.activity[1]).toMatchObject({ kind: 'onboarding', who: 'Kochi Learning Hub', ref: 'ONB-005', note: 'Signed agreement uploaded' });
@@ -209,16 +224,21 @@ describe('CentreDashboardService.dashboard', () => {
 
   test('month window and the header centre filter narrow everything', async () => {
     const month = await service().dashboard({ period: 'month' }, NOW);
-    expect(month.kpis.inProgress).toBe(2); // 101, 106
+    expect(month.window).toEqual({ fromYmd: '2026-10-01', toYmd: '2026-10-22' });
+    expect(month.kpis.inProgress).toBe(2); // 101, 106 (103 was created 1 Oct IST but is enrolled)
+    expect(month.pipeline.find((p) => p.stage === 'enrolled')?.count).toBe(1);
     expect(month.kpis.collectedTopUps).toBe(5000);
-    expect(month.kpis.collectedAffiliation).toBe(10000);
+    expect(month.kpis.collectedAffiliation).toBe(12500);
+    const quarter = await service().dashboard({ period: 'quarter' }, NOW);
+    expect(quarter.window.fromYmd).toBe('2026-10-01');
 
     const one = await service().dashboard({ centreId: '28' }, NOW);
     expect(one.centreId).toBe(28);
     expect(one.centres).toHaveLength(3); // the filter's options stay complete
     expect(one.rows.map((r) => r.id)).toEqual([28]);
-    expect(one.kpis).toMatchObject({ totalCentres: 1, enrollments: 1, awaitingApproval: 1, pendingTopUps: 0, collectedTopUps: 25000, collectedAffiliation: 30000 });
-    expect(one.activity.some((a) => a.kind === 'onboarding')).toBe(false);
+    expect(one.kpis).toMatchObject({ totalCentres: 1, enrollments: 1, awaitingApproval: 1, pendingTopUps: 0, collectedTopUps: 25000, collectedAffiliation: 32500 });
+    // Only this centre's onboarding lead; the unassigned and deleted-centre leads are filtered in the query.
+    expect(one.activity.filter((a) => a.kind === 'onboarding').map((a) => a.id)).toEqual(['onb-3']);
     expect(one.activity.every((a) => a.who === 'upCarrera Education' || a.note === 'upCarrera Education')).toBe(true);
 
     const unknown = await service().dashboard({ centreId: '4242' }, NOW);
@@ -232,6 +252,7 @@ describe('CentreDashboardService.dashboard', () => {
     expect(out.affiliationMessage).toBe('Affiliation records are not set up yet.');
     expect(out.kpis.collectedAffiliation).toBe(0);
     expect(out.kpis.collected).toBe(30000);
+    expect(out.trend.every((t) => t.affiliation === 0)).toBe(true);
     // Expiry falls back to centres.date_of_expiry alone.
     expect(out.rows.find((r) => r.id === 1)).toMatchObject({ affiliationExpiry: '2026-11-30', daysLeft: 39 });
     expect(out.rows.find((r) => r.id === 28)).toMatchObject({ affiliationExpiry: '', daysLeft: null, affiliation: 'not_set' });
@@ -278,7 +299,9 @@ describe('CentreDashboardService.affiliationFees', () => {
   test('records with derived statuses; onboarding agreements named from the lead', async () => {
     const out = await service().affiliationFees(NOW);
     expect(out.ready).toBe(true);
-    expect(out.rows.map((r) => r.recordNo)).toEqual(['AGR-2026-104', 'AGR-2026-103', 'AGR-2026-102', 'AGR-2026-101']);
+    expect(out.rows.map((r) => r.recordNo)).toEqual(['AGR-2026-107', 'AGR-2026-104', 'AGR-2026-103', 'AGR-2026-102', 'AGR-2026-101']);
+    // Paid without a recorded date: Paid, and "Paid On" stays blank (the list shows recorded dates only).
+    expect(out.rows[0]).toMatchObject({ status: 'paid', paidOn: '' });
     expect(out.rows.find((r) => r.id === 1)).toEqual({
       id: 1, recordNo: 'AGR-2026-101', centreId: 28, centreName: 'upCarrera Education', onboarding: false,
       period: '2026–29', amount: 30000, dueDate: '2026-04-01', paidOn: '2026-04-15', status: 'paid',
@@ -309,7 +332,9 @@ describe('CentreDashboardService.applicationPayments', () => {
   test('fee / paid / balance from the Payment Status rows, per application or centre student', async () => {
     const loader = vi.fn().mockResolvedValue({ installments });
     const out = await service([], loader).applicationPayments();
+    // Payment Status is read only for the centre students / converted applicants and centre applications.
     expect(loader).toHaveBeenCalledTimes(1);
+    expect(loader).toHaveBeenCalledWith({ userIds: [501, 502, 504, 503], applicationIds: [101, 102, 103, 104, 105, 106] });
     const byKey = new Map(out.rows.map((r) => [r.key, r]));
     expect([...byKey.keys()].sort()).toEqual(['app-101', 'app-102', 'app-103', 'app-105', 'app-106', 'user-501-18', 'user-502-16', 'user-503-18', 'user-504-0']);
     expect(byKey.get('app-101')).toEqual({
@@ -335,5 +360,113 @@ describe('CentreDashboardService.applicationPayments', () => {
     const out = await new CentreDashboardService({ prisma: db.prisma, loadPaymentStatus: loader }).applicationPayments();
     expect(out.rows).toEqual([]);
     expect(loader).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildApplicationPayments: attribution', () => {
+  const centreNames = new Map([[1, 'TTC Bepur svk']]);
+  const courseTitles = new Map([[16, 'Diploma'], [18, 'PG Diploma']]);
+  const app = (id: number, extra: Record<string, unknown>) => ({
+    id, application_id: `APP-${id}`, name: 'Riya', added_under_centre: 1, course_id: 16, stage: 'lead', status: 'pending',
+    is_converted: 0, student_id: null, created_at: d('2026-09-01T06:00:00Z'), ...extra,
+  });
+  const student = { id: 501, name: 'Riya', student_id: 'TTS0101', course_id: 16, application_id: 0, added_under_centre: 1, created_at: d('2026-10-02T05:00:00Z') };
+  const paid = (id: number, courseId: number, amount: number) => ({ id, user_id: 501, course_id: courseId, amount, computed_status: 'paid', course_title: courseTitles.get(courseId) });
+
+  test('two converted applications for one student and course: only the newest counts the payments', () => {
+    const rows = buildApplicationPayments({
+      centreNames, courseTitles, students: [student],
+      apps: [
+        app(201, { is_converted: 1, status: 'converted', student_id: 501, created_at: d('2026-08-01T06:00:00Z') }),
+        app(202, { is_converted: 1, status: 'converted', student_id: 501, created_at: d('2026-09-15T06:00:00Z') }),
+      ],
+      installments: [paid(1, 16, 10000), paid(2, 16, 5000)],
+    });
+    const byKey = new Map(rows.map((r) => [r.key, r]));
+    expect(byKey.get('app-202')).toMatchObject({ fee: 15000, paid: 15000, status: 'paid' });
+    expect(byKey.get('app-201')).toMatchObject({ fee: 0, paid: 0, status: 'no_plan' });
+    expect(rows.reduce((s, r) => s + r.fee, 0)).toBe(15000); // counted once
+  });
+
+  test('a course-less converted application takes only the groups no other application claimed', () => {
+    const rows = buildApplicationPayments({
+      centreNames, courseTitles, students: [student],
+      apps: [
+        app(201, { is_converted: 1, student_id: 501, course_id: null, created_at: d('2026-10-01T06:00:00Z') }),
+        app(202, { is_converted: 1, student_id: 501, course_id: 16, created_at: d('2026-08-01T06:00:00Z') }),
+      ],
+      installments: [paid(1, 16, 10000), paid(2, 18, 3000)],
+    });
+    const byKey = new Map(rows.map((r) => [r.key, r]));
+    expect(byKey.get('app-202')).toMatchObject({ fee: 10000 }); // its own course, though older
+    expect(byKey.get('app-201')).toMatchObject({ fee: 3000 }); // the leftover course
+    expect(rows.some((r) => r.key.startsWith('user-501'))).toBe(false);
+  });
+
+  test('is_converted = 0 keeps the plan rows even when status / stage say converted, as Payment Status does', () => {
+    const rows = buildApplicationPayments({
+      centreNames, courseTitles, students: [],
+      apps: [app(301, { status: 'converted', stage: 'enrolled', is_converted: 0 })],
+      installments: [
+        { id: 'app-301-0', user_id: null, course_id: 16, amount: 5000, computed_status: 'paid' },
+        { id: 'app-301-1', user_id: null, course_id: 16, amount: 5000, computed_status: 'upcoming' },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ key: 'app-301', fee: 10000, paid: 5000, status: 'partial', source: 'application', studentUserId: null });
+  });
+
+  test('a converted application whose student has no ledger yet shows No plan, not a fee from elsewhere', () => {
+    const rows = buildApplicationPayments({
+      centreNames, courseTitles, students: [student],
+      apps: [app(401, { is_converted: 1, student_id: 501 })],
+      installments: [],
+    });
+    expect(rows.map((r) => [r.key, r.status, r.source])).toEqual([['app-401', 'no_plan', 'enrolment']]);
+  });
+});
+
+describe('feePaidYmd', () => {
+  test('fee_paid_on, else the IST day of updated_at (then created_at); blank when unpaid', () => {
+    expect(feePaidYmd({ fee_paid: true, fee_paid_on: day('2026-04-15'), updated_at: d('2026-10-10T20:00:00Z'), created_at: null })).toBe('2026-04-15');
+    expect(feePaidYmd({ fee_paid: true, fee_paid_on: null, updated_at: d('2026-10-10T20:00:00Z'), created_at: null })).toBe('2026-10-11');
+    expect(feePaidYmd({ fee_paid: true, fee_paid_on: null, updated_at: null, created_at: d('2026-01-01T00:00:00Z') })).toBe('2026-01-01');
+    expect(feePaidYmd({ fee_paid: false, fee_paid_on: day('2026-04-15'), updated_at: null, created_at: null })).toBe('');
+  });
+});
+
+describe('bounded dashboard reads', () => {
+  test('activity reads take the newest few; money reads are credits only; counts are aggregated', async () => {
+    const db = memoryPrisma(seed());
+    const calls: Array<{ table: string; method: string; args: Record<string, unknown> }> = [];
+    const spy = new Proxy(db.prisma, {
+      get(target, table: string) {
+        const delegate = (target as unknown as Record<string, Record<string, (a: unknown) => unknown>>)[table];
+        if (!delegate || typeof delegate !== 'object') return delegate;
+        return new Proxy(delegate, {
+          get(d2, method: string) {
+            const fn = d2[method];
+            return typeof fn === 'function'
+              ? (args: Record<string, unknown> = {}) => { calls.push({ table, method, args }); return fn(args); }
+              : fn;
+          },
+        });
+      },
+    });
+    await new CentreDashboardService({ prisma: spy, loadPaymentStatus: noPayments }).dashboard({}, NOW);
+    const reads = (table: string) => calls.filter((c) => c.table === table && c.method === 'findMany');
+    // Applications are never loaded whole: grouped counts + the newest few for the feed.
+    expect(calls.filter((c) => c.table === 'applications' && c.method === 'groupBy')).toHaveLength(2);
+    expect(reads('applications').every((c) => c.args.take === 6)).toBe(true);
+    expect(reads('centre_fund_requests').every((c) => c.args.take === 6)).toBe(true);
+    expect(calls.some((c) => c.table === 'centre_fund_requests' && c.method === 'count')).toBe(true);
+    expect(reads('centre_onboarding_events').every((c) => c.args.take === 6)).toBe(true);
+    // Wallet rows: the newest few for the feed, the credit-only money read, and the approved-credit lookup.
+    for (const c of reads('wallet_transactions')) {
+      const where = c.args.where as Record<string, unknown>;
+      const creditsOnly = JSON.stringify(where.transaction_type) === JSON.stringify({ in: ['credit', 'Credit', 'CREDIT'] });
+      expect(c.args.take === 6 || creditsOnly || 'remarks' in where).toBe(true);
+      if (creditsOnly) expect(Object.keys(c.args.select as object).sort()).toEqual(['amount', 'centre_id', 'created_at']);
+    }
   });
 });

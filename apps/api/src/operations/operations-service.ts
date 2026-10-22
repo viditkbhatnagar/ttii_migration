@@ -798,6 +798,12 @@ export type AdminPaymentFilters = {
   courseId?: string;
 };
 
+/** Narrows listPaymentStatus to some students (users.id) and applications (applications.id). */
+export type PaymentStatusScope = {
+  userIds: number[];
+  applicationIds: number[];
+};
+
 export type AdminWalletFilters = {
   centreId?: string;
   centreName?: string;
@@ -8603,12 +8609,18 @@ export class OperationsService {
     return { counts, items };
   }
 
-  async listPaymentStatus(filters: AdminPaymentFilters & { centreId?: string; search?: string; paymentStatus?: string; dueDateFrom?: string; dueDateTo?: string }): Promise<Record<string, unknown>> {
+  async listPaymentStatus(filters: AdminPaymentFilters & { centreId?: string; search?: string; paymentStatus?: string; dueDateFrom?: string; dueDateTo?: string; scope?: PaymentStatusScope }): Promise<Record<string, unknown>> {
     // student_payments rows in the legacy DB carry '0000-00-00' literals in
     // due_date / paid_date which Prisma's MySQL driver refuses to hydrate
     // into DateTime. Read via $queryRaw with NULLIF to convert the legacy
     // sentinel into NULL before Prisma sees it.
     const courseIdFilter = filters.courseId ? toIntId(filters.courseId) : null;
+    // Optional narrowing (Centres v2 Application Payments): only these
+    // students' student_payments and these applications' plans. Absent = the
+    // whole ledger, exactly as before.
+    const scope = filters.scope;
+    const scopeUserIds = scope ? [...new Set(scope.userIds.filter((id) => Number.isInteger(id) && id > 0))] : [];
+    const scopeAppIds = scope ? [...new Set(scope.applicationIds.filter((id) => Number.isInteger(id) && id > 0))] : [];
     type RawPayment = {
       id: number;
       user_id: number;
@@ -8621,7 +8633,18 @@ export class OperationsService {
       due_date: Date | null;
       paid_date: Date | null;
     };
-    const installments = courseIdFilter
+    const installments = scope
+      ? scopeUserIds.length === 0
+        ? []
+        : await this.prisma.$queryRaw<RawPayment[]>`
+          SELECT id, user_id, course_id, installment_details, amount, payment_mode, payment_to, status,
+                 NULLIF(due_date, '0000-00-00') AS due_date,
+                 NULLIF(paid_date, '0000-00-00') AS paid_date
+          FROM student_payments
+          WHERE deleted_at IS NULL AND user_id IN (${Prisma.join(scopeUserIds)})
+            ${courseIdFilter ? Prisma.sql`AND course_id = ${courseIdFilter}` : Prisma.empty}
+          ORDER BY NULLIF(due_date, '0000-00-00') ASC, id DESC`
+      : courseIdFilter
       ? await this.prisma.$queryRaw<RawPayment[]>`
           SELECT id, user_id, course_id, installment_details, amount, payment_mode, payment_to, status,
                  NULLIF(due_date, '0000-00-00') AS due_date,
@@ -8743,12 +8766,13 @@ export class OperationsService {
     const appCourseIdFilter = courseIdFilter
       ? { course_id: courseIdFilter }
       : {};
-    const applicationsWithPlans = await this.prisma.applications.findMany({
+    const applicationsWithPlans = scope && scopeAppIds.length === 0 ? [] : await this.prisma.applications.findMany({
       where: {
         payment_plan: { not: null },
         is_converted: 0,
         deleted_at: null,
         ...appCourseIdFilter,
+        ...(scope ? { id: { in: scopeAppIds } } : {}),
       },
       select: {
         id: true,

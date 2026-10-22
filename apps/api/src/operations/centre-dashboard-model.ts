@@ -18,17 +18,13 @@ const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 
 export type DashboardPeriod = 'month' | 'quarter' | 'year';
 
-/** Rolling windows ending today (Naji's prototype: 31 / 92 / 366 days). */
-export const PERIOD_DAYS: Record<DashboardPeriod, number> = { month: 31, quarter: 92, year: 366 };
-
 export function parsePeriod(value: unknown): DashboardPeriod {
   return value === 'month' || value === 'quarter' || value === 'year' ? value : 'year';
 }
 
 export interface PeriodWindow {
   period: DashboardPeriod;
-  days: number;
-  /** First IST day inside the window (YYYY-MM-DD). */
+  /** First IST day of the calendar month / quarter / year (YYYY-MM-DD). */
   fromYmd: string;
   /** Today, IST (YYYY-MM-DD) — the last day inside the window. */
   toYmd: string;
@@ -81,11 +77,27 @@ export function daysBetween(fromYmd: string, toYmd: string): number {
   return Math.round((ymdMs(toYmd) - ymdMs(fromYmd)) / DAY_MS);
 }
 
-/** The N IST calendar days ending today, today included. */
+/**
+ * Calendar periods in IST, to date: "This month" from the 1st, "This quarter"
+ * from the first day of the calendar quarter (Jan / Apr / Jul / Oct), "This
+ * year" from 1 January — each through today.
+ */
 export function periodWindow(period: DashboardPeriod, now: Date): PeriodWindow {
-  const days = PERIOD_DAYS[period];
   const toYmd = istYmd(now);
-  return { period, days, fromYmd: addDays(toYmd, -(days - 1)), toYmd };
+  const year = toYmd.slice(0, 4);
+  const month = Number(toYmd.slice(5, 7));
+  const startMonth = period === 'year' ? 1 : period === 'quarter' ? Math.floor((month - 1) / 3) * 3 + 1 : month;
+  return { period, fromYmd: `${year}-${String(startMonth).padStart(2, '0')}-01`, toYmd };
+}
+
+/** The instant an IST calendar day starts (00:00 IST). */
+export function istDayStart(ymd: string): Date {
+  return new Date(ymdMs(ymd) - IST_OFFSET_MS);
+}
+
+/** The earlier of two YYYY-MM-DD values. */
+export function earlierYmd(a: string, b: string): string {
+  return a <= b ? a : b;
 }
 
 export function inWindow(ymd: string, window: Pick<PeriodWindow, 'fromYmd' | 'toYmd'>): boolean {
@@ -161,6 +173,9 @@ export function approvedRequestIdOf(remarks: string | null | undefined): number 
 export function isCredit(type: string | null | undefined): boolean {
   return String(type ?? '').trim().toLowerCase() === 'credit';
 }
+
+/** transaction_type spellings of a credit (MariaDB compares case-insensitively anyway). */
+export const CREDIT_TYPES = ['credit', 'Credit', 'CREDIT'];
 
 // ─── Centre application pipeline ────────────────────────────────────────────
 
