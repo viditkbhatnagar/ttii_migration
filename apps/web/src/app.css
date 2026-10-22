@@ -64,6 +64,10 @@
   --color-info-soft: #EEF4FF;
   --color-destructive-foreground: #FFFFFF;
   --color-destructive-soft: #FEE2E2;
+  /* Centre portal (Naji 2026-10-22): the phone bar active circle. Re-tinted
+     under .centre-theme below; nothing else uses it. */
+  --color-accent-orange: #F47C2C;
+  --color-accent-orange-foreground: #FFFFFF;
 
   /* shadcn/ui integration */
   --color-background: #F3F6F9;
@@ -342,6 +346,152 @@
   --shadow-card: 0 1px 3px rgba(11, 39, 88, 0.06), 0 8px 24px rgba(11, 39, 88, 0.08);
   --gradient-primary: linear-gradient(135deg, #0B2758, #1E4D9B);
   --gradient-success: linear-gradient(135deg, #22C55E, #16A34A);
+}
+
+/* Centre portal (Centre login, admissions.teachersindia.in): Naji 2026-10-22
+   Lovable centre design, his exact tokens (BLUE primary, orange accent for the
+   phone bar). Set on the html element while the centre portal is open (like
+   .admin-theme), so dialogs, sheets, popovers and toasts portaled to body get
+   it too; admin, student and counsellor never carry this class.
+   Plain token names (--primary, --primary-soft, --accent-orange, --success,
+   --warning, --info, --shadow-soft, --shadow-elegant) are defined for page
+   code; the --color-* names below feed the Tailwind utilities (bg-primary-soft,
+   text-success, bg-accent-orange, ...). Dark mode: .centre-theme.dark (the
+   portal topbar toggle adds .dark next to it). Keep this block free of
+   apostrophes - one in an app.css comment breaks the Tailwind v4 build. */
+.centre-theme {
+  color-scheme: light;
+  --radius: 0.875rem;
+  --background: oklch(0.985 0.005 250);
+  --foreground: oklch(0.18 0.03 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.03 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.03 260);
+  --primary: oklch(0.55 0.22 265);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-soft: oklch(0.95 0.04 265);
+  --secondary: oklch(0.96 0.01 260);
+  --secondary-foreground: oklch(0.25 0.04 260);
+  --muted: oklch(0.96 0.008 260);
+  --muted-foreground: oklch(0.55 0.025 260);
+  --accent: oklch(0.95 0.04 265);
+  --accent-foreground: oklch(0.35 0.15 265);
+  --accent-orange: oklch(0.7 0.18 50);
+  --accent-orange-foreground: oklch(0.99 0 0);
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.65 0.17 155);
+  --success-foreground: oklch(0.99 0 0);
+  --success-soft: oklch(0.94 0.05 155);
+  --warning: oklch(0.78 0.16 75);
+  --warning-foreground: oklch(0.25 0.05 75);
+  --warning-soft: oklch(0.96 0.06 85);
+  --info: oklch(0.65 0.15 230);
+  --info-soft: oklch(0.94 0.04 230);
+  --border: oklch(0.92 0.01 260);
+  --input: oklch(0.92 0.01 260);
+  --ring: oklch(0.55 0.22 265);
+  --chart-1: oklch(0.55 0.22 265);
+  --chart-2: oklch(0.65 0.17 155);
+  --chart-3: oklch(0.78 0.16 75);
+  --chart-4: oklch(0.65 0.2 25);
+  --chart-5: oklch(0.6 0.18 310);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.18 0.03 260);
+  --sidebar-primary: oklch(0.55 0.22 265);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.95 0.04 265);
+  --sidebar-accent-foreground: oklch(0.35 0.15 265);
+  --sidebar-border: oklch(0.92 0.01 260);
+  --sidebar-ring: oklch(0.55 0.22 265);
+  --shadow-soft: 0 1px 2px oklch(0.2 0.05 260 / 0.04), 0 4px 16px oklch(0.2 0.05 260 / 0.06);
+  --shadow-card: 0 1px 3px oklch(0.2 0.05 260 / 0.05), 0 8px 24px oklch(0.2 0.05 260 / 0.05);
+  --shadow-elegant: var(--shadow-card);
+  --shadow-bar: 0 -8px 24px -10px color-mix(in oklab, var(--foreground) 22%, transparent);
+  --gradient-primary: linear-gradient(135deg, oklch(0.6 0.22 265), oklch(0.55 0.22 295));
+  --gradient-success: linear-gradient(135deg, oklch(0.7 0.17 155), oklch(0.65 0.17 180));
+  /* The fixed --color-* tokens (declared in @theme above) his markup uses. */
+  --color-primary-soft: var(--primary-soft);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-soft: color-mix(in oklab, var(--destructive) 10%, transparent);
+  --color-accent-orange: var(--accent-orange);
+  --color-accent-orange-foreground: var(--accent-orange-foreground);
+  /* Older shared pieces use the fixed ttii-* names: point them at the theme. */
+  --color-ttii-primary: var(--primary);
+  --color-ttii-page-bg: var(--background);
+  --color-ttii-navbar: var(--primary);
+  --color-ttii-sidebar-active: var(--primary);
+  --color-ttii-table-header: var(--muted);
+  --color-ttii-table-header-text: var(--muted-foreground);
+  font-family: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+}
+.centre-theme.dark {
+  color-scheme: dark;
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.62 0.17 265);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-soft: oklch(0.3 0.06 265);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.3 0.06 265);
+  --accent-foreground: oklch(0.93 0.04 265);
+  --accent-orange: oklch(0.72 0.17 50);
+  --accent-orange-foreground: oklch(0.99 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --success: oklch(0.62 0.15 155);
+  --success-foreground: oklch(0.97 0.02 155);
+  --success-soft: oklch(0.3 0.07 155);
+  --warning: oklch(0.75 0.14 75);
+  --warning-foreground: oklch(0.93 0.05 85);
+  --warning-soft: oklch(0.32 0.07 75);
+  --info: oklch(0.65 0.14 230);
+  --info-soft: oklch(0.3 0.06 230);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.17 265);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.551 0.027 264.364);
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.25), 0 4px 16px oklch(0 0 0 / 0.35);
+  --shadow-card: 0 1px 3px oklch(0 0 0 / 0.3), 0 8px 24px oklch(0 0 0 / 0.35);
+  --shadow-bar: 0 -8px 24px -10px oklch(0 0 0 / 0.6);
+  --gradient-primary: linear-gradient(135deg, oklch(0.58 0.19 265), oklch(0.55 0.19 295));
+  --gradient-success: linear-gradient(135deg, oklch(0.62 0.15 155), oklch(0.58 0.15 180));
+}
+.centre-theme body {
+  background: var(--background);
+  color: var(--foreground);
+}
+/* Sonner sets its own description colour; keep it on the muted token (his styles.css). */
+.centre-theme [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-description] {
+  color: var(--muted-foreground);
 }
 
 @layer base {
