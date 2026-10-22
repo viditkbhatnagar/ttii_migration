@@ -112,16 +112,21 @@ export interface AddCentreCohortInput {
   title: string;
   cohortCode?: string;
   courseId: string;
+  /** '' for a course-wide cohort. */
   subjectId: string;
   instructorId: string;
   startDate: string;
   endDate: string;
+  languageId?: string;
 }
 
 export interface AddCentreLiveClassInput {
   cohortId: string;
   zoomId: string;
   password: string;
+  /** 'manual' with manualJoinUrl for a pasted Teams / Zoom / Meet link; absent = legacy Zoom. */
+  platform?: 'manual';
+  manualJoinUrl?: string;
   entries: Array<{
     sessionId: string;
     title: string;
@@ -295,6 +300,7 @@ export class CentrePortalApi {
       instructor_id: input.instructorId,
       start_date: input.startDate,
       end_date: input.endDate,
+      ...(input.languageId ? { language_id: input.languageId } : {}),
     });
   }
 
@@ -315,6 +321,7 @@ export class CentrePortalApi {
       cohort_id: input.cohortId,
       zoom_id: input.zoomId,
       password: input.password,
+      ...(input.platform ? { platform: input.platform, manual_join_url: input.manualJoinUrl ?? '' } : {}),
       entries: input.entries.map((entry) => ({
         session_id: entry.sessionId,
         title: entry.title,
@@ -393,6 +400,57 @@ export class CentrePortalApi {
   async loadTrainingVideos(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/centre/training_videos/index', authToken);
     return toRecords(payload.data);
+  }
+
+  // ── Centre portal v2 (Naji's centre login design, 2026-10-22) ──────────────
+  // Wallet & Payment and Cohorts reads (centre logins only, scoped server-side
+  // to the caller's centre). Each returns the envelope's `data`; a refusal
+  // (status 0) throws an ApiError carrying the server's message.
+
+  private async data(path: string, authToken: string, query?: Record<string, QueryValue>): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(path, authToken, query);
+    return asRecord(payload.data) ?? {};
+  }
+
+  /** Balance, credits / debits (running balance only when they reconcile), top-up requests. */
+  loadWalletLedger(authToken: string): Promise<Record<string, unknown>> {
+    return this.data('/centre/wallet/ledger', authToken);
+  }
+
+  /** Fee / received / balance per centre application or student, with totals. */
+  loadWalletCollections(authToken: string): Promise<Record<string, unknown>> {
+    return this.data('/centre/wallet/collections', authToken);
+  }
+
+  /** One collection row (key "app-12" / "user-5-9") with its instalments. */
+  loadWalletCollection(authToken: string, key: string): Promise<Record<string, unknown>> {
+    return this.data('/centre/wallet/collections/view', authToken, { key });
+  }
+
+  /** Add Cohort pick lists: the centre's courses, their subjects, instructors, languages. */
+  loadCohortOptions(authToken: string): Promise<Record<string, unknown>> {
+    return this.data('/centre/cohorts/options', authToken);
+  }
+
+  /** One cohort of the centre: learners, live classes, assignments, sent announcements. */
+  loadCohortView(authToken: string, cohortId: string): Promise<Record<string, unknown>> {
+    return this.data('/centre/cohorts/view', authToken, { id: cohortId });
+  }
+
+  /** Upload one image / PDF to /centre/upload; returns its public URL. */
+  async uploadFile(authToken: string, file: File): Promise<{ key: string; url: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const url = `${this.apiClient.getBaseUrl()}centre/upload?auth_token=${encodeURIComponent(authToken)}`;
+    const response = await fetch(url, { method: 'POST', body: formData });
+    const contentType = response.headers.get('content-type') ?? '';
+    const payload = contentType.includes('application/json') ? asRecord(await response.json()) : null;
+    if (!response.ok || !payload || payload.status !== 1) {
+      if (response.status === 413) throw new Error('The file is too large to upload.');
+      throw new Error(asString(payload?.message) || `Upload failed (${response.status}).`);
+    }
+    const data = asRecord(payload.data) ?? {};
+    return { key: asString(data.key), url: asString(data.url) };
   }
 
   static getId(value: Record<string, unknown>): string {
