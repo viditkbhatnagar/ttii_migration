@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import type { TrainingVideo } from './training-model.js';
 
-export const GRADIENTS = [
+const GRADIENTS = [
   'from-indigo-500 via-purple-500 to-pink-500',
   'from-sky-500 via-cyan-500 to-emerald-500',
   'from-amber-500 via-orange-500 to-rose-500',
@@ -11,7 +11,7 @@ export const GRADIENTS = [
 ] as const;
 
 /** A stable gradient per video id, shown behind (or instead of) the thumbnail. */
-export function gradientFor(id: string): string {
+function gradientFor(id: string): string {
   let h = 0;
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return GRADIENTS[h % GRADIENTS.length] ?? GRADIENTS[0];

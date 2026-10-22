@@ -14,7 +14,7 @@ import { RequestFundsDialog } from './RequestFundsDialog.js';
 import { WalletCollectionsTab } from './WalletCollectionsTab.js';
 import { WalletLedgerTab } from './WalletLedgerTab.js';
 import { WalletOverviewTab } from './WalletOverviewTab.js';
-import { WALLET_TABS, parseWalletTab, toCollectionDetail, toCollectionsView, toWalletLedgerView, type WalletTab } from './wallet-model.js';
+import { WALLET_TABS, parseWalletTab, toCollectionDetail, toCollectionsView, toWalletLedgerView } from './wallet-model.js';
 
 /** Wallet & Payment. ?tab=collections|ledger|fund-requests, ?new=1 opens Request Funds, ?student=<key> opens a fee detail. */
 export default function CentreWalletPage({ api, session }: CentrePageProps) {
