@@ -16,9 +16,9 @@ export const CENTRE_CODE_PREFIX = 'TTC';
 
 /** The number inside a centre code ("TTC0032" → 32, "31" → 31, "" → 0). */
 export function centreCodeNumber(code: string | null | undefined): number {
-  const match = /(\d+)\s*$/.exec(String(code ?? '').trim());
-  if (!match) return 0;
-  const n = Number.parseInt(match[1], 10);
+  const digits = /(\d+)\s*$/.exec(String(code ?? '').trim())?.[1];
+  if (!digits) return 0;
+  const n = Number.parseInt(digits, 10);
   return Number.isSafeInteger(n) && n > 0 ? n : 0;
 }
 
