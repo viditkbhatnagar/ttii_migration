@@ -390,6 +390,61 @@ export class CentrePortalApi {
     });
   }
 
+  // ─── Centre portal v2 shell, dashboard and profile (Naji 2026-10-22) ──────
+  // Raw `data` payloads; the page models (layout/centre-shell-model.ts,
+  // pages/dashboard + pages/profile models) parse them.
+
+  /** Sidebar / top-bar facts: centre, contact person; wallet + affiliation for the Centre login only. */
+  async loadShell(authToken: string): Promise<unknown> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/centre/portal/shell', authToken);
+    return payload.data;
+  }
+
+  /** The centre's own dashboard (money parts for the Centre login only). */
+  async loadPortalDashboard(authToken: string): Promise<unknown> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/centre/portal/dashboard', authToken);
+    return payload.data;
+  }
+
+  /** Centre login only: centre, KYC / bank, affiliation and documents. A refusal throws with its message. */
+  async loadPortalProfile(authToken: string): Promise<unknown> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/centre/portal/profile', authToken);
+    return payload.data;
+  }
+
+  /** Centre login only: file an uploaded document under the caller's own centre. */
+  async addPortalDocument(authToken: string, input: { docType: string; title: string; fileUrl: string }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/centre/portal/documents/add', authToken, {
+      doc_type: input.docType,
+      title: input.title,
+      file_url: input.fileUrl,
+    });
+  }
+
+  /** Multipart upload to /centre/upload (PDF / PNG / JPG / WEBP / GIF). */
+  async uploadCentreFile(authToken: string, file: File): Promise<{ key: string; url: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const url = `${this.apiClient.getBaseUrl()}centre/upload?auth_token=${encodeURIComponent(authToken)}`;
+    const response = await fetch(url, { method: 'POST', body: formData });
+    const contentType = response.headers.get('content-type') ?? '';
+    const payload = contentType.includes('application/json') ? asRecord(await response.json()) : null;
+    if (!response.ok || !payload || payload.status !== 1) {
+      if (response.status === 413) throw new Error('The file is too large to upload.');
+      throw new Error(asString(payload?.message) || `Upload failed (${response.status}).`);
+    }
+    const data = asRecord(payload.data) ?? {};
+    return { key: asString(data.key), url: asString(data.url) };
+  }
+
+  /** The signed-in user's own password (/profile/change_password — the server checks presence and match only). */
+  async changeOwnPassword(authToken: string, password: string, confirmPassword: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/profile/change_password', authToken, {
+      password,
+      confirm_password: confirmPassword,
+    });
+  }
+
   async loadTrainingVideos(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/centre/training_videos/index', authToken);
     return toRecords(payload.data);
