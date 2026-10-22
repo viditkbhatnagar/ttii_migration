@@ -395,6 +395,57 @@ export class CentrePortalApi {
     return toRecords(payload.data);
   }
 
+  // ── Centre portal v2: Applications / Students / Courses & Fees ──────────
+  // Thin calls; the view models (pages/*/centre-*-model.ts) parse `data`.
+
+  async loadApplicationBoard(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/centre/portal/applications', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadApplicationOptions(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/centre/portal/applications/options', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadApplicationDetail(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>(`/centre/portal/applications/${encodeURIComponent(id)}`, authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  /** Validated add: the course must be assigned to the centre, the offering / combination must belong to it. */
+  async addPortalApplication(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/centre/portal/applications/add', authToken, input);
+  }
+
+  async rejectApplication(authToken: string, id: string, reason: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/centre/applications/update_status', authToken, {
+      id,
+      status: 'rejected',
+      reject_reason: reason,
+    });
+  }
+
+  async loadStudentBoard(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/centre/portal/students', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadStudentProfile(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>(`/centre/portal/students/${encodeURIComponent(id)}`, authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadCourseBoard(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/centre/portal/courses', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadCourseDetail(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>(`/centre/portal/courses/${encodeURIComponent(id)}`, authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
   static getId(value: Record<string, unknown>): string {
     return asString(value.id);
   }
