@@ -5,6 +5,9 @@ import { OperationsService } from '../../src/operations/operations-service.js';
 import { registerOperationsRoutes } from '../../src/routes/operations.js';
 import { memoryPrisma } from './support/memory-prisma.js';
 
+// expect.stringContaining is typed any; keep the assertions lint-clean.
+const has = (text: string): string => expect.stringContaining(text) as string;
+
 vi.hoisted(() => {
   process.env.STORAGE_PROVIDER = 's3';
   process.env.S3_PUBLIC_BASE_URL = 'https://ttii.blr1.digitaloceanspaces.com';
@@ -27,7 +30,7 @@ describe('addCentreFundRequest', () => {
     for (const amount of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(await service.addCentreFundRequest('700', request({ amount }))).toMatchObject({ status: 0, message: 'Amount is required' });
     }
-    expect(await service.addCentreFundRequest('700', request({ amount: 1_000_001 }))).toMatchObject({ status: 0, message: expect.stringContaining('at most 10,00,000') });
+    expect(await service.addCentreFundRequest('700', request({ amount: 1_000_001 }))).toMatchObject({ status: 0, message: has('at most 10,00,000') });
     expect(await db.prisma.centre_fund_requests.findMany({})).toHaveLength(0);
     expect(await service.addCentreFundRequest('700', request({ amount: 1_000_000 }))).toMatchObject({ status: 1 });
   });
@@ -35,7 +38,7 @@ describe('addCentreFundRequest', () => {
   test('an attachment must be a file /centre/upload stored; none is fine', async () => {
     const { db, service } = ops();
     for (const attachmentFile of ['javascript:alert(1)', 'https://evil.example/public/uploads/1761112345678-ab12cd.pdf', 'proof.pdf', 'file:///etc/passwd']) {
-      expect(await service.addCentreFundRequest('700', request({ attachmentFile }))).toMatchObject({ status: 0, message: expect.stringContaining('attached file link is invalid') });
+      expect(await service.addCentreFundRequest('700', request({ attachmentFile }))).toMatchObject({ status: 0, message: has('attached file link is invalid') });
     }
     expect(await db.prisma.centre_fund_requests.findMany({})).toHaveLength(0);
     expect(await service.addCentreFundRequest('700', request({ attachmentFile: '' }))).toMatchObject({ status: 1 });

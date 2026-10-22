@@ -11,6 +11,9 @@ import { registerOperationsRoutes } from '../../src/routes/operations.js';
 import { registerCentrePortalAppsRoutes } from '../../src/routes/centre-portal-apps-routes.js';
 import { memoryPrisma } from './support/memory-prisma.js';
 
+// expect.stringContaining is typed any; keep the assertions lint-clean.
+const has = (text: string): string => expect.stringContaining(text) as string;
+
 // Centre portal v2 (Naji 2026-10-22): Applications / Students / Courses & Fees.
 // Every read and write is scoped to the caller's own centre, Add Application
 // only accepts a course assigned to the centre and an offering / combination
@@ -461,10 +464,10 @@ describe('update_status (centre / associate)', () => {
 
   test('a centre can never set approved, and an already converted application is untouched', async () => {
     const approve = await run('501', '1', 'approved');
-    expect(approve.res).toMatchObject({ status: 0, message: expect.stringContaining('only reject') });
+    expect(approve.res).toMatchObject({ status: 0, message: has('only reject') });
     expect(approve.row).toMatchObject({ status: 'pending' });
     const converted = await run('501', '2', 'rejected');
-    expect(converted.res).toMatchObject({ status: 0, message: expect.stringContaining('already converted') });
+    expect(converted.res).toMatchObject({ status: 0, message: has('already converted') });
     expect(converted.row).toMatchObject({ status: 'converted', is_converted: 1 });
   });
 

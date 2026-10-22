@@ -4,6 +4,9 @@ import { validJoinUrl } from '../../src/operations/live-class-join-url.js';
 import { OperationsService } from '../../src/operations/operations-service.js';
 import { memoryPrisma } from './support/memory-prisma.js';
 
+// expect.stringContaining is typed any; keep the assertions lint-clean.
+const has = (text: string): string => expect.stringContaining(text) as string;
+
 // Security review 2026-10-22: addLiveClasses must not be steerable to another
 // centre's cohort, and a typed meeting link must be a real http(s) URL.
 
@@ -58,7 +61,7 @@ describe('addLiveClasses security', () => {
     const actor = scope === 'centre' ? '700' : '1';
     for (const manualJoinUrl of ['javascript:alert(1)', 'data:text/html,x', 'meet.google.com/abc', `https://x.com/${'a'.repeat(1000)}`]) {
       const res = await new OperationsService(db.prisma).addLiveClasses(scope, actor, input({ manualJoinUrl }));
-      expect(res).toMatchObject({ success: false, message: expect.stringContaining('valid meeting link') });
+      expect(res).toMatchObject({ success: false, message: has('valid meeting link') });
     }
     expect(await db.prisma.live_class.findMany({})).toHaveLength(0);
   });

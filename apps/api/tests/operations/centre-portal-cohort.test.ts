@@ -11,6 +11,9 @@ import { OperationsService } from '../../src/operations/operations-service.js';
 import { registerCentrePortalCohortRoutes } from '../../src/routes/centre-portal-cohort-routes.js';
 import { memoryPrisma } from './support/memory-prisma.js';
 
+// expect.stringContaining is typed any; keep the assertions lint-clean.
+const has = (text: string): string => expect.stringContaining(text) as string;
+
 // Centre portal → Cohorts (Naji's centre login design, 2026-10-22): IST
 // statuses and times, reads scoped to the caller's centre, centre logins only,
 // and the centre cohort writes that now refuse other centres' students.
@@ -189,8 +192,8 @@ describe('centre cohort security (review 2026-10-22)', () => {
 
   test('add: refuses a purely numeric code and a code already used (case-insensitive on MySQL)', async () => {
     const ops = new OperationsService(memoryPrisma(seed()).prisma);
-    expect(await ops.addCentreCohort('700', { ...base, cohortCode: '75' })).toMatchObject({ success: false, message: expect.stringContaining('only digits') });
-    expect(await ops.addCentreCohort('700', { ...base, cohortCode: 'CCHOCT26' })).toMatchObject({ success: false, message: expect.stringContaining('already in use') });
+    expect(await ops.addCentreCohort('700', { ...base, cohortCode: '75' })).toMatchObject({ success: false, message: has('only digits') });
+    expect(await ops.addCentreCohort('700', { ...base, cohortCode: 'CCHOCT26' })).toMatchObject({ success: false, message: has('already in use') });
     expect(await ops.addCentreCohort('700', { ...base, cohortCode: 'NEWCODE' })).toMatchObject({ success: true });
     expect(await ops.addCentreCohort('700', { ...base })).toMatchObject({ success: true }); // code stays optional
   });
@@ -202,7 +205,7 @@ describe('centre cohort security (review 2026-10-22)', () => {
 
   test('add: subject must belong to the course; instructor must be an active instructor; language must exist', async () => {
     const ops = new OperationsService(memoryPrisma(seed()).prisma);
-    expect(await ops.addCentreCohort('700', { ...base, subjectId: '41' })).toMatchObject({ success: false, message: expect.stringContaining('subject') });
+    expect(await ops.addCentreCohort('700', { ...base, subjectId: '41' })).toMatchObject({ success: false, message: has('subject') });
     expect(await ops.addCentreCohort('700', { ...base, subjectId: '42' })).toMatchObject({ success: true }); // legacy subject.course_id link
     // course_subject link passes the subject check (and then hits the one-cohort-per-subject rule).
     expect(await ops.addCentreCohort('700', { ...base, subjectId: '40' })).toMatchObject({ message: 'Cohort with this subject already exists for this course!' });
