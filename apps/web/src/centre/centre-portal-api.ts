@@ -124,8 +124,8 @@ export interface AddCentreLiveClassInput {
   cohortId: string;
   zoomId: string;
   password: string;
-  /** 'manual' with manualJoinUrl for a pasted Teams / Zoom / Meet link; absent = legacy Zoom. */
-  platform?: 'manual';
+  /** 'manual' with manualJoinUrl for a pasted Teams / Zoom / Meet link; 'teams' auto-creates a Teams meeting; absent = legacy Zoom. */
+  platform?: 'manual' | 'teams';
   manualJoinUrl?: string;
   entries: Array<{
     sessionId: string;
@@ -321,7 +321,7 @@ export class CentrePortalApi {
       cohort_id: input.cohortId,
       zoom_id: input.zoomId,
       password: input.password,
-      ...(input.platform ? { platform: input.platform, manual_join_url: input.manualJoinUrl ?? '' } : {}),
+      ...(input.platform ? { platform: input.platform, ...(input.platform === 'manual' ? { manual_join_url: input.manualJoinUrl ?? '' } : {}) } : {}),
       entries: input.entries.map((entry) => ({
         session_id: entry.sessionId,
         title: entry.title,
