@@ -49,7 +49,9 @@ const CentreDirectoryPage = lazy(() => import('../pages/centres/CentreDirectoryP
 const AddCentrePage = lazy(() => import('../pages/centres/AddCentrePage.js'));
 const ViewCentrePage = lazy(() => import('../pages/centres/ViewCentrePage.js'));
 const CentreCohortsPage = lazy(() => import('../pages/centres/CentreCohortsPage.js'));
-const CentrePaymentsPage = lazy(() => import('../pages/centres/CentrePaymentsPage.js'));
+const CentreDashboardPage = lazy(() => import('../pages/centres/CentreDashboardPage.js'));
+const CentreOnboardingPage = lazy(() => import('../pages/centres/CentreOnboardingPage.js'));
+const AffiliationAgreementsPage = lazy(() => import('../pages/centres/AffiliationAgreementsPage.js'));
 const WalletStatusPage = lazy(() => import('../pages/wallet/WalletStatusPage.js'));
 const ResourcesPage = lazy(() => import('../pages/resources/ResourcesPage.js'));
 const ProgramDirectoryPage = lazy(() => import('../pages/program/ProgramDirectoryPage.js'));
@@ -173,8 +175,13 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/centres/edit/:id', pageComponent: AddCentrePage, title: 'Edit Centre' },
   { path: '/admin/centres/view/:id', pageComponent: ViewCentrePage, title: 'View Centre' },
   { path: '/admin/centres/cohorts', pageComponent: CentreCohortsPage, title: 'Centre Cohorts' },
-  { path: '/admin/centres/centre_payments', pageComponent: CentrePaymentsPage, title: 'Centre Payments' },
-  { path: '/admin/wallet/index', aliases: ['/admin/wallet'], pageComponent: WalletStatusPage, title: 'Wallet Status' },
+  { path: '/admin/centres/dashboard', pageComponent: CentreDashboardPage, title: 'Centre Dashboard' },
+  { path: '/admin/centres/onboarding', pageComponent: CentreOnboardingPage, title: 'Centre Onboarding' },
+  { path: '/admin/centres/onboarding/view/:id', pageComponent: CentreOnboardingPage, title: 'Centre Onboarding' },
+  { path: '/admin/centres/affiliation', pageComponent: AffiliationAgreementsPage, title: 'Affiliation & Agreements' },
+  // Naji 2026-10-22: Centre Payments folded into Wallet & Payment; the old
+  // path stays as an alias so bookmarks land on the new page.
+  { path: '/admin/wallet/index', aliases: ['/admin/wallet', '/admin/centres/centre_payments'], pageComponent: WalletStatusPage, title: 'Wallet & Payment' },
   { path: '/admin/chat_support', pageComponent: ChatSupportPage, title: 'Chat Support' },
   { path: '/admin/resources/index', aliases: ['/admin/resources'], pageComponent: ResourcesPage, title: 'Resources' },
   { path: '/admin/training_videos', pageComponent: TrainingVideosPage, title: 'Training Videos' },

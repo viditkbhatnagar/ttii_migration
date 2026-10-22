@@ -34,10 +34,15 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     label: 'Centres',
     icon: 'Building2',
     children: [
+      // Order: Naji's 2026-10-22 prototype. His "Applications" and "Centre
+      // Offerings" entries are held until he settles the centre application
+      // payment flow and what a centre offering is.
+      { id: 'centre-dashboard', label: 'Centre Dashboard', href: '/admin/centres/dashboard' },
+      { id: 'centre-onboarding', label: 'Centre Onboarding', href: '/admin/centres/onboarding' },
       { id: 'centre-directory', label: 'Centre Directory', href: '/admin/centres/index' },
+      { id: 'centre-affiliation', label: 'Affiliation & Agreements', href: '/admin/centres/affiliation' },
       { id: 'centre-cohorts', label: 'Centre Cohorts', href: '/admin/centres/cohorts' },
-      { id: 'centre-payments', label: 'Centre Payments', href: '/admin/centres/centre_payments' },
-      { id: 'wallet-status', label: 'Wallet Status', href: '/admin/wallet/index' },
+      { id: 'wallet-status', label: 'Wallet & Payment', href: '/admin/wallet/index' },
       { id: 'chat-support', label: 'Chat Support', href: '/admin/chat_support' },
     ],
   },

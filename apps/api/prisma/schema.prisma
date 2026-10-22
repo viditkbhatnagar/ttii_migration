@@ -3064,3 +3064,163 @@ model teams_meeting_hosts {
   @@index([teams_email], map: "idx_teams_email")
   @@index([is_active, deleted_at], map: "idx_is_active")
 }
+
+// ─── Centres module v2 (Naji 2026-10-22) ─────────────────────────────────────
+// deploy/migrations/2026-10-22-centre-onboarding-affiliation.sql. Additive
+// tables only; no column was added to `centres` (see the migration header).
+
+/// 1:1 with centres (centre_id = centres.id). Identity, tax and bank details.
+/// Served ONLY by Admin/Subadmin-only endpoints — never merged into listCentres rows.
+model centre_kyc {
+  centre_id           Int       @id
+  legal_entity_name   String?   @db.VarChar(250)
+  /// Proprietorship | Partnership | LLP | Private Limited | Public Limited | Trust | Society | Other
+  entity_type         String?   @db.VarChar(40)
+  city                String?   @db.VarChar(120)
+  pincode             String?   @db.VarChar(12)
+  gstin               String?   @db.VarChar(20)
+  pan                 String?   @db.VarChar(12)
+  /// Aadhaar or passport number of the contact person.
+  id_number           String?   @db.VarChar(40)
+  id_doc              String?   @db.VarChar(500)
+  pan_doc             String?   @db.VarChar(500)
+  bank_account_name   String?   @db.VarChar(150)
+  bank_account_number String?   @db.VarChar(30)
+  bank_ifsc           String?   @db.VarChar(15)
+  bank_name           String?   @db.VarChar(150)
+  bank_branch         String?   @db.VarChar(150)
+  logo                String?   @db.VarChar(500)
+  created_by          Int?
+  updated_by          Int?
+  created_at          DateTime? @default(now()) @db.DateTime(0)
+  updated_at          DateTime? @db.DateTime(0)
+}
+
+/// Extra documents uploaded on the centre profile's Documents tab.
+model centre_documents {
+  id         Int       @id @default(autoincrement())
+  centre_id  Int
+  title      String    @db.VarChar(250)
+  doc_type   String    @default("Uploaded Document") @db.VarChar(60)
+  file_url   String    @db.VarChar(500)
+  created_by Int?
+  deleted_by Int?
+  created_at DateTime? @default(now()) @db.DateTime(0)
+  deleted_at DateTime? @db.DateTime(0)
+
+  @@index([centre_id, deleted_at], map: "idx_centre_documents_centre")
+}
+
+/// A prospective centre, from first contact to onboarded.
+model centre_onboarding {
+  id                Int       @id @default(autoincrement())
+  /// ONB-001 style, derived from the id on create.
+  ref_no            String?   @unique(map: "uq_centre_onboarding_ref") @db.VarChar(20)
+  centre_name       String    @db.VarChar(250)
+  contact_name      String    @db.VarChar(150)
+  mobile            String    @default("") @db.VarChar(20)
+  email             String    @db.VarChar(150)
+  country           String?   @db.VarChar(80)
+  state             String?   @db.VarChar(80)
+  district          String?   @db.VarChar(80)
+  /// Meta Campaign | Website | Referral | Event | Cold Call | Other
+  source            String?   @db.VarChar(40)
+  assigned_to       Int?
+  notes             String?   @db.Text
+  /// lead | under_review | agreement_pending | certificate_pending | onboarded | rejected
+  /// ("Form Sent" = a lead with link_sent_at set; a label, not a stage.)
+  stage             String    @default("lead") @db.VarChar(30)
+  stage_since       DateTime  @default(now()) @db.DateTime(0)
+  /// sha256 hex of the public form token. The raw token exists only in the link.
+  link_token_hash   String?   @unique(map: "uq_centre_onboarding_token") @db.Char(64)
+  link_sent_at      DateTime? @db.DateTime(0)
+  link_expired      Boolean   @default(false)
+  /// The submitted centre application as JSON text (LONGTEXT, not JSON — no json_valid CHECK).
+  form_json         String?   @db.LongText
+  form_submitted_at DateTime? @db.DateTime(0)
+  /// {"entity":"verified","address":"flagged",...}
+  verification_json String?   @db.Text
+  /// Changes requested from the centre.
+  remarks           String?   @db.Text
+  /// Reserved at approval. UNIQUE across onboarding records (NULLs never clash).
+  centre_code       String?   @unique(map: "uq_centre_onboarding_code") @db.VarChar(30)
+  /// centres.id once onboarded.
+  centre_id         Int?
+  reject_reason     String?   @db.Text
+  rejected_at       DateTime? @db.DateTime(0)
+  rejected_by       Int?
+  created_by        Int?
+  updated_by        Int?
+  deleted_by        Int?
+  created_at        DateTime? @default(now()) @db.DateTime(0)
+  updated_at        DateTime? @db.DateTime(0)
+  deleted_at        DateTime? @db.DateTime(0)
+
+  @@index([stage, deleted_at], map: "idx_centre_onboarding_stage")
+  @@index([email], map: "idx_centre_onboarding_email")
+}
+
+/// Activity timeline of an onboarding record.
+model centre_onboarding_events {
+  id            Int      @id @default(autoincrement())
+  onboarding_id Int
+  event_type    String   @db.VarChar(40)
+  message       String   @db.VarChar(500)
+  actor_user_id Int?
+  created_at    DateTime @default(now()) @db.DateTime(0)
+
+  @@index([onboarding_id, created_at], map: "idx_centre_onboarding_events_onb")
+}
+
+/// Signed affiliation agreement. Status (Active / Pending Renewal / Expired) is DERIVED from the dates.
+/// fee_amount / fee_paid RECORD the affiliation fee; nothing is charged.
+model centre_agreements {
+  id               Int       @id @default(autoincrement())
+  agreement_no     String    @unique(map: "uq_centre_agreements_no") @db.VarChar(30)
+  /// NULL while the centre is still in onboarding.
+  centre_id        Int?
+  onboarding_id    Int?
+  effective_date   DateTime  @db.Date
+  term_years       Int
+  expiry_date      DateTime  @db.Date
+  signed_on        DateTime? @db.Date
+  ttii_signatory   String?   @db.VarChar(150)
+  centre_signatory String?   @db.VarChar(150)
+  file_url         String    @db.VarChar(500)
+  fee_amount       Decimal   @default(0) @db.Decimal(12, 2)
+  fee_paid         Boolean   @default(false)
+  fee_paid_on      DateTime? @db.Date
+  notes            String?   @db.Text
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime? @default(now()) @db.DateTime(0)
+  updated_at       DateTime? @db.DateTime(0)
+  deleted_at       DateTime? @db.DateTime(0)
+
+  @@index([centre_id, deleted_at], map: "idx_centre_agreements_centre")
+  @@index([onboarding_id], map: "idx_centre_agreements_onb")
+}
+
+/// Affiliation certificate issued to a centre. status: valid | revoked ("Expired" derived from valid_to).
+model centre_affiliation_certificates {
+  id             Int       @id @default(autoincrement())
+  certificate_no String    @unique(map: "uq_centre_aff_cert_no") @db.VarChar(30)
+  centre_id      Int?
+  agreement_id   Int?
+  onboarding_id  Int?
+  valid_from     DateTime  @db.Date
+  valid_to       DateTime  @db.Date
+  file_url       String?   @db.VarChar(500)
+  status         String    @default("valid") @db.VarChar(20)
+  revoke_reason  String?   @db.Text
+  revoked_at     DateTime? @db.DateTime(0)
+  revoked_by     Int?
+  created_by     Int?
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+  updated_at     DateTime? @db.DateTime(0)
+  deleted_at     DateTime? @db.DateTime(0)
+
+  @@index([centre_id, deleted_at], map: "idx_centre_aff_cert_centre")
+  @@index([agreement_id], map: "idx_centre_aff_cert_agreement")
+}
