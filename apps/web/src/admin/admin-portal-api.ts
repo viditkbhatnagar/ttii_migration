@@ -1,4 +1,4 @@
-import { type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
+import { ApiError, type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
 import { isImportedLiveSessionPlatform } from '@ttii/shared-types';
 
 interface LegacyEnvelope<T> {
@@ -479,6 +479,13 @@ function toRecordedSessionHistory(raw: unknown, message: unknown): AdminRecorded
     notice,
     months: toRecords(record.months).map((entry) => toRecordedSessionMonth(entry)),
   };
+}
+
+/** A Centres v2 write: ok=false is a refusal (data.errors holds field errors). */
+export interface CentreWriteResult {
+  ok: boolean;
+  message: string;
+  data: Record<string, unknown>;
 }
 
 export class AdminPortalApi {
@@ -2925,9 +2932,66 @@ export class AdminPortalApi {
 
   // ─── Phase D: Centres Feature ─────────────────────────────────────────────
 
+  // Returns `data` ({ centre, course_plans }). It used to return the whole
+  // envelope while its callers read `.centre`, so View always said "Centre not
+  // found" and Edit never pre-filled.
   async getCentre(authToken: string, id: string): Promise<Record<string, unknown>> {
-    const payload = await this.get<Record<string, unknown>>('/admin/centres/get', authToken, { id });
-    return payload;
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/get', authToken, { id });
+    return asRecord(payload.data) ?? {};
+  }
+
+  // ─── Centres v2 (Naji 2026-10-22): Centre Directory dialog + Profile 360 ───
+  // Admin/Subadmin-only routes (centre-profile-routes.ts). Reads throw an
+  // ApiError on a refusal; writes resolve to { ok, message, data } so a
+  // refused save can show its field errors.
+
+  async loadCentreProfile(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/profile', authToken, { id });
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadNextCentreCode(authToken: string): Promise<string> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/centres/next_code', authToken);
+    const code = asRecord(payload.data)?.code;
+    return typeof code === 'string' ? code : '';
+  }
+
+  private async centreWrite(path: string, authToken: string, body: Record<string, unknown>): Promise<CentreWriteResult> {
+    try {
+      const payload = await this.post<LegacyEnvelope<unknown>>(path, authToken, body);
+      return { ok: true, message: payload.message ?? 'Saved.', data: asRecord(payload.data) ?? {} };
+    } catch (error: unknown) {
+      const refused = error instanceof ApiError ? asRecord(error.payload) : null;
+      if (refused && refused.status === 0) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Request failed.', data: asRecord(refused.data) ?? {} };
+      }
+      throw error;
+    }
+  }
+
+  async saveCentre(authToken: string, body: Record<string, unknown>): Promise<CentreWriteResult> {
+    return this.centreWrite('/admin/centres/save', authToken, body);
+  }
+
+  async setCentreStatus(authToken: string, id: string, status: 'active' | 'inactive'): Promise<CentreWriteResult> {
+    return this.centreWrite('/admin/centres/status', authToken, { id, status });
+  }
+
+  async addCentreDocument(authToken: string, input: { centreId: string; title: string; fileUrl: string; docType?: string }): Promise<CentreWriteResult> {
+    return this.centreWrite('/admin/centres/documents/add', authToken, {
+      centre_id: input.centreId,
+      title: input.title,
+      file_url: input.fileUrl,
+      ...(input.docType ? { doc_type: input.docType } : {}),
+    });
+  }
+
+  async deleteCentreDocument(authToken: string, id: string): Promise<CentreWriteResult> {
+    return this.centreWrite('/admin/centres/documents/delete', authToken, { id });
+  }
+
+  async setCentreLogo(authToken: string, centreId: string, url: string): Promise<CentreWriteResult> {
+    return this.centreWrite('/admin/centres/logo', authToken, { centre_id: centreId, url });
   }
 
   async editCentre(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
