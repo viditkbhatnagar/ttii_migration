@@ -145,6 +145,9 @@ export type CentreField = (typeof CENTRE_FIELDS)[number];
 export type CentreValues = Record<CentreField, string>;
 export type FieldErrors = Partial<Record<CentreField, string>>;
 
+/** Upload links (http/https only — never javascript: or data:). */
+export const FILE_FIELDS: readonly CentreField[] = ['registration_doc', 'id_doc', 'pan_doc'];
+
 /** Fields stored in centre_kyc (need the 2026-10-22 migration). */
 export const KYC_FIELDS: readonly CentreField[] = [
   'legal_entity_name', 'entity_type', 'city', 'pincode', 'gstin', 'pan', 'id_number', 'id_doc', 'pan_doc',
@@ -221,6 +224,8 @@ export interface ValidateOptions {
   mode: 'add' | 'edit';
   /** false before the migration: the centre_kyc fields are neither required nor checked. */
   kycReady: boolean;
+  /** EDIT: file fields left as stored — a legacy path is kept as it is, never re-checked. */
+  unchangedFiles?: readonly CentreField[];
 }
 
 /** Field → message ('Required', 'Enter a 6-digit PIN', …), the prototype's texts. */
@@ -253,7 +258,8 @@ export function validateCentre(v: CentreValues, opts: ValidateOptions): FieldErr
   if (v.gstin && !GSTIN.test(v.gstin)) e.gstin = 'Invalid GSTIN format';
   if (v.bank_account_number && !ACCOUNT.test(v.bank_account_number)) e.bank_account_number = '9–18 digits';
   if (v.bank_ifsc && !IFSC.test(v.bank_ifsc)) e.bank_ifsc = 'Invalid IFSC format';
-  for (const field of ['registration_doc', 'id_doc', 'pan_doc'] as const) {
+  for (const field of FILE_FIELDS) {
+    if (opts.unchangedFiles?.includes(field)) continue;
     if (v[field] && !e[field] && !isHttpUrl(v[field])) e[field] = 'Upload the file again';
   }
   if (!opts.kycReady) for (const field of KYC_FIELDS) delete e[field];

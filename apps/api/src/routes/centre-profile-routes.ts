@@ -50,6 +50,6 @@ export function registerCentreProfileRoutes(app: FastifyInstance, deps: CentrePr
   app.post('/admin/centres/save', guard, handle((p, actor) => service.save(actor, p)));
   app.post('/admin/centres/status', guard, handle((p, actor) => service.setStatus(actor, intOf(p.id), text(p.status))));
   app.post('/admin/centres/documents/add', guard, handle((p, actor) => service.addDocument(actor, p)));
-  app.post('/admin/centres/documents/delete', guard, handle((p, actor) => service.deleteDocument(actor, intOf(p.id))));
+  app.post('/admin/centres/documents/delete', guard, handle((p, actor) => service.deleteDocument(actor, intOf(p.id), intOf(p.centre_id))));
   app.post('/admin/centres/logo', guard, handle((p, actor) => service.setLogo(actor, intOf(p.centre_id), text(p.url))));
 }

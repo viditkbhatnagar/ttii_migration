@@ -2986,8 +2986,8 @@ export class AdminPortalApi {
     });
   }
 
-  async deleteCentreDocument(authToken: string, id: string): Promise<CentreWriteResult> {
-    return this.centreWrite('/admin/centres/documents/delete', authToken, { id });
+  async deleteCentreDocument(authToken: string, id: string, centreId: string): Promise<CentreWriteResult> {
+    return this.centreWrite('/admin/centres/documents/delete', authToken, { id, centre_id: centreId });
   }
 
   async setCentreLogo(authToken: string, centreId: string, url: string): Promise<CentreWriteResult> {

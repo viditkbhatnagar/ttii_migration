@@ -6,7 +6,7 @@ import { isCentreCodeTaken, nextCentreCode, sameCentreCode } from './centre-code
 import { CENTRE_ROLE_ID, createCentreInTx, emailCentreCredentials, kycColumns, type CentreKycInput } from './centre-create.js';
 import {
   DOC_TYPE_UPLOADED, EMPTY_VALUES, NOT_SET_UP_MESSAGE,
-  applicationStage, buildActivity, digitsOnly, fail, failWith, hasKycInput, intOf, isHttpUrl, isIndia, isMissingTable, iso,
+  FILE_FIELDS, applicationStage, buildActivity, digitsOnly, fail, failWith, hasKycInput, intOf, isHttpUrl, isIndia, isMissingTable, iso,
   istToday, locationName, mergeForSave, money, planStatus, readSubmitted, studentStatus, text, validateCentre,
   ymdOfDate, ymdOfText,
   type ActivityItem, type CentreValues, type FieldErrors, type Outcome,
@@ -437,8 +437,12 @@ export class CentreProfileService {
   // ─── Add / Edit ───────────────────────────────────────────────────────────
 
   async save(actor: number | null, payload: Record<string, unknown>): Promise<Outcome<SaveResult>> {
-    const id = intOf(payload.id);
-    return id ? this.edit(actor, id, payload) : this.add(actor, payload);
+    const raw = payload.id;
+    const hasId = raw !== undefined && raw !== null && text(raw) !== '';
+    if (!hasId) return this.add(actor, payload);
+    // A present but unreadable id is a broken edit, never a new centre.
+    const id = intOf(raw);
+    return id ? this.edit(actor, id, payload) : fail('Centre not found');
   }
 
   /** Field errors for a code already in use, another centre's phone/email, or another centre login's email. */
@@ -494,7 +498,9 @@ export class CentreProfileService {
     let created: { centreId: number; tempPassword: string };
     try {
       created = await this.prisma.$transaction(async (tx) => {
-        // Checked again inside the write: there is no UNIQUE index on centres.centre_id.
+        // Re-checked inside the write to narrow the window between two adds; it is not a
+        // lock (centres.centre_id has no UNIQUE index), so two adds in the same instant
+        // could still both pass.
         if (await isCentreCodeTaken(tx, v.centre_code)) throw new CodeTakenError();
         return createCentreInTx(tx, {
           centreCode: v.centre_code,
@@ -551,7 +557,8 @@ export class CentreProfileService {
       orderBy: { id: 'asc' },
       select: { id: true, name: true, phone: true, country_code: true, user_email: true, email: true },
     });
-    const errors = { ...validateCentre(v, { mode: 'edit', kycReady }) };
+    const unchangedFiles = FILE_FIELDS.filter((f) => v[f] !== '' && v[f] === stored[f]);
+    const errors = { ...validateCentre(v, { mode: 'edit', kycReady, unchangedFiles }) };
     const clash = await this.conflicts(v, {
       centreId, code: stored.centre_code, phone: stored.phone, email: stored.email, loginUserId: login?.id ?? null,
     });
@@ -574,12 +581,18 @@ export class CentreProfileService {
       country_id: v.country || null,
       state_id: v.state || null,
       district_id: v.district || null,
-      registraion_certificate: v.registration_doc || null,
+      // An unchanged file keeps its stored value (a legacy relative path stays relative).
+      registraion_certificate: unchangedFiles.includes('registration_doc') ? centre.registraion_certificate : v.registration_doc || null,
       date_of_expiry: v.affiliation_expiry ? ymdOfText(v.affiliation_expiry) : null,
       updated_by: actor,
       updated_at: now,
     };
-    const { logo: _logo, ...kycCols } = kycColumns(kycInput(v));
+    const { logo: _logo, ...kycNew } = kycColumns(kycInput(v));
+    const kycCols = {
+      ...kycNew,
+      ...(kyc && unchangedFiles.includes('id_doc') ? { id_doc: kyc.id_doc } : {}),
+      ...(kyc && unchangedFiles.includes('pan_doc') ? { pan_doc: kyc.pan_doc } : {}),
+    };
 
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -595,7 +608,7 @@ export class CentreProfileService {
           });
         }
         if (login) {
-          const loginData = loginUpdate(login, v, stored.email);
+          const loginData = loginUpdate(login, v, { name: stored.centre_name, phone: stored.phone, email: stored.email });
           if (loginData) await tx.users.update({ where: { id: login.id }, data: { ...loginData, updated_by: actor, updated_at: now } });
         }
       });
@@ -651,11 +664,11 @@ export class CentreProfileService {
   }
 
   /** Soft delete of an UPLOADED document (centre_documents). Registration / KYC files are changed through Edit Centre. */
-  async deleteDocument(actor: number | null, documentId: number): Promise<Outcome> {
+  async deleteDocument(actor: number | null, documentId: number, centreId = 0): Promise<Outcome> {
     if (!documentId) return fail('Document not found');
     try {
       const res = await this.prisma.centre_documents.updateMany({
-        where: { id: documentId, deleted_at: null },
+        where: { id: documentId, deleted_at: null, ...(centreId ? { centre_id: centreId } : {}) },
         data: { deleted_at: this.now(), deleted_by: actor },
       });
       return res.count > 0 ? { status: 1, message: 'Document deleted' } : fail('Document not found');
@@ -686,18 +699,35 @@ export class CentreProfileService {
   }
 }
 
-/** What changes on the centre's role-7 login when its centre is edited; null when nothing does. */
+/**
+ * What changes on the centre's role-7 login when its centre is edited; null
+ * when nothing does. A login value follows the centre ONLY when the centre's
+ * value changed in this edit AND the login still held the old centre value
+ * (or nothing): a login deliberately set apart from the centre is left alone.
+ */
 export function loginUpdate(
   login: { name: string | null; phone: string | null; country_code: string | null; user_email: string | null; email: string | null },
   v: CentreValues,
-  previousEmail: string,
+  previous: { name: string; phone: string; email: string },
 ): Prisma.usersUncheckedUpdateInput | null {
   const data: Prisma.usersUncheckedUpdateInput = {};
-  if (text(login.name) !== v.centre_name) data.name = v.centre_name;
-  if (text(login.phone) !== v.phone) data.phone = v.phone;
-  if (v.country_code && text(login.country_code) !== v.country_code) data.country_code = v.country_code;
-  if (text(login.user_email).toLowerCase() !== v.email) data.user_email = v.email;
-  const legacyEmail = text(login.email).toLowerCase();
-  if (legacyEmail && legacyEmail === previousEmail.toLowerCase() && legacyEmail !== v.email) data.email = v.email;
+  const followed = (current: string | null, old: string, eq: (a: string, b: string) => boolean) => {
+    const c = text(current);
+    return c === '' || eq(c, old);
+  };
+  const same = (a: string, b: string) => a === b;
+  const sameEmail = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const samePhone = (a: string, b: string) => digitsOnly(a) === digitsOnly(b);
+
+  if (v.centre_name !== previous.name && followed(login.name, previous.name, same)) data.name = v.centre_name;
+  if (!samePhone(v.phone, previous.phone) && followed(login.phone, previous.phone, samePhone)) {
+    data.phone = v.phone;
+    if (v.country_code) data.country_code = v.country_code;
+  }
+  if (!sameEmail(v.email, previous.email)) {
+    if (followed(login.user_email, previous.email, sameEmail)) data.user_email = v.email;
+    const legacy = text(login.email);
+    if (legacy && sameEmail(legacy, previous.email)) data.email = v.email;
+  }
   return Object.keys(data).length > 0 ? data : null;
 }

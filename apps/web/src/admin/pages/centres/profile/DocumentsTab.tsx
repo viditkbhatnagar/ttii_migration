@@ -80,7 +80,7 @@ export function DocumentsTab({
     });
     if (!yes) return;
     try {
-      const res = await api.deleteCentreDocument(token, d.id);
+      const res = await api.deleteCentreDocument(token, d.id, centreId);
       if (!res.ok) { toast.error(res.message); return; }
       toast.success(res.message);
       onChanged();

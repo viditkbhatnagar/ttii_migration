@@ -358,11 +358,39 @@ describe('edit centre', () => {
     expect(centre?.centre_name).toBe('Hanahadhi Academy');
   });
 
-  test('loginUpdate touches only what changed', () => {
+  test('loginUpdate follows only centre values that changed, and only where the login still matched them', () => {
     const v = values({ centre_name: 'X', phone: '9000000000', email: 'x@y.in' });
-    expect(loginUpdate({ name: 'X', phone: '9000000000', country_code: '+91', user_email: 'x@y.in', email: null }, v, 'x@y.in')).toBeNull();
-    expect(loginUpdate({ name: 'Old', phone: '9000000000', country_code: '+91', user_email: 'old@y.in', email: 'old@y.in' }, v, 'old@y.in'))
-      .toEqual({ name: 'X', user_email: 'x@y.in', email: 'x@y.in' });
+    const prev = { name: 'Old', phone: '9111111111', email: 'old@y.in' };
+    expect(loginUpdate({ name: 'X', phone: '9000000000', country_code: '+91', user_email: 'x@y.in', email: null }, v, { name: 'X', phone: '9000000000', email: 'x@y.in' })).toBeNull();
+    expect(loginUpdate({ name: 'Old', phone: '9111111111', country_code: '+91', user_email: 'old@y.in', email: 'old@y.in' }, v, prev))
+      .toEqual({ name: 'X', phone: '9000000000', country_code: '+91', user_email: 'x@y.in', email: 'x@y.in' });
+    // A login deliberately set apart from the centre is left alone.
+    expect(loginUpdate({ name: 'Front desk', phone: '9222222222', country_code: '+91', user_email: 'desk@y.in', email: null }, v, prev)).toBeNull();
+    // An unrelated edit never rewrites a login whose email differs from the centre's.
+    expect(loginUpdate({ name: 'X', phone: '9000000000', country_code: '+91', user_email: 'desk@y.in', email: null }, v, { name: 'X', phone: '9000000000', email: 'x@y.in' })).toBeNull();
+  });
+
+  test('a present but unreadable id is refused, never treated as a new centre', async () => {
+    const { db, service, emails } = world();
+    const before = db.tables.users.length;
+    expect(await service.save(1, { ...VALID_ADD, id: 'TTC0031' })).toEqual({ status: 0, message: 'Centre not found' });
+    expect(await service.save(1, { ...VALID_ADD, id: 0 })).toEqual({ status: 0, message: 'Centre not found' });
+    expect(db.tables.users.length).toBe(before);
+    expect(emails).toHaveLength(0);
+  });
+
+  test('a stored legacy file path (even with a space) never blocks an edit and is kept as stored', async () => {
+    const { db, service } = world();
+    const stored = (db.tables as unknown as Record<string, Row[]>).centres!.find((c) => c.id === 30)!;
+    stored.registraion_certificate = 'uploads/centre/reg cert.pdf';
+    const profile = await service.profile(30);
+    const shown = profile.data!.centre.registration_doc;
+    expect(shown).toBe('https://lms.teachersindia.in/uploads/centre/reg cert.pdf');
+    const res = await service.save(1, { ...EDIT, registration_doc: shown });
+    expect(res.status).toBe(1);
+    expect((await findRow(db, 'centres', { id: 30 }))?.registraion_certificate).toBe('uploads/centre/reg cert.pdf');
+    const bad = await service.save(1, { ...EDIT, registration_doc: 'javascript:alert(1)' });
+    expect(bad.data?.errors).toEqual({ registration_doc: 'Upload the file again' });
   });
 });
 
@@ -381,7 +409,8 @@ describe('status, documents and logo', () => {
     const added = await service.addDocument(1, { centre_id: 28, title: 'Fire NOC.pdf', file_url: 'https://cdn.example.com/noc.pdf' });
     expect(added.status).toBe(1);
     expect((await service.addDocument(1, { centre_id: 28, title: 'x', file_url: 'javascript:alert(1)' })).status).toBe(0);
-    expect(await service.deleteDocument(1, added.data!.id)).toEqual({ status: 1, message: 'Document deleted' });
+    expect(await service.deleteDocument(1, added.data!.id, 30)).toEqual({ status: 0, message: 'Document not found' });
+    expect(await service.deleteDocument(1, added.data!.id, 28)).toEqual({ status: 1, message: 'Document deleted' });
     expect(await service.deleteDocument(1, added.data!.id)).toEqual({ status: 0, message: 'Document not found' });
     const profile = await service.profile(28);
     expect(profile.data!.documents.filter((d) => d.source === 'uploaded')).toHaveLength(1);

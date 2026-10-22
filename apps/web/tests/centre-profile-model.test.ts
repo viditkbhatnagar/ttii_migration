@@ -4,7 +4,7 @@ import {
   EMPTY_FORM, formFromProfile, fromApiErrors, isRequired, setLocation, toPayload, validateForm, type CentreForm,
 } from '../src/admin/pages/centres/centre-form-model';
 import {
-  buildLedger, docsOnFile, filterApps, fmtDay, hasBankDetails, maskTail, sortLedger, stagePills, toProfile, walletTotals,
+  buildLedger, docsOnFile, filterApps, fmtDay, hasBankDetails, maskTail, safeUrl, sortLedger, stagePills, toProfile, walletTotals,
 } from '../src/admin/pages/centres/centre-profile-model';
 
 // Centre Profile 360 + the Add / Edit Centre form (Naji 2026-10-22).
@@ -59,6 +59,13 @@ describe('profile mapping and display helpers', () => {
     expect(maskTail('112233445566')).toBe('••••••••5566');
     expect(maskTail('A12')).toBe('•••');
     expect(maskTail('')).toBe('');
+  });
+
+  test('only http(s) file links reach an href or the viewer', () => {
+    expect(safeUrl('https://cdn.example.com/a b.pdf')).toBe('https://cdn.example.com/a b.pdf');
+    expect(safeUrl('javascript:alert(1)')).toBe('');
+    expect(safeUrl('//evil.example/x')).toBe('');
+    expect(toProfile({ documents: [{ key: 'x', url: 'data:text/html,<b>' }] }).documents[0]?.url).toBe('');
   });
 
   test('bank details count only when one is captured', () => {

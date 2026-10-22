@@ -81,6 +81,12 @@ export interface CentreProfile {
 
 const str = (r: Record<string, unknown> | null, k: string) => (r ? asString(r[k]) : '');
 
+/** A file link the page may put in an href / iframe: http(s) only, '' otherwise. */
+export function safeUrl(value: unknown): string {
+  const s = asString(value).trim();
+  return /^https?:\/\/\S/i.test(s) ? s : '';
+}
+
 export function toProfile(data: Record<string, unknown>): CentreProfile {
   const c = asRecord(data.centre) ?? {};
   const k = asRecord(data.kyc);
@@ -104,16 +110,16 @@ export function toProfile(data: Record<string, unknown>): CentreProfile {
       phone: asString(c.phone),
       email: asString(c.email),
       affiliationExpiry: asString(c.affiliation_expiry),
-      registrationDoc: asString(c.registration_doc),
-      affiliationDocument: asString(c.affiliation_document),
+      registrationDoc: safeUrl(c.registration_doc),
+      affiliationDocument: safeUrl(c.affiliation_document),
       walletBalance: asNumber(c.wallet_balance),
       createdAt: asString(c.created_at),
     },
     kyc: k ? {
       legalEntity: str(k, 'legal_entity_name'), entityType: str(k, 'entity_type'), city: str(k, 'city'), pin: str(k, 'pincode'),
-      gstin: str(k, 'gstin'), pan: str(k, 'pan'), idNumber: str(k, 'id_number'), idDoc: str(k, 'id_doc'), panDoc: str(k, 'pan_doc'),
+      gstin: str(k, 'gstin'), pan: str(k, 'pan'), idNumber: str(k, 'id_number'), idDoc: safeUrl(k.id_doc), panDoc: safeUrl(k.pan_doc),
       accountName: str(k, 'bank_account_name'), accountNumber: str(k, 'bank_account_number'), ifsc: str(k, 'bank_ifsc'),
-      bank: str(k, 'bank_name'), branch: str(k, 'bank_branch'), logo: str(k, 'logo'),
+      bank: str(k, 'bank_name'), branch: str(k, 'bank_branch'), logo: safeUrl(k.logo),
     } : null,
     login: login ? { userId: asString(login.user_id), email: asString(login.email), disabled: login.disabled === true } : null,
     plans: toRecords(data.course_plans).map((p) => ({
@@ -141,7 +147,7 @@ export function toProfile(data: Record<string, unknown>): CentreProfile {
     })),
     documents: toRecords(data.documents).map((d) => ({
       key: asString(d.key), id: asString(d.id), source: asString(d.source), name: asString(d.name), type: asString(d.type),
-      date: asString(d.date), url: asString(d.url), deletable: d.deletable === true,
+      date: asString(d.date), url: safeUrl(d.url), deletable: d.deletable === true,
     })),
     activity: toRecords(data.activity).map((a) => ({ kind: asString(a.kind), text: asString(a.text), at: asString(a.at) })),
   };
