@@ -195,7 +195,12 @@ export class CentrePortalCohortService {
     const [courses, users, submissions] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       userIds.length > 0
-        ? this.prisma.users.findMany({ where: { id: { in: userIds }, deleted_at: null }, select: { id: true, name: true, student_id: true } })
+        // Learners are the centre's OWN students only: a cohort's code is free text, so
+        // the code key in cohort_students can match another centre's cohort.
+        ? this.prisma.users.findMany({
+          where: { id: { in: userIds }, role_id: 2, added_under_centre: centreId, deleted_at: null },
+          select: { id: true, name: true, student_id: true },
+        })
         : [],
       assignmentIds.length > 0
         ? this.prisma.assignment_submissions.groupBy({ by: ['assignment_id'], where: { assignment_id: { in: assignmentIds }, deleted_at: null }, _count: { id: true } })

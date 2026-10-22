@@ -2929,11 +2929,17 @@ export class OperationsService {
       };
     }
 
+    const cohortCode = input.cohortCode?.trim() ?? '';
+    const refusal = await this.centreCohortInputRefusal(centreId, courseIdInt, subjectIdInt, input, cohortCode);
+    if (refusal) {
+      return { success: false, message: refusal };
+    }
+
     const now = new Date();
 
     const created = await this.prisma.cohorts.create({
       data: {
-        cohort_id: input.cohortCode?.trim() ? input.cohortCode : `COH-${Date.now()}`,
+        cohort_id: cohortCode ? cohortCode : `COH-${Date.now()}`,
         title: input.title,
         course_id: courseIdInt,
         subject_id: subjectIdInt,
@@ -2971,6 +2977,75 @@ export class OperationsService {
         subject_id: input.subjectId,
       },
     };
+  }
+
+  /**
+   * Centre-scope cohort input checks (security review 2026-10-22). The cohort code is
+   * free text that cohort_students may use as a key, so it must never look like a
+   * numeric cohort id nor repeat another cohort's code. Course/instructor/subject/
+   * language are caller-supplied ids and are checked against what the centre may use.
+   * Returns a refusal message, or null when everything is fine.
+   */
+  private async centreCohortInputRefusal(
+    centreId: string,
+    courseId: number | null,
+    subjectId: number | null,
+    input: CohortInput,
+    cohortCode: string,
+  ): Promise<string | null> {
+    if (cohortCode) {
+      if (/^\d+$/.test(cohortCode)) {
+        return 'Cohort code cannot be only digits. Add letters, for example "DIP-OCT26".';
+      }
+      const clashes = await this.prisma.cohorts.findMany({
+        where: { cohort_id: cohortCode, deleted_at: null },
+        select: { cohort_id: true },
+      });
+      if (clashes.some((c) => (c.cohort_id ?? '').trim().toLowerCase() === cohortCode.toLowerCase())) {
+        return 'This cohort code is already in use. Choose a different code.';
+      }
+    }
+
+    if (!courseId || courseId <= 0) {
+      return 'Choose the course for this cohort.';
+    }
+    const plan = await this.prisma.centre_course_plans.findFirst({
+      where: { centre_id: toIntId(centreId), course_id: courseId, deleted_at: null },
+      select: { id: true },
+    });
+    if (!plan) {
+      return 'This course is not assigned to your centre.';
+    }
+
+    if (subjectId) {
+      const [link, legacy] = await Promise.all([
+        this.prisma.course_subject.findFirst({ where: { course_id: courseId, subject_id: subjectId, deleted_at: null }, select: { subject_id: true } }),
+        this.prisma.subject.findFirst({ where: { id: subjectId, course_id: courseId, deleted_at: null }, select: { id: true } }),
+      ]);
+      if (!link && !legacy) {
+        return 'This subject does not belong to the selected course.';
+      }
+    }
+
+    const instructorId = toNullableIntId(input.instructorId);
+    if (instructorId) {
+      const instructor = await this.prisma.users.findFirst({
+        where: { id: instructorId, role_id: 3, deleted_at: null, disabled_at: null },
+        select: { id: true },
+      });
+      if (!instructor) {
+        return 'Choose a valid instructor.';
+      }
+    }
+
+    const languageId = toNullableIntId(input.languageId);
+    if (languageId) {
+      const language = await this.prisma.languages.findFirst({ where: { id: languageId, deleted_at: null }, select: { id: true } });
+      if (!language) {
+        return 'Choose a valid language.';
+      }
+    }
+    return null;
   }
 
   async addCentreCohortStudents(actorUserId: string, input: AddCohortStudentsInput): Promise<Record<string, unknown>> {

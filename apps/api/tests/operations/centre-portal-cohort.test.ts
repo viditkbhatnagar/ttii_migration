@@ -168,6 +168,51 @@ describe('centre cohort writes (existing endpoints)', () => {
   });
 });
 
+describe('centre cohort security (review 2026-10-22)', () => {
+  const base = { title: 'X – NOV26', courseId: '16', subjectId: '', instructorId: '30', startDate: '2026-11-01', endDate: '2027-04-30', languageId: '2' };
+
+  test('view: a cohort code that equals another centre\'s cohort id leaks none of its learners', async () => {
+    const data = seed();
+    data.cohorts.push({ id: 80, cohort_id: '76', title: 'Mine named 76', course_id: 16, subject_id: null, language_id: 1, instructor_id: 30, start_date: day('2026-10-01'), end_date: day('2027-03-31'), centre_id: 1, deleted_at: null });
+    const svc = new CentrePortalCohortService({ prisma: memoryPrisma(data).prisma, now: () => NOW });
+    const out = await svc.view(700, '80');
+    expect(out.data?.learners).toEqual([]); // student 503 (centre 28) is in cohort 76, not here
+  });
+
+  test('view: a non-student or another centre\'s user sitting in the cohort rows is not listed', async () => {
+    const data = seed();
+    data.cohort_students.push({ id: 9, cohort_id: '75', user_id: 503, deleted_at: null }, { id: 10, cohort_id: '75', user_id: 30, deleted_at: null });
+    const svc = new CentrePortalCohortService({ prisma: memoryPrisma(data).prisma, now: () => NOW });
+    const out = await svc.view(700, '75');
+    expect(out.data?.learners.map((l) => l.id).sort()).toEqual([501, 502]);
+  });
+
+  test('add: refuses a purely numeric code and a code already used (case-insensitive on MySQL)', async () => {
+    const ops = new OperationsService(memoryPrisma(seed()).prisma);
+    expect(await ops.addCentreCohort('700', { ...base, cohortCode: '75' })).toMatchObject({ success: false, message: expect.stringContaining('only digits') });
+    expect(await ops.addCentreCohort('700', { ...base, cohortCode: 'CCHOCT26' })).toMatchObject({ success: false, message: expect.stringContaining('already in use') });
+    expect(await ops.addCentreCohort('700', { ...base, cohortCode: 'NEWCODE' })).toMatchObject({ success: true });
+    expect(await ops.addCentreCohort('700', { ...base })).toMatchObject({ success: true }); // code stays optional
+  });
+
+  test('add: course must be assigned to the centre', async () => {
+    const ops = new OperationsService(memoryPrisma(seed()).prisma);
+    expect(await ops.addCentreCohort('700', { ...base, courseId: '18' })).toMatchObject({ success: false, message: 'This course is not assigned to your centre.' });
+  });
+
+  test('add: subject must belong to the course; instructor must be an active instructor; language must exist', async () => {
+    const ops = new OperationsService(memoryPrisma(seed()).prisma);
+    expect(await ops.addCentreCohort('700', { ...base, subjectId: '41' })).toMatchObject({ success: false, message: expect.stringContaining('subject') });
+    expect(await ops.addCentreCohort('700', { ...base, subjectId: '42' })).toMatchObject({ success: true }); // legacy subject.course_id link
+    // course_subject link passes the subject check (and then hits the one-cohort-per-subject rule).
+    expect(await ops.addCentreCohort('700', { ...base, subjectId: '40' })).toMatchObject({ message: 'Cohort with this subject already exists for this course!' });
+    for (const instructorId of ['501', '31', '999']) {
+      expect(await ops.addCentreCohort('700', { ...base, instructorId })).toMatchObject({ success: false, message: 'Choose a valid instructor.' });
+    }
+    expect(await ops.addCentreCohort('700', { ...base, languageId: '99' })).toMatchObject({ success: false, message: 'Choose a valid language.' });
+  });
+});
+
 const USERS: Record<string, { id: number; role_id: number }> = {
   centre: { id: 700, role_id: 7 },
   associate: { id: 701, role_id: 10 },
