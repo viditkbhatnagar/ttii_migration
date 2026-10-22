@@ -64,7 +64,7 @@ export function money(value: unknown): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
   // Prisma Decimal (application_final_fee) converts through Number().
   if (value !== null && typeof value === 'object') {
-    const n = Number(value as number);
+    const n = Number((value as { valueOf: () => unknown }).valueOf());
     return Number.isFinite(n) ? n : 0;
   }
   const n = Number(text(value).replace(/,/g, ''));
