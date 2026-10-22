@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
-import { ADMIN_PORTAL_ROLES, ADMIN_PORTAL_SURFACE_ROLES, CENTRE_PORTAL_ROLES, INSTRUCTOR_PORTAL_ROLES } from '../auth/roles.js';
+import { ADMIN_PORTAL_ROLES, ADMIN_PORTAL_SURFACE_ROLES, CENTRE_PORTAL_ROLES, INSTRUCTOR_PORTAL_ROLES, LEGACY_ROLE } from '../auth/roles.js';
 import type { StorageProvider } from '../integrations/contracts.js';
 import { verifyEmail } from '../integrations/email-verification.js';
 import { AdminSearchService } from '../operations/admin-search-service.js';
@@ -26,6 +26,9 @@ import { CentreProfileService } from '../operations/centre-profile-service.js';
 import { registerCentreDashboardRoutes } from './centre-dashboard-routes.js';
 import type { CentreDashboardService } from '../operations/centre-dashboard-service.js';
 import { registerCentreOnboardingRoutes } from './centre-onboarding-routes.js';
+import { registerCentrePortalShellRoutes } from './centre-portal-shell-routes.js';
+import type { CentrePortalDashboardService } from '../operations/centre-portal-dashboard-service.js';
+import type { CentrePortalProfileService } from '../operations/centre-portal-profile-service.js';
 import { AssociateAdminService } from '../operations/associate-admin-service.js';
 import { ASSOCIATE_STUDENT_TABS, type AssociateStudentTab } from '../operations/associate-admin-model.js';
 import {
@@ -92,6 +95,8 @@ interface RegisterOperationsRoutesOptions {
   associateCommunicationsService?: AssociateCommunicationsService;
   enrolmentFeePlanService?: EnrolmentFeePlanService;
   centreDashboardService?: CentreDashboardService;
+  centrePortalDashboardService?: CentrePortalDashboardService;
+  centrePortalProfileService?: CentrePortalProfileService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -1113,6 +1118,18 @@ export function registerOperationsRoutes(
     } catch (error: unknown) {
       sendOperationsError(reply, error);
     }
+  });
+
+  // Centre portal v2 (Naji 2026-10-22): shell facts, the centre's own
+  // Dashboard and Profile (centre-portal-shell-routes.ts). Scoped to the
+  // caller's centre; Profile + document upload are Centre login (7) only.
+  registerCentrePortalShellRoutes(app, {
+    requireAuth,
+    requireCentreRole,
+    requireCentreOwnerRole: requireLegacyRoles(authService, [LEGACY_ROLE.CENTRE]),
+    loadPaymentStatus: (scope) => operationsService.listPaymentStatus({ scope }),
+    ...(options.centrePortalDashboardService ? { dashboardService: options.centrePortalDashboardService } : {}),
+    ...(options.centrePortalProfileService ? { profileService: options.centrePortalProfileService } : {}),
   });
 
   app.get('/admin/students/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
