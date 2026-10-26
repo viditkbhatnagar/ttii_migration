@@ -1915,6 +1915,28 @@ export class AssessmentService {
       orderBy: { id: 'desc' },
       select: { id: true, question_id: true, start_time: true, draft_answers: true },
     });
+    // TTII 2026-10-26 — a PRACTICE attempt whose own time has run out is never
+    // resumed. The practice gate returns before resolveExamForAttempt reaches
+    // finalizeExpiredAttempt (and the stranded-attempt sweep skips practice),
+    // so a student who once opened the practice paper and left was handed that
+    // same expired attempt on every visit: 0 seconds left, "This exam has
+    // closed", for good (21 students on 26 Oct). Grade it if they answered
+    // anything, otherwise discard it, and start a fresh run below.
+    if (attempt && toInteger(exam.is_practice) === 1) {
+      const endMs = examEffectiveEndMs(exam, parseDate(attempt.start_time));
+      if (endMs !== null && Date.now() >= endMs) {
+        const graded = await this.finalizeAttemptFromDraft(String(userIdInt), idString(attempt.id), attempt.draft_answers)
+          .catch(() => false);
+        if (!graded) {
+          await this.prisma.exam_attempt.updateMany({
+            where: { id: attempt.id, submit_status: false, deleted_at: null },
+            data: { deleted_at: new Date(), updated_at: new Date() },
+          });
+        }
+        attempt = null;
+      }
+    }
+
     let questions = attempt ? await this.buildExamQuestions(attempt.question_id) : [];
 
     if (attempt && questions.length === 0) {
