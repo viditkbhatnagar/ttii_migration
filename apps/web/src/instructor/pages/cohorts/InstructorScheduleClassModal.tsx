@@ -38,6 +38,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { titleCaseOnBlur } from '@/lib/text-format';
+
+// Inline width: the shared DialogContent carries sm:max-w-lg (512px), which a
+// max-w-* class cannot override (different variant), so the dialog rendered
+// 512px wide and squeezed the Preview & Edit row to nothing (TTII 2026-10-26).
+const DIALOG_WIDTH = 'min(820px, calc(100vw - 2rem))';
 import { cn } from '@/lib/utils';
 
 // Narrow interface both InstructorPortalApi and AdminPortalApi satisfy — mirrors
@@ -284,7 +289,10 @@ export function InstructorScheduleClassModal({
           Lightning CSS keeps a lone dvh declaration, so a webview without dvh
           support gets NO height cap and the dialog runs off the screen. Same
           85dvh everywhere that supports it, 78vh where it does not. */}
-      <DialogContent className="faculty-portal modal-maxh max-w-2xl overflow-y-auto [&>*]:min-w-0">
+      <DialogContent
+        className="faculty-portal modal-maxh overflow-y-auto [&>*]:min-w-0"
+        style={{ width: DIALOG_WIDTH, maxWidth: DIALOG_WIDTH }}
+      >
         <DialogHeader>
           <DialogTitle>Add Live Sessions</DialogTitle>
           <DialogDescription>For {cohortName}</DialogDescription>
@@ -323,11 +331,11 @@ export function InstructorScheduleClassModal({
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Basic Details
             </p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2 [&>*]:min-w-0">
               <div className="grid gap-1.5">
                 <Label className="text-xs">Platform *</Label>
                 <Select value={platform} onValueChange={(v) => v && setPlatform(v as Platform)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder="Select platform" />
                   </SelectTrigger>
                   <SelectContent className="faculty-portal">
@@ -381,7 +389,7 @@ export function InstructorScheduleClassModal({
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Schedule Builder
             </p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2 [&>*]:min-w-0">
               <div className="grid gap-1.5">
                 <Label className="text-xs">Start Date *</Label>
                 <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -441,7 +449,8 @@ export function InstructorScheduleClassModal({
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Preview &amp; Edit ({sessions.length})
               </p>
-              <div className="hidden grid-cols-[1fr_80px_110px_110px_1.4fr_40px] gap-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground md:grid">
+              <div className="@container grid gap-2">
+              <div className="hidden gap-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground @2xl:grid @2xl:grid-cols-[minmax(140px,1.1fr)_60px_minmax(104px,0.8fr)_minmax(104px,0.8fr)_minmax(150px,1.5fr)_32px]">
                 <span>Date</span>
                 <span>Day</span>
                 <span>Start</span>
@@ -453,7 +462,7 @@ export function InstructorScheduleClassModal({
                 {sessions.map((s) => (
                   <div
                     key={s.id}
-                    className="grid grid-cols-2 gap-2 rounded-md border border-border/50 bg-muted/20 p-2 md:grid-cols-[1fr_80px_110px_110px_1.4fr_40px] md:items-center md:bg-transparent md:p-1"
+                    className="grid grid-cols-2 gap-2 rounded-md border border-border/50 bg-muted/20 p-2 [&>*]:min-w-0 @2xl:items-center @2xl:bg-transparent @2xl:p-1 @2xl:grid-cols-[minmax(140px,1.1fr)_60px_minmax(104px,0.8fr)_minmax(104px,0.8fr)_minmax(150px,1.5fr)_32px]"
                   >
                     <Input
                       type="date"
@@ -476,14 +485,14 @@ export function InstructorScheduleClassModal({
                       value={s.title}
                       onChange={(e) => updateSession(s.id, { title: e.target.value })}
                       onBlur={titleCaseOnBlur((value) => updateSession(s.id, { title: value }))}
-                      className="col-span-2 h-8 text-xs md:col-span-1"
+                      className="col-span-2 h-8 text-xs @2xl:col-span-1"
                       placeholder="Session title"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="col-span-2 h-8 w-full text-destructive hover:bg-destructive/10 hover:text-destructive md:col-span-1 md:w-8"
+                      className="col-span-2 h-8 w-full text-destructive hover:bg-destructive/10 hover:text-destructive @2xl:col-span-1 @2xl:w-8"
                       onClick={() => deleteSession(s.id)}
                       aria-label="Delete session"
                     >
@@ -491,6 +500,7 @@ export function InstructorScheduleClassModal({
                     </Button>
                   </div>
                 ))}
+              </div>
               </div>
             </div>
           )}
