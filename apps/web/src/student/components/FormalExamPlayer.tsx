@@ -1062,7 +1062,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl p-4 sm:p-6">
+      <div className="@container mx-auto max-w-6xl p-4 sm:p-6">
         {submittedPhase ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
             <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
@@ -1072,7 +1072,8 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
             <p className="mt-1 text-sm text-student-muted">Your responses have been recorded. Results will be published by your institute.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="grid grid-cols-1 gap-5 @3xl:grid-cols-[minmax(0,1fr)_300px]">
+            {/* Side by side by the player's own width (container query), not the viewport. */}
             {/* Question card */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               {currentQ ? (

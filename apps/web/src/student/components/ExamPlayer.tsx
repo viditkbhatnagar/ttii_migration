@@ -284,7 +284,7 @@ export function ExamPlayer({
     <Frame onClose={onClose} title={inProgress ? inProgress.title : submitted?.title ?? initialTitle}>
       {/* Header card with metadata + timer chip */}
       <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-col gap-3 @xl:flex-row @xl:items-start @xl:justify-between">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
               <GraduationCap className="size-6" />
@@ -316,7 +316,12 @@ export function ExamPlayer({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      {/* TTII 2026-10-26 — side by side only when THIS player is wide enough.
+          It renders in the course player's middle column (between the lesson
+          list and the right sidebar), which on a laptop is ~450px even though
+          the viewport is past lg; the 280px navigator then left the question
+          ~150px wide, one word per line. Container query, not viewport. */}
+      <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-[minmax(0,1fr)_260px]">
         {/* Question pane */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           {currentQ ? (
@@ -494,7 +499,7 @@ export function ExamPlayer({
 
 function Frame({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
   return (
-    <div>
+    <div className="@container">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] uppercase tracking-wider text-student-muted">Exam</p>
