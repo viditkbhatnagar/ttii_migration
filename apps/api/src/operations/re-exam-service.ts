@@ -63,12 +63,51 @@ export interface ScheduleReExamInput {
   notes?: string;
 }
 
+export interface BatchError {
+  examId: number;
+  subjectTitle: string;
+  message: string;
+}
+
+export interface BatchResultRow {
+  examId: number;
+  subjectTitle: string;
+  scheduled: number;
+  rescheduled: number;
+  emailed: number;
+}
+
+export interface BatchOutcome {
+  status: 0 | 1;
+  message: string;
+  errors?: BatchError[];
+  results?: BatchResultRow[];
+}
+
 export interface ReExamOutcome {
   status: 0 | 1;
   message: string;
   scheduled?: number;
   rescheduled?: number;
   emailed?: number;
+}
+
+type Sitting = {
+  id: number; title: string | null; exam_code: string | null; parent_exam_id: number | null; exam_subject_id: number | null;
+  status: string | null; is_practice: number | null; mark: number | null; duration: string | null;
+  from_date: Date | null; from_time: Date | null; to_date: Date | null; to_time: Date | null;
+};
+export interface StudentPlan {
+  student: { id: number; name: string | null; user_email: string | null; email: string | null };
+  existingId: number | null;
+}
+export interface SchedulePlan {
+  sitting: Sitting;
+  subjectTitle: string;
+  window: ParsedWindow;
+  durationMin: number;
+  plans: StudentPlan[];
+  notes: string;
 }
 
 const sittingSelect = {
@@ -87,7 +126,7 @@ const sittingSelect = {
   to_time: true,
 } as const;
 
-interface ParsedWindow {
+export interface ParsedWindow {
   date: Date;
   start: Date;
   end: Date;
@@ -144,6 +183,28 @@ function firstName(name: string | null | undefined): string {
   return (name ?? '').trim().split(/\s+/)[0] ?? '';
 }
 
+/** A student cannot sit two re-exams whose windows intersect. */
+function overlapErrors(plans: SchedulePlan[]): BatchError[] {
+  const errors: BatchError[] = [];
+  for (let i = 0; i < plans.length; i += 1) {
+    for (let j = i + 1; j < plans.length; j += 1) {
+      const a = plans[i]!;
+      const b = plans[j]!;
+      if (a.window.startMs >= b.window.endMs || b.window.startMs >= a.window.endMs) continue;
+      const bIds = new Set(b.plans.map((p) => p.student.id));
+      const shared = a.plans.filter((p) => bIds.has(p.student.id));
+      if (shared.length === 0) continue;
+      const names = shared.map((p) => (p.student.name ?? '').trim() || `Student ${p.student.id}`).join(', ');
+      errors.push({
+        examId: b.sitting.id,
+        subjectTitle: b.subjectTitle,
+        message: `${names} would sit ${a.subjectTitle} and ${b.subjectTitle} at overlapping times. Move one of them.`,
+      });
+    }
+  }
+  return errors;
+}
+
 export class ReExamService {
   private emailProvider: EmailProvider | null;
   private readonly now: () => Date;
@@ -156,35 +217,46 @@ export class ReExamService {
     this.now = options.now ?? (() => new Date());
   }
 
+  /** Plan then commit one subject: the single-subject path, behaviour unchanged. */
   async schedule(actorUserId: number | null, input: ScheduleReExamInput): Promise<ReExamOutcome> {
+    const planned = await this.planSchedule(input);
+    if (!planned.ok) return planned.refusal;
+    return this.commitPlan(actorUserId, planned.plan);
+  }
+
+  /** Everything up to the writes: validation, the per-student plan and the busy check. */
+  async planSchedule(input: ScheduleReExamInput): Promise<{ ok: true; plan: SchedulePlan } | { ok: false; refusal: ReExamOutcome }> {
     const userIds = [...new Set(input.userIds.filter((id) => Number.isInteger(id) && id > 0))];
-    if (userIds.length === 0) return { status: 0, message: 'Select at least one student.' };
+    if (userIds.length === 0) return { ok: false, refusal: { status: 0, message: 'Select at least one student.' } };
 
     const sitting = await this.prisma.exam.findFirst({ where: { id: input.examId, deleted_at: null }, select: sittingSelect });
     if (!sitting || sitting.status !== 'published' || sitting.is_practice === 1) {
-      return { status: 0, message: 'Exam sitting not found.' };
+      return { ok: false, refusal: { status: 0, message: 'Exam sitting not found.' } };
     }
     const children = await this.prisma.exam.count({ where: { parent_exam_id: sitting.id, deleted_at: null } });
     if (children > 0) {
-      return { status: 0, message: 'Choose the subject to re-examine, not the whole exam.' };
+      return { ok: false, refusal: { status: 0, message: 'Choose the subject to re-examine, not the whole exam.' } };
     }
 
     const nowMs = this.now().getTime();
     const originalClose = examWindowCloseInstant(sitting);
     if (originalClose && originalClose.getTime() + AUTO_SUBMIT_GRACE_MS >= nowMs) {
-      return { status: 0, message: 'A re-exam can be scheduled once the original sitting has finished.' };
+      return { ok: false, refusal: { status: 0, message: 'A re-exam can be scheduled once the original sitting has finished.' } };
     }
 
     const window = parseReExamWindow(input.date, input.startTime, input.endTime);
-    if (!window) return { status: 0, message: 'Enter a valid date, start time and end time.' };
-    if (window.endMs <= window.startMs) return { status: 0, message: 'The end time must be after the start time.' };
-    if (window.startMs < nowMs - START_SLACK_MS) return { status: 0, message: 'The start time has already passed.' };
+    if (!window) return { ok: false, refusal: { status: 0, message: 'Enter a valid date, start time and end time.' } };
+    if (window.endMs <= window.startMs) return { ok: false, refusal: { status: 0, message: 'The end time must be after the start time.' } };
+    if (window.startMs < nowMs - START_SLACK_MS) return { ok: false, refusal: { status: 0, message: 'The start time has already passed.' } };
     const durationMin = parseDurationMinutes(sitting.duration);
     const windowMin = Math.round((window.endMs - window.startMs) / 60000);
     if (durationMin > 0 && windowMin < durationMin) {
       return {
-        status: 0,
-        message: `The window (${windowMin} min) is shorter than the paper (${durationMin} min). Allow at least ${durationMin} minutes.`,
+        ok: false,
+        refusal: {
+          status: 0,
+          message: `The window (${windowMin} min) is shorter than the paper (${durationMin} min). Allow at least ${durationMin} minutes.`,
+        },
       };
     }
 
@@ -201,7 +273,7 @@ export class ReExamService {
     });
     if (students.length !== userIds.length) {
       const missing = userIds.length - students.length;
-      return { status: 0, message: `${missing} selected student${missing === 1 ? ' is' : 's are'} not allocated to this exam.` };
+      return { ok: false, refusal: { status: 0, message: `${missing} selected student${missing === 1 ? ' is' : 's are'} not allocated to this exam.` } };
     }
 
     // Their papers on this sitting (lesson-quiz rows sharing the id space excluded).
@@ -212,8 +284,7 @@ export class ReExamService {
     })).filter((a) => isExamPaper(a.question_id, quizIds.get(sitting.id)));
 
     // Plan every student before writing anything, so a refusal leaves no half-done batch.
-    type Plan = { student: (typeof students)[number]; existingId: number | null };
-    const plans: Plan[] = [];
+    const plans: StudentPlan[] = [];
     const busy: string[] = [];
     for (const student of students) {
       const existing = await this.prisma.exam_re_examinations.findFirst({
@@ -249,16 +320,29 @@ export class ReExamService {
     }
     if (busy.length > 0) {
       return {
-        status: 0,
-        message: `${busy.join(', ')} ${busy.length === 1 ? 'is' : 'are'} still writing the current re-exam. Schedule again once that paper is finished.`,
+        ok: false,
+        refusal: {
+          status: 0,
+          message: `${busy.join(', ')} ${busy.length === 1 ? 'is' : 'are'} still writing the current re-exam. Schedule again once that paper is finished.`,
+        },
       };
     }
 
     const notes = (input.notes ?? '').trim().slice(0, 500);
+    const subject = sitting.exam_subject_id
+      ? await this.prisma.exam_subjects.findFirst({ where: { id: sitting.exam_subject_id }, select: { subject_title: true } })
+      : null;
+    const subjectTitle = (subject?.subject_title ?? '').trim() || (sitting.title ?? '').trim();
+    return { ok: true, plan: { sitting, subjectTitle, window, durationMin, plans, notes } };
+  }
+
+  /** The writes, the emails and the outcome for one planned subject. */
+  async commitPlan(actorUserId: number | null, plan: SchedulePlan): Promise<ReExamOutcome> {
+    const { sitting, window, durationMin, plans, notes } = plan;
     const windowData = { new_date: window.date, new_start_time: window.start, new_end_time: window.end };
     let scheduled = 0;
     let rescheduled = 0;
-    const toEmail: Array<{ student: (typeof students)[number]; rescheduled: boolean }> = [];
+    const toEmail: Array<{ student: StudentPlan['student']; rescheduled: boolean }> = [];
     for (const { student, existingId } of plans) {
       if (existingId !== null) {
         await this.prisma.exam_re_examinations.update({
@@ -300,6 +384,66 @@ export class ReExamService {
       rescheduled,
       emailed,
     };
+  }
+
+  /**
+   * Schedule several subjects of one exam together. Every subject is planned
+   * (and refused) before anything is written, so a bad subject leaves nothing
+   * behind; only a write failure midway can leave a partial batch.
+   */
+  async scheduleBatch(actorUserId: number | null, items: ScheduleReExamInput[]): Promise<BatchOutcome> {
+    if (items.length === 0) return { status: 0, message: 'Choose at least one subject to re-examine.' };
+    const seen = new Set<number>();
+    for (const item of items) {
+      if (seen.has(item.examId)) return { status: 0, message: 'A subject can only appear once in a batch.' };
+      seen.add(item.examId);
+    }
+
+    const plans: SchedulePlan[] = [];
+    const errors: BatchError[] = [];
+    for (const item of items) {
+      const planned = await this.planSchedule(item);
+      if (planned.ok) plans.push(planned.plan);
+      else errors.push({ examId: item.examId, subjectTitle: await this.titleOf(item.examId), message: planned.refusal.message });
+    }
+    if (errors.length === 0) errors.push(...overlapErrors(plans));
+    if (errors.length > 0) return { status: 0, message: 'Nothing was scheduled. Fix the subjects below.', errors };
+
+    const results: BatchResultRow[] = [];
+    for (const plan of plans) {
+      try {
+        const out = await this.commitPlan(actorUserId, plan);
+        results.push({ examId: plan.sitting.id, subjectTitle: plan.subjectTitle, scheduled: out.scheduled ?? 0, rescheduled: out.rescheduled ?? 0, emailed: out.emailed ?? 0 });
+      } catch (error: unknown) {
+        console.error('re-exam batch: commit failed midway', { examId: plan.sitting.id, committed: results.map((r) => r.examId), error });
+        const done = results.map((r) => r.subjectTitle).join(', ');
+        return {
+          status: 0,
+          message: `Scheduling stopped at ${plan.subjectTitle}. ${results.length > 0 ? `Already scheduled: ${done}.` : 'Nothing was scheduled.'} Check the Re-Examination page before retrying.`,
+          errors: [{ examId: plan.sitting.id, subjectTitle: plan.subjectTitle, message: 'Could not be scheduled.' }],
+          results,
+        };
+      }
+    }
+    const total = results.reduce((n, r) => n + r.scheduled + r.rescheduled, 0);
+    const emailed = results.reduce((n, r) => n + r.emailed, 0);
+    return {
+      status: 1,
+      message: `${total} re-exam${total === 1 ? '' : 's'} scheduled across ${results.length} subject${results.length === 1 ? '' : 's'}. ${emailed} student${emailed === 1 ? '' : 's'} notified by email.`,
+      results,
+    };
+  }
+
+  private async titleOf(examId: number): Promise<string> {
+    try {
+      const sitting = await this.prisma.exam.findFirst({ where: { id: examId }, select: { title: true, exam_subject_id: true } });
+      const subject = sitting?.exam_subject_id
+        ? await this.prisma.exam_subjects.findFirst({ where: { id: sitting.exam_subject_id }, select: { subject_title: true } })
+        : null;
+      return (subject?.subject_title ?? '').trim() || (sitting?.title ?? '').trim() || `Exam ${examId}`;
+    } catch {
+      return `Exam ${examId}`;
+    }
   }
 
   async cancel(reExamId: number): Promise<ReExamOutcome> {

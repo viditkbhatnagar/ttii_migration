@@ -391,3 +391,90 @@ test('a genuine paper still counts after the exam\'s questions were replaced', a
 
   expect(await service.cancel(1)).toMatchObject({ status: 0 });
 });
+
+// Create Re-exam for a whole exam (Naji 2026-10-27): several subjects, validated together.
+describe('scheduling a batch of subjects', () => {
+  const OTHER_ID = 25;
+
+  function batchWorld(): World {
+    return world();
+  }
+
+  /** The same fake, with a second subject sitting that mirrors the first. */
+  function batchService(w: World): ReExamService {
+    type Fn = (args: { where: { id?: number; exam_id?: number; user_id: { in: number[] } } }) => Promise<unknown>;
+    const base = makeService(w);
+    const prisma = (base as unknown as { prisma: {
+      exam: { findFirst: Fn };
+      exam_student_allocations: { findMany: Fn };
+      exam_subjects: { findFirst: Fn };
+    } }).prisma;
+    const second = (): Record<string, unknown> => ({ ...w.sitting, id: OTHER_ID, exam_subject_id: 49, title: 'Diploma Regular — Pedagogy' });
+    const origFirst = prisma.exam.findFirst;
+    prisma.exam.findFirst = (args) => (args.where.id === OTHER_ID ? Promise.resolve(second()) : origFirst(args));
+    const origAlloc = prisma.exam_student_allocations.findMany;
+    prisma.exam_student_allocations.findMany = (args) =>
+      args.where.exam_id === OTHER_ID
+        ? Promise.resolve(w.allocated.filter((id) => args.where.user_id.in.includes(id)).map((user_id) => ({ user_id })))
+        : origAlloc(args);
+    prisma.exam_subjects.findFirst = ({ where }) =>
+      Promise.resolve({ subject_title: where.id === 49 ? 'Pedagogy' : 'Child Psychology' });
+    return base;
+  }
+
+  const item = (examId: number, over: Record<string, unknown> = {}) => input({ examId, ...over });
+
+  test('schedules every subject, one result row each', async () => {
+    const w = batchWorld();
+
+    const res = await batchService(w).scheduleBatch(1, [item(SITTING_ID), item(OTHER_ID, { startTime: '14:00', endTime: '15:30' })]);
+
+    expect(res.status).toBe(1);
+    expect(res.message).toContain('4 re-exams scheduled across 2 subjects');
+    expect(res.results?.map((r) => [r.examId, r.subjectTitle, r.scheduled])).toEqual([[SITTING_ID, 'Child Psychology', 2], [OTHER_ID, 'Pedagogy', 2]]);
+    expect(w.reExams).toHaveLength(4);
+  });
+
+  test('one bad subject refuses the whole batch and writes nothing', async () => {
+    const w = batchWorld();
+
+    const res = await batchService(w).scheduleBatch(1, [item(SITTING_ID), item(OTHER_ID, { endTime: '10:30' })]);
+
+    expect(res.status).toBe(0);
+    expect(res.message).toBe('Nothing was scheduled. Fix the subjects below.');
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors?.[0]).toMatchObject({ examId: OTHER_ID, subjectTitle: 'Pedagogy' });
+    expect(res.errors?.[0]?.message).toContain('shorter than the paper');
+    expect(w.reExams).toHaveLength(0);
+    expect(w.mailed).toHaveLength(0);
+  });
+
+  test('a student with two overlapping windows is refused by name', async () => {
+    const w = batchWorld();
+
+    const res = await batchService(w).scheduleBatch(1, [item(SITTING_ID), item(OTHER_ID, { startTime: '11:00', endTime: '12:30', userIds: [174] })]);
+
+    expect(res.status).toBe(0);
+    expect(res.errors?.[0]?.message).toContain('SHEBA MARY SAMUEL');
+    expect(res.errors?.[0]?.message).toContain('Child Psychology');
+    expect(res.errors?.[0]?.message).toContain('Pedagogy');
+    expect(w.reExams).toHaveLength(0);
+  });
+
+  test('back-to-back windows are fine', async () => {
+    const w = batchWorld();
+
+    const res = await batchService(w).scheduleBatch(1, [item(SITTING_ID, { endTime: '11:30' }), item(OTHER_ID, { startTime: '11:30', endTime: '13:00' })]);
+
+    expect(res.status).toBe(1);
+  });
+
+  test('an empty batch or a repeated subject is refused', async () => {
+    const w = batchWorld();
+    const service = batchService(w);
+
+    expect((await service.scheduleBatch(1, [])).status).toBe(0);
+    expect((await service.scheduleBatch(1, [item(SITTING_ID), item(SITTING_ID, { startTime: '14:00', endTime: '15:30' })])).message).toContain('only appear once');
+    expect(w.reExams).toHaveLength(0);
+  });
+});

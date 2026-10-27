@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { downloadCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
+import { CreateReExamDialog } from '../re_exam/CreateReExamDialog.js';
 import { ScheduleReExamDialog, type ReExamCandidate, type ReExamWindowDraft } from '../re_exam/ScheduleReExamDialog.js';
 import { CreateSupplementaryDialog } from '../exam_supplementary/CreateSupplementaryDialog.js';
 import { SupplementaryChip, SupplementaryNotice } from '../exam_supplementary/SupplementaryResultNotice.js';
@@ -88,6 +89,7 @@ export function ExamResultsDetail({
   const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [openStudent, setOpenStudent] = useState<StudentResult | null>(null);
   const [reExamTarget, setReExamTarget] = useState<ReExamTarget | null>(null);
+  const [createReExamOpen, setCreateReExamOpen] = useState(false);
   // TTII 2026-10-16 — Create Supplementary Exam, and the outcomes of any
   // supplementary exam created from this one (read-only beside the marks).
   const [supplementaryOpen, setSupplementaryOpen] = useState(false);
@@ -167,9 +169,9 @@ export function ExamResultsDetail({
               variant="outline"
               className="gap-1.5"
               disabled={closedSittings.length === 0}
-              onClick={() => setReExamTarget({ examId: null, student: null })}
+              onClick={() => setCreateReExamOpen(true)}
             >
-              <CalendarClock aria-hidden="true" className="size-4" /> Schedule Re-exam
+              <CalendarClock aria-hidden="true" className="size-4" /> Create Re-exam
             </Button>
             <Button
               size="sm"
@@ -384,6 +386,17 @@ export function ExamResultsDetail({
         onCreated={(examId) => { setSupplementaryOpen(false); onNavigate(`/admin/exam/edit/${examId}?step=4`); }}
         api={api}
         token={token}
+      />
+
+      <CreateReExamDialog
+        open={createReExamOpen}
+        onClose={() => setCreateReExamOpen(false)}
+        onScheduled={onReload}
+        api={api}
+        token={token}
+        examTitle={detail.title}
+        sittings={detail.sittings}
+        students={detail.students}
       />
 
       <ScheduleReExamDialog

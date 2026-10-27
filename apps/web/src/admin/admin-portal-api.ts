@@ -1574,6 +1574,12 @@ export class AdminPortalApi {
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/re_exams/schedule', authToken, input);
   }
+  async scheduleReExamBatch(
+    authToken: string,
+    items: Array<{ exam_id: number; user_ids: number[]; date: string; start_time: string; end_time: string; notes?: string }>,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/re_exams/schedule_batch', authToken, { items });
+  }
   async cancelReExam(authToken: string, id: number): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/re_exams/cancel', authToken, { id });
   }

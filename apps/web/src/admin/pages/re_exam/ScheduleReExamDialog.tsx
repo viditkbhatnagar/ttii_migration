@@ -44,7 +44,7 @@ export interface ReExamWindowDraft {
 }
 
 
-function ymdLabel(ymd: string): string {
+export function ymdLabel(ymd: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
 }
@@ -169,13 +169,13 @@ export function ScheduleReExamDialog({
               >
                 {subjects.map((s) => (
                   <option key={s.examId} value={s.examId}>
-                    {s.subjectTitle}{s.date ? ` (sat ${ymdLabel(s.date)})` : ''}
+                    {s.subjectTitle}{s.date ? ` (held on ${ymdLabel(s.date)})` : ''}
                   </option>
                 ))}
               </select>
             ) : (
               <p id="reexam-subject" className="text-sm font-medium text-foreground">
-                {subject?.subjectTitle ?? '—'}{subject?.date ? ` (sat ${ymdLabel(subject.date)})` : ''}
+                {subject?.subjectTitle ?? '—'}{subject?.date ? ` (held on ${ymdLabel(subject.date)})` : ''}
               </p>
             )}
           </div>

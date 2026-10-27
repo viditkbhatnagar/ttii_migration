@@ -2593,6 +2593,40 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Create Re-exam for a whole exam (Naji 2026-10-27): several subjects at once, all-or-nothing validation.
+  app.post('/admin/re_exams/schedule_batch', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const RE_EXAM_BATCH_LIMIT = 30;
+      const payload = requestPayload(request);
+      let raw: unknown = payload.items;
+      if (typeof raw === 'string') {
+        try { raw = JSON.parse(raw); } catch { raw = null; }
+      }
+      if (!Array.isArray(raw)) {
+        reply.code(200).send({ status: 0, message: 'Choose at least one subject to re-examine.' });
+        return;
+      }
+      if (raw.length > RE_EXAM_BATCH_LIMIT) {
+        reply.code(200).send({ status: 0, message: `At most ${RE_EXAM_BATCH_LIMIT} subjects can be scheduled at once.` });
+        return;
+      }
+      const items = raw.map((entry: unknown) => {
+        const s = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>;
+        return {
+          examId: toInteger(s.exam_id),
+          userIds: toIdArray(s.user_ids),
+          date: toStringValue(s.date),
+          startTime: toStringValue(s.start_time),
+          endTime: toStringValue(s.end_time),
+          notes: toStringValue(s.notes),
+        };
+      });
+      const actor = toInteger(requestUserId(request));
+      const result = await reExamService.scheduleBatch(actor > 0 ? actor : null, items);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/re_exams/cancel', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
