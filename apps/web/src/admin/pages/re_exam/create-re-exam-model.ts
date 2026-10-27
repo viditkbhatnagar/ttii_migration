@@ -83,6 +83,41 @@ export function subjectProblem(draft: SubjectDraft): string | null {
   return null;
 }
 
+/** YYYY-MM-DD plus n calendar days (UTC arithmetic on the wall-clock date — no time zone involved). */
+export function addDaysYmd(ymd: string, n: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return '';
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + n));
+  return d.toISOString().slice(0, 10);
+}
+
+/** True when this subject's window is complete and a ticked subject follows it. */
+export function canCopyDown(subjects: EligibleSubject[], drafts: BatchDrafts, examId: number): boolean {
+  const d = drafts[examId];
+  if (!d?.included || !d.date || !d.startTime || !d.endTime) return false;
+  const at = subjects.findIndex((s) => s.examId === examId);
+  return subjects.slice(at + 1).some((s) => drafts[s.examId]?.included);
+}
+
+/**
+ * Naji 2026-10-27 — fewer steps: copy one subject's window to every TICKED
+ * subject below it, same times, one day apart (each stays editable). A student
+ * re-sitting two papers can then never land on the same slot twice.
+ */
+export function copyWindowDown(subjects: EligibleSubject[], drafts: BatchDrafts, examId: number): BatchDrafts {
+  const from = drafts[examId];
+  if (!from || !canCopyDown(subjects, drafts, examId)) return drafts;
+  const at = subjects.findIndex((s) => s.examId === examId);
+  let next: BatchDrafts = drafts;
+  let day = 0;
+  for (const s of subjects.slice(at + 1)) {
+    if (!next[s.examId]?.included) continue;
+    day += 1;
+    next = updateDraft(next, s.examId, { date: addDaysYmd(from.date, day), startTime: from.startTime, endTime: from.endTime });
+  }
+  return next;
+}
+
 export function tickedSubjects(subjects: EligibleSubject[], drafts: BatchDrafts): EligibleSubject[] {
   return subjects.filter((s) => drafts[s.examId]?.included);
 }

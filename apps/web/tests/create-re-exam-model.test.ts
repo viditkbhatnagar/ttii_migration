@@ -88,3 +88,29 @@ describe('errorsByExam', () => {
     expect(errorsByExam(undefined)).toEqual({});
   });
 });
+
+describe('copy one window to the subjects below (Naji: fewer steps)', () => {
+  test('ticked subjects below get the same times, one day apart; unticked ones are skipped', async () => {
+    const { addDaysYmd, canCopyDown, copyWindowDown } = await import('../src/admin/pages/re_exam/create-re-exam-model.js');
+    const subjects = [1, 2, 3, 4].map((examId) => ({ examId, subjectTitle: `S${examId}`, date: '2026-08-1' + examId, candidates: [] }));
+    const draft = (included: boolean, date = '', startTime = '', endTime = '') => ({ included, selected: new Set<number>([1]), date, startTime, endTime });
+    const drafts = { 1: draft(true, '2026-10-30', '10:00', '11:30'), 2: draft(true), 3: draft(false), 4: draft(true, '2027-01-01', '09:00', '09:30') };
+    expect(canCopyDown(subjects, drafts, 1)).toBe(true);
+    expect(canCopyDown(subjects, drafts, 4)).toBe(false);
+    const next = copyWindowDown(subjects, drafts, 1);
+    expect(next[2]).toMatchObject({ date: '2026-10-31', startTime: '10:00', endTime: '11:30' });
+    expect(next[3]).toMatchObject({ date: '', startTime: '' });
+    expect(next[4]).toMatchObject({ date: '2026-11-01', startTime: '10:00', endTime: '11:30' });
+    expect(addDaysYmd('2026-12-31', 1)).toBe('2027-01-01');
+    expect(addDaysYmd('2028-02-28', 1)).toBe('2028-02-29');
+    expect(addDaysYmd('bad', 1)).toBe('');
+  });
+
+  test('nothing to copy from an incomplete window', async () => {
+    const { canCopyDown, copyWindowDown } = await import('../src/admin/pages/re_exam/create-re-exam-model.js');
+    const subjects = [1, 2].map((examId) => ({ examId, subjectTitle: `S${examId}`, date: '', candidates: [] }));
+    const drafts = { 1: { included: true, selected: new Set<number>(), date: '2026-10-30', startTime: '10:00', endTime: '' }, 2: { included: true, selected: new Set<number>(), date: '', startTime: '', endTime: '' } };
+    expect(canCopyDown(subjects, drafts, 1)).toBe(false);
+    expect(copyWindowDown(subjects, drafts, 1)).toBe(drafts);
+  });
+});

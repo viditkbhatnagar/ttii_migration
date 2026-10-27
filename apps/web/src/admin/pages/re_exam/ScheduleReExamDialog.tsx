@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ymdLabel } from './re-exam-model.js';
 import { CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -43,11 +44,6 @@ export interface ReExamWindowDraft {
   notes?: string;
 }
 
-
-export function ymdLabel(ymd: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
-}
 
 export function ScheduleReExamDialog({
   open, onClose, onScheduled, api, token, examTitle, subjects, initialExamId, candidatesFor, initialWindow, mode = 'schedule',

@@ -76,6 +76,12 @@ export const STATE_LABEL: Record<ReExamState, string> = {
   superseded: 'Replaced',
 };
 
+/** YYYY-MM-DD → dd/mm/yyyy ('' when the value is not a date). */
+export function ymdLabel(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+
 /** A re-exam can still be moved or cancelled until the student starts it. */
 export function isChangeable(state: ReExamState): boolean {
   return state === 'upcoming' || state === 'open' || state === 'missed';

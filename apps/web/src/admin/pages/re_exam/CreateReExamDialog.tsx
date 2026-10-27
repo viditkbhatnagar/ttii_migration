@@ -12,10 +12,10 @@ import { TONE } from '../../shared/components/ui-tones.js';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
 import {
-  buildBatchItems, canSubmit, eligibleSubjects, errorsByExam, initialDrafts, subjectProblem, tickedStudentCount,
+  buildBatchItems, canCopyDown, canSubmit, copyWindowDown, eligibleSubjects, errorsByExam, initialDrafts, subjectProblem, tickedStudentCount,
   toggleStudent, updateDraft, type BatchDrafts, type EligibleSubject, type SubjectDraft,
 } from './create-re-exam-model.js';
-import { ymdLabel } from './ScheduleReExamDialog.js';
+import { ymdLabel } from './re-exam-model.js';
 import type { Sitting, StudentResult } from '../exam_result/exam-results-model.js';
 
 // Create Re-exam for the whole exam (Naji 2026-10-27). Every closed subject with
@@ -115,6 +115,9 @@ export function CreateReExamDialog({
                 error={errors[s.examId] ?? ''}
                 onPatch={(patch) => setDrafts((cur) => updateDraft(cur, s.examId, patch))}
                 onToggleStudent={(userId) => setDrafts((cur) => toggleStudent(cur, s.examId, userId))}
+                {...(canCopyDown(subjects, drafts, s.examId)
+                  ? { onCopyDown: () => setDrafts((cur) => copyWindowDown(subjects, cur, s.examId)) }
+                  : {})}
               />
             );
           })}
@@ -140,13 +143,15 @@ export function CreateReExamDialog({
 }
 
 function SubjectCard({
-  subject, draft, error, onPatch, onToggleStudent,
+  subject, draft, error, onPatch, onToggleStudent, onCopyDown,
 }: {
   subject: EligibleSubject;
   draft: SubjectDraft;
   error: string;
   onPatch: (patch: Partial<SubjectDraft>) => void;
   onToggleStudent: (userId: number) => void;
+  /** Present when this subject's window is complete and a ticked subject follows it. */
+  onCopyDown?: () => void;
 }) {
   const thisYear = new Date().getFullYear();
   const id = `create-reexam-${subject.examId}`;
@@ -219,6 +224,11 @@ function SubjectCard({
               </div>
             </div>
             {problem ? <p className="text-xs text-muted-foreground">{problem}</p> : null}
+            {onCopyDown ? (
+              <button type="button" className="text-xs font-medium text-primary hover:underline" onClick={onCopyDown}>
+                Copy this time to the subjects below (one day apart)
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
