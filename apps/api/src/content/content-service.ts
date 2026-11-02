@@ -1961,10 +1961,10 @@ export class ContentService {
       : DEFAULT_STRATEGY;
   }
 
-  private async getCohortIdForSubject(userId: string, subject: Record<string, unknown>): Promise<string | null> {
-    const subjectIdInt = toNullableIntId(toStringValue(subject.id));
-    if (subjectIdInt === null) return null;
-
+  /** Every live cohort the learner is in (cohort_students holds row ids AND legacy text codes). */
+  private async learnerCohorts(
+    userId: string,
+  ): Promise<Array<{ id: number; cohort_id: string | null; subject_id: number | null; course_id: number | null }>> {
     // cohort_students.cohort_id stores the stringified `cohorts.id`
     // (auto-increment int) — NOT the `cohorts.cohort_id` text code.
     // Verified by the centre add-students flow at
@@ -1980,7 +1980,7 @@ export class ContentService {
     });
 
     if (cohortStudents.length === 0) {
-      return null;
+      return [];
     }
 
     // Production has TWO populations of cohort_students.cohort_id values:
@@ -2006,17 +2006,7 @@ export class ContentService {
       }
     }
 
-    if (cohortRowIds.length === 0 && cohortTextCodes.length === 0) return null;
-
-    // Match a cohort the student is enrolled in for this subject. We
-    // accept either a direct subject_id match or a course-level cohort
-    // whose course covers this subject (course_id match with subject_id
-    // null) — both forms count as "cohort assigned for that subject"
-    // per the release rule.
-    const subjectRow = await this.prisma.subject.findFirst({
-      where: { id: subjectIdInt, deleted_at: null },
-      select: { id: true, course_id: true, master_subject_id: true, unlock_with_subject_id: true },
-    });
+    if (cohortRowIds.length === 0 && cohortTextCodes.length === 0) return [];
 
     const cohortWhereOr: Prisma.cohortsWhereInput[] = [];
     if (cohortRowIds.length > 0) cohortWhereOr.push({ id: { in: cohortRowIds } });
@@ -2029,10 +2019,40 @@ export class ContentService {
       },
       select: { id: true, cohort_id: true, subject_id: true, course_id: true },
     });
+    return cohorts;
+  }
 
+  /**
+   * A course-wide cohort (subject_id NULL) the learner is in that serves this
+   * course — via the cohort_courses pivot, or the cohort's own course_id — or
+   * null. The lesson-wise counterpart of getCohortIdForSubject's course branch.
+   */
+  private async getCourseWideCohortId(userId: string, courseIdInt: number): Promise<string | null> {
+    const courseWide = (await this.learnerCohorts(userId)).filter((c) => c.subject_id === null);
+    if (courseWide.length === 0) return null;
+    const served = await cohortCourseIdMap(this.prisma, courseWide.map((c) => ({ id: c.id, course_id: c.course_id })));
+    const match = courseWide.find((c) => (served.get(c.id) ?? []).includes(courseIdInt));
+    return match ? idString(match.cohort_id ?? match.id) : null;
+  }
+
+  private async getCohortIdForSubject(userId: string, subject: Record<string, unknown>): Promise<string | null> {
+    const subjectIdInt = toNullableIntId(toStringValue(subject.id));
+    if (subjectIdInt === null) return null;
+
+    const cohorts = await this.learnerCohorts(userId);
     if (cohorts.length === 0) {
       return null;
     }
+
+    // Match a cohort the student is enrolled in for this subject. We
+    // accept either a direct subject_id match or a course-level cohort
+    // whose course covers this subject (course_id match with subject_id
+    // null) — both forms count as "cohort assigned for that subject"
+    // per the release rule.
+    const subjectRow = await this.prisma.subject.findFirst({
+      where: { id: subjectIdInt, deleted_at: null },
+      select: { id: true, course_id: true, master_subject_id: true, unlock_with_subject_id: true },
+    });
 
     const own = await this.findCohortCoveringSubject(cohorts, subjectIdInt, subjectRow);
     if (own !== null) return own;
@@ -2403,14 +2423,21 @@ export class ContentService {
       );
     }
 
-    // No subject here (lesson-wise course), so the cohort rule — which is
-    // subject-keyed — cannot apply. The offering's strategy still can:
-    // "Full (all at once)" has to mean the same thing on a lesson-wise course
-    // as on a subject-wise one. "Subject Based" is meaningless without
-    // subjects, so it stays on the sequential fallback rather than being
-    // stretched into a meaning nobody chose.
+    // "Full (all at once)" means the same here as on a subject-wise course.
+    // "Cohort Based" now does too (TTII 2026-11-02, "Certification in AI
+    // course students are unable to access lessons"): on a subject-wise course
+    // a learner in a cohort covering the subject gets its lessons open, but a
+    // lesson-wise course has no subject, so this branch never looked at
+    // cohorts and every learner — even one in the intake's own course-wide
+    // cohort — was gated one lesson at a time. A course-wide cohort
+    // (subject_id NULL) serving this course now opens it the same way.
+    // "Subject Based" is meaningless without subjects and stays sequential.
     const releaseStrategy = await this.resolveContentReleaseStrategy(userId, courseId);
     if (releaseStrategy === 'full') {
+      this.unlockAllLessons(lessonsData);
+      return lessonsData;
+    }
+    if (releaseStrategy === 'cohort' && (await this.getCourseWideCohortId(userId, course.id)) !== null) {
       this.unlockAllLessons(lessonsData);
       return lessonsData;
     }
