@@ -514,12 +514,17 @@ export function registerAssessmentRoutes(
           const qid = Number(r.question_id);
           if (!Number.isFinite(qid)) return null;
           const selRaw = r.selected;
-          const selected = selRaw === null || selRaw === undefined || selRaw === ''
-            ? null
-            : Number(selRaw);
-          return { question_id: qid, selected: selected === null || Number.isFinite(selected) ? selected : null };
+          let selected: number | number[] | null = null;
+          if (Array.isArray(selRaw)) {
+            const list = selRaw.map((v) => Number(v)).filter((n) => Number.isFinite(n));
+            selected = list.length > 0 ? list : null;
+          } else if (selRaw !== null && selRaw !== undefined && selRaw !== '') {
+            const n = Number(selRaw);
+            selected = Number.isFinite(n) ? n : null;
+          }
+          return { question_id: qid, selected };
         })
-        .filter((v): v is { question_id: number; selected: number | null } => v !== null);
+        .filter((v): v is { question_id: number; selected: number | number[] | null } => v !== null);
       const result = await assessmentService.submitStudentQuizAttempt(requestUserId(request), {
         lessonFileId: toStringId(payload.lesson_file_id),
         attemptId: toStringId(payload.attempt_id),
