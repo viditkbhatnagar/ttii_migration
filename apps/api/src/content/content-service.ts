@@ -3,6 +3,7 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { cohortCourseIdMap } from '../data/cohort-courses.js';
 import { env } from '../env.js';
+import { completionKind, isMaterialKind, isTimedKind, type CompletionKind } from './lesson-file-kind.js';
 
 const DEFAULT_COURSE_BENEFITS = [
   {
@@ -759,8 +760,8 @@ export class ContentService {
     };
   }
 
-  private async getFileProgress(userId: string, lessonFileId: string, lessonType: string): Promise<number> {
-    if (lessonType === 'youtube_video' || lessonType === 'vimeo_video' || lessonType === 'audio') {
+  private async getFileProgress(userId: string, lessonFileId: string, kind: CompletionKind): Promise<number> {
+    if (isTimedKind(kind)) {
       const progressRow = await this.prisma.video_progress_status.findFirst({
         where: {
           user_id: toNullableIntId(userId),
@@ -792,14 +793,20 @@ export class ContentService {
       return Math.min(100, Math.round((userProgress / totalDuration) * 100));
     }
 
-    if (lessonType === 'document' || lessonType === 'article') {
-      // material_progress table does not exist in MySQL schema; treat
-      // document/article materials as "not completed" until we wire a
-      // replacement store.
-      return 0;
+    if (isMaterialKind(kind)) {
+      // A document / article counts as done once the student opened it
+      // (saveMaterialProgress writes material_progress_status).
+      const opened = await this.prisma.material_progress_status.count({
+        where: {
+          user_id: toNullableIntId(userId),
+          lesson_file_id: toNullableIntId(lessonFileId),
+          deleted_at: null,
+        },
+      });
+      return opened > 0 ? 100 : 0;
     }
 
-    if (lessonType === 'quiz') {
+    if (kind === 'quiz') {
       const completed = await this.prisma.practice_attempt.count({
         where: {
           user_id: toNullableIntId(userId),
@@ -826,18 +833,14 @@ export class ContentService {
     }
 
     const videoIds: number[] = [];
+    const materialIds: number[] = [];
     const quizIds: string[] = [];
 
     for (const file of lessonFiles) {
-      const attachmentType = (file.attachment_type ?? '').trim().toLowerCase();
-
-      if (attachmentType === 'url' || attachmentType === 'audio') {
-        videoIds.push(file.id);
-      }
-
-      if (attachmentType === 'quiz') {
-        quizIds.push(String(file.id));
-      }
+      const kind = completionKind(file);
+      if (isTimedKind(kind)) videoIds.push(file.id);
+      else if (isMaterialKind(kind)) materialIds.push(file.id);
+      else if (kind === 'quiz') quizIds.push(String(file.id));
     }
 
     let videoCompleted = 0;
@@ -856,8 +859,19 @@ export class ContentService {
       videoCompleted = videoProgressRows.length;
     }
 
-    // material_progress table does not exist in MySQL; material completion
-    // is not currently tracked.
+    let materialCompleted = 0;
+    if (materialIds.length > 0) {
+      const materialRows = await this.prisma.material_progress_status.findMany({
+        where: {
+          user_id: toNullableIntId(userId),
+          lesson_file_id: { in: materialIds },
+          deleted_at: null,
+        },
+        select: { lesson_file_id: true },
+        distinct: ['lesson_file_id'],
+      });
+      materialCompleted = materialRows.length;
+    }
 
     let quizCompleted = 0;
     if (quizIds.length > 0) {
@@ -874,7 +888,7 @@ export class ContentService {
       quizCompleted = quizAttemptRows.length;
     }
 
-    return videoCompleted + quizCompleted;
+    return videoCompleted + materialCompleted + quizCompleted;
   }
 
   private async getUserPurchaseStatus(userId: string, courseId: string): Promise<'on' | 'off'> {
@@ -956,7 +970,7 @@ export class ContentService {
   ): Promise<Record<string, unknown>> {
     const fileId = toStringValue(file.id);
     const resolvedType = this.resolveLessonType(file);
-    const progress = await this.getFileProgress(userId, fileId, resolvedType);
+    const progress = await this.getFileProgress(userId, fileId, completionKind(file));
 
     const quizCount = await this.prisma.quiz.count({
       where: {
@@ -1135,14 +1149,13 @@ export class ContentService {
     const materialIds: number[] = [];
 
     for (const lessonFile of lessonFiles) {
-      const attachmentType = (lessonFile.attachment_type ?? '').trim().toLowerCase();
       const lessonType = (lessonFile.lesson_type ?? '').trim().toLowerCase();
 
       if (lessonType === 'video') {
         videoIds.push(lessonFile.id);
       }
 
-      if (attachmentType === 'pdf' || attachmentType === 'article') {
+      if (isMaterialKind(completionKind(lessonFile))) {
         materialIds.push(lessonFile.id);
       }
     }
@@ -1165,8 +1178,19 @@ export class ContentService {
       completedVideos = completedVideoRows.length;
     }
 
-    // material_progress table does not exist in MySQL schema.
-    const completedMaterials = 0;
+    let completedMaterials = 0;
+    if (materialIds.length > 0) {
+      const materialRows = await this.prisma.material_progress_status.findMany({
+        where: {
+          user_id: toNullableIntId(userId),
+          lesson_file_id: { in: materialIds },
+          deleted_at: null,
+        },
+        select: { lesson_file_id: true },
+        distinct: ['lesson_file_id'],
+      });
+      completedMaterials = materialRows.length;
+    }
 
     const attemptedPractices = attemptedPracticeRows.length;
 
@@ -2879,9 +2903,41 @@ export class ContentService {
     });
   }
 
-  async saveMaterialProgress(_userId: string, _input: SaveMaterialProgressInput): Promise<void> {
-    // material_progress table does not exist in MySQL schema — no-op
-    // until a replacement store is wired. Kept for API/route compatibility.
+  // Marks a document / article as opened (= completed) for the student.
+  // Idempotent: one live material_progress_status row per (user, lesson file).
+  async saveMaterialProgress(userId: string, input: SaveMaterialProgressInput): Promise<void> {
+    const userIdInt = toNullableIntId(userId);
+    const lessonFileIdInt = toNullableIntId(input.lessonFileId);
+    if (userIdInt === null || lessonFileIdInt === null) {
+      return;
+    }
+
+    const existing = await this.prisma.material_progress_status.findFirst({
+      where: { user_id: userIdInt, lesson_file_id: lessonFileIdInt, deleted_at: null },
+      select: { id: true },
+    });
+    if (existing) {
+      return;
+    }
+
+    // Trust the file's own lesson, not the client's course_id; an unknown
+    // lesson file is ignored.
+    const courseId = await this.resolveCourseIdForLessonFile(input.lessonFileId);
+    if (courseId === null) {
+      return;
+    }
+    const now = new Date();
+    await this.prisma.material_progress_status.create({
+      data: {
+        user_id: userIdInt,
+        course_id: toNullableIntId(courseId),
+        lesson_file_id: lessonFileIdInt,
+        attachment_type: input.attachmentType || null,
+        created_by: userIdInt,
+        created_at: now,
+        updated_at: now,
+      },
+    });
   }
 
   async getStreakData(userId: string, fromDate?: string, toDate?: string): Promise<Record<string, number> | null> {
