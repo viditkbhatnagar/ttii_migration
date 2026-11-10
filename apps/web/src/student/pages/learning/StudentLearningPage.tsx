@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronDown,
@@ -26,7 +26,9 @@ import {
   GraduationCap,
   Layers,
   ListChecks,
+  Maximize2,
   MessageCircle,
+  Minimize2,
   Search,
   User,
 } from 'lucide-react';
@@ -45,6 +47,7 @@ import { asString, asNumber, asBoolean, asRecord } from '../../../admin/shared/u
 import type { StudentPageProps } from '../../routing/student-routes.js';
 import type { StudentPortalApi } from '../../student-portal-api.js';
 import { ExamPlayer } from '../../components/ExamPlayer.js';
+import { isTrackableMaterial, playerColumns, wantsWideLayout } from './learning-content-model.js';
 import { toEmbeddableVideoUrl } from '../../lib/video-embed.js';
 import { RecommendedCourseCard } from '../../components/RecommendedCourseCard.js';
 import { EnrollPathModal } from '../../components/EnrollPathModal.js';
@@ -287,8 +290,11 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
   // Recommended-card modals for non-enrolled ("All Other") courses.
   const [enrollCourse, setEnrollCourse] = useState<CatalogCourse | null>(null);
 
+  // The overview's "Live Classes" stat, the Live tab badge and the Upcoming card
+  // all read this list, so it loads as soon as a course is open - not only when
+  // the Live tab is clicked (it used to read 0 until then).
   useEffect(() => {
-    if (activeCourseId === null || leftTab !== 'live') return;
+    if (activeCourseId === null) return;
     let cancelled = false;
     setLiveClassesLoading(true);
     api
@@ -305,13 +311,38 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
     return () => {
       cancelled = true;
     };
-  }, [api, session.token, activeCourseId, leftTab]);
+  }, [api, session.token, activeCourseId]);
 
   const enrolledCourses = useMemo(() => data?.courses ?? [], [data]);
   const catalogCourses = useMemo(() => data?.catalogCourses ?? [], [data]);
   const subjects = useMemo(() => data?.subjects ?? [], [data]);
   const lessons = useMemo(() => data?.lessons ?? [], [data]);
   const lessonFiles = useMemo(() => data?.lessonFiles ?? [], [data]);
+
+  // Opening a document / article in the player is what completes it (there is
+  // no other signal for a PDF). Record it once per file, then silently refresh
+  // the learning snapshot so every completion figure picks it up.
+  const recordedMaterialRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!selectedContent || activeCourseId === null) return;
+    if (!isTrackableMaterial(selectedContent)) return;
+    const fileId = selectedContent.id;
+    if (recordedMaterialRef.current.has(fileId)) return;
+    recordedMaterialRef.current.add(fileId);
+    const file = lessonFiles.find((f) => asString(f.id) === fileId);
+    if (file && asNumber(file.progress) >= 100) return;
+    api
+      .saveMaterialProgress(session.token, {
+        courseId: activeCourseId,
+        lessonFileId: fileId,
+        attachmentType: selectedContent.type,
+      })
+      .then(() => reload())
+      .catch(() => {
+        recordedMaterialRef.current.delete(fileId);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedContent?.id, activeCourseId]);
 
   const enrolledIdSet = useMemo(
     () => new Set(enrolledCourses.map((c) => asString(c.id))),
@@ -696,6 +727,7 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
           upNextLesson={upNextLesson}
           onStartUpNext={handleStartUpNext}
           onBack={handleBackToSubjects}
+          onProgressChanged={reload}
           api={api}
           authToken={session.token}
         />
@@ -1455,6 +1487,7 @@ interface LessonPlayerViewProps {
   upNextLesson: Record<string, unknown> | null;
   onStartUpNext: () => void;
   onBack: () => void;
+  onProgressChanged: () => void;
   api: StudentPortalApi;
   authToken: string;
 }
@@ -1485,6 +1518,7 @@ function LessonPlayerView({
   upNextLesson,
   onStartUpNext,
   onBack,
+  onProgressChanged,
   api,
   authToken,
 }: LessonPlayerViewProps) {
@@ -1498,6 +1532,11 @@ function LessonPlayerView({
   // backing data yet (see edupulse-design-reference §7) — they render an
   // explicit "not available" state instead of fabricated content.
   const [activeTab, setActiveTab] = useState<'overview' | 'transcript' | 'qa'>('overview');
+  // Documents and quizzes get the right sidebar's space automatically; "Expand"
+  // also folds the lesson list away so the content owns the whole main area.
+  const [expanded, setExpanded] = useState(false);
+  const columns = playerColumns(selectedContent, expanded);
+  const wide = wantsWideLayout(selectedContent);
 
   const courseTitle = asString(course.title) || 'Course';
   const upNextTitle = upNextLesson ? asString(upNextLesson.title) : '';
@@ -1543,9 +1582,17 @@ function LessonPlayerView({
       </div>
 
       {/* 3-column grid */}
-      <div className="grid gap-4 [&>*]:min-w-0 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(240px,300px)]">
-        {/* LEFT — module/lesson tree + Live Classes */}
-        <aside className="space-y-3">
+      <div
+        className={`grid gap-4 [&>*]:min-w-0 ${
+          columns === 'three'
+            ? 'xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(240px,300px)]'
+            : columns === 'two'
+              ? 'xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]'
+              : ''
+        }`}
+      >
+        {/* LEFT — module/lesson tree + Live Classes (folded away when expanded) */}
+        <aside className={`space-y-3 ${columns === 'one' ? 'hidden' : ''}`}>
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="flex border-b border-slate-100">
               <button
@@ -1700,10 +1747,28 @@ function LessonPlayerView({
         {/* CENTER — player + tabbed area */}
         <section className="space-y-4">
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            {wide ? (
+              <div className="flex justify-end border-b border-slate-100 bg-slate-50/70 px-3 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => setExpanded((v) => !v)}
+                  aria-pressed={expanded}
+                  className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold text-student-primary transition-colors hover:bg-student-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-student-primary/40"
+                >
+                  {expanded ? (
+                    <Minimize2 aria-hidden="true" className="size-3.5" />
+                  ) : (
+                    <Maximize2 aria-hidden="true" className="size-3.5" />
+                  )}
+                  {expanded ? 'Exit full view' : 'Expand'}
+                </button>
+              </div>
+            ) : null}
             {selectedContent ? (
               <ContentPlayer
                 content={selectedContent}
                 onClose={onClearContent}
+                onProgressChanged={onProgressChanged}
                 api={api}
                 authToken={authToken}
               />
@@ -1796,8 +1861,9 @@ function LessonPlayerView({
           ) : null}
         </section>
 
-        {/* RIGHT — progress ring + upcoming + instructor */}
-        <aside className="space-y-4">
+        {/* RIGHT — progress ring + upcoming + instructor (hidden while a
+            document / quiz is open so the content can use the room) */}
+        <aside className={`space-y-4 ${columns === 'three' ? '' : 'hidden'}`}>
           {/* Course progress */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
             <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-student-muted">
@@ -2407,11 +2473,13 @@ function LiveClassRow({
 function ContentPlayer({
   content,
   onClose,
+  onProgressChanged,
   api,
   authToken,
 }: {
   content: SelectedContent;
   onClose: () => void;
+  onProgressChanged: () => void;
   api: StudentPortalApi;
   authToken: string;
 }) {
@@ -2434,6 +2502,7 @@ function ContentPlayer({
         lessonFileId={content.lessonFileId}
         title={content.title}
         onClose={onClose}
+        onSubmitted={onProgressChanged}
       />
     );
   }
@@ -2516,7 +2585,7 @@ function ContentPlayer({
                   : content.url
               }
               title={content.title}
-              className="h-[70vh] w-full bg-white"
+              className={content.type === 'pdf' ? 'pdf-viewer-h w-full bg-white' : 'h-[70vh] w-full bg-white'}
             />
           )}
         </div>

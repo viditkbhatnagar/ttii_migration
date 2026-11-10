@@ -5,6 +5,7 @@ import {
   uploadAssignmentInChunks,
   type UploadProgress,
 } from '../lib/resilient-upload';
+import { parseLastAttempt, type QuizLastAttempt } from './lib/quiz-result-model.js';
 
 interface LegacyEnvelope<T> {
   data?: T;
@@ -631,6 +632,7 @@ export class StudentPortalApi {
     title: string;
     description: string;
     questions: Array<{ id: number; question: string; options: string[]; question_type: number }>;
+    lastAttempt: QuizLastAttempt | null;
   }> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
       '/student/quiz/index',
@@ -651,6 +653,7 @@ export class StudentPortalApi {
           question_type: asNumber(q.question_type),
           options: asArray(q.options).map((o) => asString(o)),
         })),
+      lastAttempt: parseLastAttempt(data.last_attempt),
     };
   }
 
@@ -666,14 +669,15 @@ export class StudentPortalApi {
 
   async submitStudentQuiz(
     authToken: string,
-    input: { lessonFileId: string; attemptId: string; answers: Array<{ question_id: number; selected: number | null }> },
+    input: { lessonFileId: string; attemptId: string; answers: Array<{ question_id: number; selected: number | number[] | null }> },
   ): Promise<{
     correct: number;
     incorrect: number;
     skip: number;
     score: number;
     total_questions: number;
-    review: Array<{ question_id: number; selected: number | null; correct: number[]; isCorrect: boolean | null }>;
+    total_marks: number;
+    review: Array<{ question_id: number; selected: number | number[] | null; correct: number[]; isCorrect: boolean | null }>;
   }> {
     const payload = await this.post<LegacyEnvelope<Record<string, unknown>>>(
       '/student/quiz/submit',
@@ -690,16 +694,22 @@ export class StudentPortalApi {
       .filter((entry): entry is Record<string, unknown> => entry !== null)
       .map((r) => ({
         question_id: asNumber(r.question_id),
-        selected: r.selected === null || r.selected === undefined ? null : asNumber(r.selected),
+        selected: Array.isArray(r.selected)
+          ? r.selected.map((v) => asNumber(v))
+          : r.selected === null || r.selected === undefined
+            ? null
+            : asNumber(r.selected),
         correct: asArray(r.correct).map((v) => asNumber(v)),
         isCorrect: r.isCorrect === null || r.isCorrect === undefined ? null : Boolean(r.isCorrect),
       }));
+    const totalQuestions = asNumber(data.total_questions);
     return {
       correct: asNumber(data.correct),
       incorrect: asNumber(data.incorrect),
       skip: asNumber(data.skip),
       score: asNumber(data.score),
-      total_questions: asNumber(data.total_questions),
+      total_questions: totalQuestions,
+      total_marks: data.total_marks === undefined ? totalQuestions : asNumber(data.total_marks),
       review,
     };
   }

@@ -573,6 +573,19 @@
   }
 }
 
+/* Course player PDF viewer: tall enough to read a slide. 80dvh lives in
+   @supports for the same Lightning CSS reason as .modal-maxh above; the vh
+   value is the fallback for webviews without dvh. */
+.pdf-viewer-h {
+  height: 72vh;
+  min-height: 24rem;
+}
+@supports (height: 1dvh) {
+  .pdf-viewer-h {
+    height: 80dvh;
+  }
+}
+
 .faculty-portal,
 .faculty-portal h1, .faculty-portal h2, .faculty-portal h3,
 .faculty-portal h4, .faculty-portal h5, .faculty-portal h6 {
