@@ -1,4 +1,8 @@
 import { ApiError, type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
+import type {
+  BatchDetail as CredBatchDetail, CredResult, DashboardData as CredDashboardData, DeliveryOverview as CredDeliveryOverview,
+  NoticeFeed as CredNoticeFeed, ReportData as CredReportData, ScansOverview as CredScansOverview,
+} from './pages/credentials/credential-delivery-model.js';
 import { isImportedLiveSessionPlatform } from '@ttii/shared-types';
 
 interface LegacyEnvelope<T> {
@@ -3538,6 +3542,121 @@ export class AdminPortalApi {
       throw new Error((payload?.message as string) || 'Upload failed');
     }
     return payload.data as { key: string; url: string };
+  }
+
+  // ── Credential Manager: Delivery / Scans / Notifications / Dashboard / Reports ──
+  // (credential-delivery builder). Reads throw on a refusal; writes resolve to
+  // { ok, message, data } so a dialog can show why it was refused.
+
+  private async credWrite<T = Record<string, unknown>>(path: string, authToken: string, body: Record<string, unknown>): Promise<CredResult<T>> {
+    try {
+      const payload = await this.post<LegacyEnvelope<unknown>>(path, authToken, body);
+      return { ok: true, message: payload.message ?? 'Saved.', data: (asRecord(payload.data) ?? {}) as T };
+    } catch (error: unknown) {
+      const refused = error instanceof ApiError ? asRecord(error.payload) : null;
+      if (refused && refused.status === 0) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Request failed.', data: (asRecord(refused.data) ?? {}) as T };
+      }
+      throw error;
+    }
+  }
+
+  private async credRead<T>(path: string, authToken: string, query?: Record<string, QueryValue>): Promise<T & { message: string }> {
+    const payload = await this.get<LegacyEnvelope<unknown>>(path, authToken, query);
+    return { ...((asRecord(payload.data) ?? {}) as T), message: payload.message === 'success' ? '' : payload.message ?? '' };
+  }
+
+  /** The caller's five credential switches (settings builder's endpoint). */
+  async credMyPermissions(authToken: string): Promise<Record<string, boolean>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/credentials/me/permissions', authToken);
+    const d = asRecord(payload.data) ?? {};
+    return { access: d.access === true, revoke: d.revoke === true, override: d.override === true, settings: d.settings === true, reports: d.reports === true };
+  }
+
+  async credDeliveryOverview(authToken: string): Promise<CredDeliveryOverview> {
+    return this.credRead<CredDeliveryOverview>('/admin/credentials/delivery/overview', authToken);
+  }
+
+  async credPrintItems(authToken: string, itemIds: number[], serials: Record<string, string>): Promise<CredResult> {
+    return this.credWrite('/admin/credentials/delivery/print', authToken, { item_ids: itemIds, serials });
+  }
+
+  async credCreateBatch(authToken: string, input: {
+    itemIds: number[]; type: string; centreId: number; address: string; courierId: number; awbNo: string;
+  }): Promise<CredResult<{ id?: number; batchNo?: string }>> {
+    return this.credWrite('/admin/credentials/delivery/batches/create', authToken, {
+      item_ids: input.itemIds, type: input.type, centre_id: input.centreId, address: input.address, courier_id: input.courierId, awb_no: input.awbNo,
+    });
+  }
+
+  async credBatchDetail(authToken: string, id: number): Promise<CredBatchDetail> {
+    return this.credRead<CredBatchDetail>(`/admin/credentials/delivery/batches/${id}`, authToken);
+  }
+
+  async credGeneratePackingList(authToken: string, id: number): Promise<CredResult> {
+    return this.credWrite(`/admin/credentials/delivery/batches/${id}/packing-list`, authToken, {});
+  }
+
+  async credDispatchBatch(authToken: string, id: number): Promise<CredResult> {
+    return this.credWrite(`/admin/credentials/delivery/batches/${id}/dispatch`, authToken, {});
+  }
+
+  async credUpdateItem(authToken: string, id: number, input: { status: string; receiverName: string; proofKey: string; remarks: string }): Promise<CredResult> {
+    return this.credWrite(`/admin/credentials/delivery/items/${id}/update`, authToken, {
+      status: input.status, receiver_name: input.receiverName, proof_key: input.proofKey, remarks: input.remarks,
+    });
+  }
+
+  async credDuplicateItem(authToken: string, id: number, reason: string): Promise<CredResult> {
+    return this.credWrite(`/admin/credentials/delivery/items/${id}/duplicate`, authToken, { reason });
+  }
+
+  /** A short-lived signed link: packing list, proof file or a document PDF. */
+  async credSignedUrl(authToken: string, kind: 'packing-list' | 'proof' | 'document', id: number): Promise<string> {
+    const path = kind === 'packing-list' ? `/admin/credentials/delivery/batches/${id}/packing-list`
+      : kind === 'proof' ? `/admin/credentials/delivery/items/${id}/proof` : `/admin/credentials/delivery/documents/${id}/file`;
+    const payload = await this.get<LegacyEnvelope<unknown>>(path, authToken);
+    const url = asRecord(payload.data)?.url;
+    if (typeof url !== 'string' || !url) throw new Error('The file is not available.');
+    return url;
+  }
+
+  async credUploadProof(authToken: string, file: File): Promise<{ key: string; name: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${this.apiClient.getBaseUrl()}admin/credentials/delivery/proof?auth_token=${encodeURIComponent(authToken)}`, { method: 'POST', body: formData });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!payload || payload.status !== 1) throw new Error(typeof payload?.message === 'string' ? payload.message : `Upload failed (${response.status}).`);
+    const data = asRecord(payload.data) ?? {};
+    return { key: String(data.key ?? ''), name: String(data.name ?? file.name) };
+  }
+
+  async credScans(authToken: string, range: { from?: string; to?: string } = {}): Promise<CredScansOverview> {
+    return this.credRead<CredScansOverview>('/admin/credentials/scans', authToken, {
+      ...(range.from ? { from: range.from } : {}), ...(range.to ? { to: range.to } : {}),
+    });
+  }
+
+  async credReviewAlert(authToken: string, id: number, note: string): Promise<CredResult> {
+    return this.credWrite(`/admin/credentials/scans/alerts/${id}/review`, authToken, { note });
+  }
+
+  async credNotifications(authToken: string): Promise<CredNoticeFeed> {
+    return this.credRead<CredNoticeFeed>('/admin/credentials/notifications', authToken);
+  }
+
+  async credMarkNoticesRead(authToken: string, ids: number[] | 'all'): Promise<void> {
+    await this.credWrite('/admin/credentials/notifications/read', authToken, ids === 'all' ? { all: true } : { ids });
+  }
+
+  async credDashboard(authToken: string): Promise<CredDashboardData> {
+    return this.credRead<CredDashboardData>('/admin/credentials/dashboard', authToken);
+  }
+
+  async credReport(authToken: string, key: string, range: { from?: string; to?: string } = {}): Promise<CredReportData> {
+    return this.credRead<CredReportData>(`/admin/credentials/reports/${key}`, authToken, {
+      ...(range.from ? { from: range.from } : {}), ...(range.to ? { to: range.to } : {}),
+    });
   }
 
   // ── Completion Policies & Certificates ──────────────────────────
