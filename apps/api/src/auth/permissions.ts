@@ -37,6 +37,12 @@ export const PERMISSION_KEYS = {
   COMMUNICATIONS_MANAGE: 'communications.manage',
   REPORTS_VIEW: 'reports.view',
   SETTINGS_MANAGE: 'settings.manage',
+  // Credential Manager (Naji 2026-11-14) — five per-user switches.
+  CREDENTIALS_ACCESS: 'credentials.access',
+  CREDENTIALS_REVOKE: 'credentials.revoke',
+  CREDENTIALS_OVERRIDE: 'credentials.override',
+  CREDENTIALS_SETTINGS: 'credentials.settings',
+  CREDENTIALS_REPORTS: 'credentials.reports',
 } as const;
 
 export type PermissionKey = typeof PERMISSION_KEYS[keyof typeof PERMISSION_KEYS];

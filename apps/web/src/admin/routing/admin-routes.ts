@@ -126,6 +126,13 @@ const InstructorDetailPage = lazy(() => import('../pages/instructor/InstructorDe
 const AdminUsersPage = lazy(() => import('../pages/users/AdminUsersPage.js'));
 
 // Phase 5: Integrations & Polish pages
+const CredentialDashboardPage = lazy(() => import('../pages/credentials/CredentialDashboardPage.js'));
+const CredentialReadyPage = lazy(() => import('../pages/credentials/CredentialReadyPage.js'));
+const CredentialIssuedPage = lazy(() => import('../pages/credentials/CredentialIssuedPage.js'));
+const CredentialDeliveryPage = lazy(() => import('../pages/credentials/CredentialDeliveryPage.js'));
+const CredentialScansPage = lazy(() => import('../pages/credentials/CredentialScansPage.js'));
+const CredentialReportsPage = lazy(() => import('../pages/credentials/CredentialReportsPage.js'));
+const CredentialSettingsPage = lazy(() => import('../pages/credentials/CredentialSettingsPage.js'));
 const ChatSupportPage = lazy(() => import('../pages/chat_support/ChatSupportPage.js'));
 const TrainingVideosPage = lazy(() => import('../pages/training_videos/TrainingVideosPage.js'));
 const EnrollmentsPage = lazy(() => import('../pages/enrollments/EnrollmentsPage.js'));
@@ -182,6 +189,14 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   // Naji 2026-10-22: Centre Payments folded into Wallet & Payment; the old
   // path stays as an alias so bookmarks land on the new page.
   { path: '/admin/wallet/index', aliases: ['/admin/wallet', '/admin/centres/centre_payments'], pageComponent: WalletStatusPage, title: 'Wallet & Payment' },
+  // Credential Manager (Naji 2026-11-14)
+  { path: '/admin/credentials/dashboard', pageComponent: CredentialDashboardPage, title: 'Credential Dashboard' },
+  { path: '/admin/credentials/ready', pageComponent: CredentialReadyPage, title: 'Ready to Issue' },
+  { path: '/admin/credentials/issued', pageComponent: CredentialIssuedPage, title: 'Issued Credentials' },
+  { path: '/admin/credentials/delivery', pageComponent: CredentialDeliveryPage, title: 'Delivery Tracking' },
+  { path: '/admin/credentials/scans', pageComponent: CredentialScansPage, title: 'Scan History' },
+  { path: '/admin/credentials/reports', pageComponent: CredentialReportsPage, title: 'Credential Reports' },
+  { path: '/admin/credentials/settings', pageComponent: CredentialSettingsPage, title: 'Credential Settings' },
   { path: '/admin/chat_support', pageComponent: ChatSupportPage, title: 'Chat Support' },
   { path: '/admin/resources/index', aliases: ['/admin/resources'], pageComponent: ResourcesPage, title: 'Resources' },
   { path: '/admin/training_videos', pageComponent: TrainingVideosPage, title: 'Training Videos' },

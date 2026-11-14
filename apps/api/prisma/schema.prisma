@@ -3224,3 +3224,274 @@ model centre_affiliation_certificates {
   @@index([centre_id, deleted_at], map: "idx_centre_aff_cert_centre")
   @@index([agreement_id], map: "idx_centre_aff_cert_agreement")
 }
+
+// ─── Credential Manager (Naji 2026-11-14) ────────────────────────────────────
+// deploy/migrations/2026-11-15-credential-manager.sql. Additive tables only.
+
+/// Does TTII issue the credentials for this intake (offerings.id)?
+model credential_offering_settings {
+  offering_id           Int       @id
+  issued_by_ttii        Boolean   @default(false)
+  /// digital | via_centre | courier_learner | office_collection
+  default_delivery_mode String    @default("digital") @db.VarChar(30)
+  level                 String?   @db.VarChar(40)
+  updated_by            Int?
+  updated_at            DateTime? @db.DateTime(0)
+}
+
+/// Settings rows. category: rule | template | signatory | grading | hold_reason | courier | delivery. data = JSON text.
+model credential_config {
+  id             Int       @id @default(autoincrement())
+  category       String    @db.VarChar(30)
+  name           String    @default("") @db.VarChar(200)
+  offering_id    Int?
+  version        Int       @default(1)
+  effective_from DateTime? @db.Date
+  is_active      Boolean   @default(true)
+  data           String?   @db.LongText
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+  updated_at     DateTime? @db.DateTime(0)
+  deleted_at     DateTime? @db.DateTime(0)
+
+  @@index([category, deleted_at], map: "idx_credential_config_cat")
+  @@index([offering_id], map: "idx_credential_config_offering")
+}
+
+/// One per doc_type (certificate | marksheet | transcript | provisional). Allocate with an atomic increment inside the issuing transaction.
+model credential_number_series {
+  id           Int       @id @default(autoincrement())
+  doc_type     String    @unique(map: "uq_credential_series_doc") @db.VarChar(40)
+  prefix       String    @db.VarChar(60)
+  year         Int
+  padding      Int       @default(6)
+  next_number  Int       @default(1)
+  reset_yearly Boolean   @default(true)
+  updated_by   Int?
+  updated_at   DateTime? @db.DateTime(0)
+}
+
+model credential_settings_audit {
+  id            Int      @id @default(autoincrement())
+  actor_user_id Int?
+  /// Create | Edit | Create version | Delete
+  action        String   @db.VarChar(30)
+  entity        String   @db.VarChar(40)
+  entity_id     Int?
+  before_json   String?  @db.LongText
+  after_json    String?  @db.LongText
+  created_at    DateTime @default(now()) @db.DateTime(0)
+
+  @@index([created_at], map: "idx_credential_settings_audit_at")
+}
+
+/// Per enrolment (enrol.id): learner-confirmed printed name/address and the manual override.
+model credential_learner_state {
+  enrol_id        Int       @id
+  user_id         Int
+  offering_id     Int?
+  printed_name    String?   @db.VarChar(250)
+  address         String?   @db.Text
+  confirmed_at    DateTime? @db.DateTime(0)
+  override_reason String?   @db.Text
+  override_by     Int?
+  override_at     DateTime? @db.DateTime(0)
+  updated_at      DateTime? @db.DateTime(0)
+
+  @@index([user_id], map: "idx_credential_learner_state_user")
+}
+
+model credential_holds {
+  id          Int       @id @default(autoincrement())
+  enrol_id    Int
+  reason      String    @db.VarChar(200)
+  remarks     String?   @db.Text
+  placed_by   Int?
+  placed_at   DateTime  @default(now()) @db.DateTime(0)
+  released_by Int?
+  released_at DateTime? @db.DateTime(0)
+
+  @@index([enrol_id, released_at], map: "idx_credential_holds_enrol")
+}
+
+model credential_eligibility_events {
+  id            Int      @id @default(autoincrement())
+  enrol_id      Int
+  action        String   @db.VarChar(60)
+  reason        String?  @db.Text
+  actor_user_id Int?
+  created_at    DateTime @default(now()) @db.DateTime(0)
+
+  @@index([enrol_id, created_at], map: "idx_credential_elig_events_enrol")
+}
+
+/// One row per issued VERSION. status: valid | revoked | superseded. doc_type: certificate | marksheet | provisional | transcript.
+model credential_documents {
+  id              Int       @id @default(autoincrement())
+  enrol_id        Int
+  user_id         Int
+  offering_id     Int?
+  course_id       Int?
+  centre_id       Int?
+  doc_type        String    @db.VarChar(30)
+  version         Int       @default(1)
+  document_no     String    @unique(map: "uq_credential_doc_no") @db.VarChar(80)
+  verification_id String    @unique(map: "uq_credential_verification") @db.VarChar(40)
+  status          String    @default("valid") @db.VarChar(20)
+  issue_date      DateTime  @db.Date
+  printed_name    String    @db.VarChar(250)
+  /// Immutable JSON snapshot of everything printed (learner, programme, marks, CGPA…).
+  snapshot        String    @db.LongText
+  storage_key     String?   @db.VarChar(500)
+  sha256          String?   @db.Char(64)
+  replaces_id     Int?
+  replaced_by_id  Int?
+  revoked_at      DateTime? @db.DateTime(0)
+  revoke_reason   String?   @db.Text
+  scan_count      Int       @default(0)
+  last_scanned_at DateTime? @db.DateTime(0)
+  issued_by       Int?
+  created_at      DateTime  @default(now()) @db.DateTime(0)
+  updated_at      DateTime? @db.DateTime(0)
+
+  @@unique([enrol_id, doc_type, version], map: "uq_credential_doc_version")
+  @@index([user_id], map: "idx_credential_docs_user")
+  @@index([status, issue_date], map: "idx_credential_docs_status")
+}
+
+/// Issue | Download | Print | Duplicate | Revoke | Restore | Resend | Correction
+model credential_document_events {
+  id            Int      @id @default(autoincrement())
+  document_id   Int
+  action        String   @db.VarChar(30)
+  /// original | duplicate
+  copy_type     String?  @db.VarChar(20)
+  reason        String?  @db.Text
+  before_status String?  @db.VarChar(20)
+  after_status  String?  @db.VarChar(20)
+  actor_user_id Int?
+  created_at    DateTime @default(now()) @db.DateTime(0)
+
+  @@index([document_id, created_at], map: "idx_credential_doc_events_doc")
+}
+
+/// type: to_centre | to_learner | office_collection. status: packed | dispatched | in_progress | delivered.
+model credential_dispatch_batches {
+  id               Int       @id @default(autoincrement())
+  batch_no         String    @unique(map: "uq_credential_batch_no") @db.VarChar(40)
+  type             String    @db.VarChar(30)
+  centre_id        Int?
+  enrol_id         Int?
+  address          String?   @db.Text
+  courier_id       Int?
+  awb_no           String?   @db.VarChar(80)
+  status           String    @default("packed") @db.VarChar(30)
+  packing_list_key String?   @db.VarChar(500)
+  packed_by        Int?
+  dispatched_at    DateTime? @db.DateTime(0)
+  acknowledged_at  DateTime? @db.DateTime(0)
+  acknowledged_by  Int?
+  created_at       DateTime  @default(now()) @db.DateTime(0)
+  updated_at       DateTime? @db.DateTime(0)
+
+  @@index([centre_id], map: "idx_credential_batches_centre")
+}
+
+/// status: print_queued | printed | packed | dispatched | in_transit | delivered | collected | handed_over | returned | address_issue | lost
+model credential_delivery_items {
+  id               Int       @id @default(autoincrement())
+  document_id      Int
+  enrol_id         Int
+  batch_id         Int?
+  status           String    @default("print_queued") @db.VarChar(30)
+  paper_serial     String?   @unique(map: "uq_credential_paper_serial") @db.VarChar(60)
+  delivered_at     DateTime? @db.DateTime(0)
+  received_by_name String?   @db.VarChar(200)
+  proof_key        String?   @db.VarChar(500)
+  remarks          String?   @db.Text
+  created_at       DateTime  @default(now()) @db.DateTime(0)
+  updated_at       DateTime? @db.DateTime(0)
+
+  @@index([document_id], map: "idx_credential_items_doc")
+  @@index([batch_id], map: "idx_credential_items_batch")
+  @@index([status], map: "idx_credential_items_status")
+}
+
+model credential_digital_deliveries {
+  document_id       Int       @id
+  available_at      DateTime  @default(now()) @db.DateTime(0)
+  /// not_sent | sent | failed
+  email_status      String    @default("not_sent") @db.VarChar(20)
+  email_sent_at     DateTime? @db.DateTime(0)
+  first_download_at DateTime? @db.DateTime(0)
+}
+
+model credential_delivery_events {
+  id            Int      @id @default(autoincrement())
+  /// item | batch
+  entity_type   String   @db.VarChar(20)
+  entity_id     Int
+  action        String   @db.VarChar(60)
+  before_status String?  @db.VarChar(30)
+  after_status  String?  @db.VarChar(30)
+  reason        String?  @db.Text
+  actor_user_id Int?
+  created_at    DateTime @default(now()) @db.DateTime(0)
+
+  @@index([entity_type, entity_id, created_at], map: "idx_credential_delivery_events")
+}
+
+/// Every public lookup. status: valid | revoked | superseded | not_found. method: qr | manual.
+model credential_scans {
+  id              Int      @id @default(autoincrement())
+  verification_id String   @db.VarChar(80)
+  document_id     Int?
+  status          String   @db.VarChar(20)
+  method          String   @db.VarChar(10)
+  ip              String?  @db.VarChar(64)
+  user_agent      String?  @db.VarChar(300)
+  device          String?  @db.VarChar(40)
+  city            String?  @db.VarChar(120)
+  country         String?  @db.VarChar(80)
+  created_at      DateTime @default(now()) @db.DateTime(0)
+
+  @@index([document_id, created_at], map: "idx_credential_scans_doc")
+  @@index([ip, created_at], map: "idx_credential_scans_ip")
+  @@index([created_at], map: "idx_credential_scans_at")
+}
+
+/// type: revoked_scan | superseded_scan | multiple_countries | not_found_attempts. A review is final.
+model credential_scan_alerts {
+  id          Int       @id @default(autoincrement())
+  alert_key   String    @unique(map: "uq_credential_alert_key") @db.VarChar(160)
+  type        String    @db.VarChar(30)
+  document_id Int?
+  scan_id     Int?
+  details     String?   @db.Text
+  created_at  DateTime  @default(now()) @db.DateTime(0)
+  reviewed_by Int?
+  reviewed_at DateTime? @db.DateTime(0)
+  note        String?   @db.Text
+
+  @@index([reviewed_at, created_at], map: "idx_credential_alerts_open")
+}
+
+/// audience: learner | centre | credential_admins | management. dedupe_key UNIQUE.
+model credential_notifications {
+  id                Int       @id @default(autoincrement())
+  dedupe_key        String    @unique(map: "uq_credential_notice_key") @db.VarChar(200)
+  audience          String    @db.VarChar(30)
+  recipient_user_id Int?
+  centre_id         Int?
+  title             String    @db.VarChar(200)
+  body              String?   @db.Text
+  link              String?   @db.VarChar(300)
+  read_at           DateTime? @db.DateTime(0)
+  email_status      String    @default("not_sent") @db.VarChar(20)
+  created_at        DateTime  @default(now()) @db.DateTime(0)
+
+  @@index([recipient_user_id, read_at], map: "idx_credential_notice_recipient")
+  @@index([audience, created_at], map: "idx_credential_notice_audience")
+}

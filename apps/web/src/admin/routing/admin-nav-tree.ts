@@ -193,6 +193,22 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'student-eligibility', label: 'Student Eligibility', href: '/admin/exam/eligibility/index' },
     ],
   },
+  // Naji 2026-11-14 — Credential Manager (his order). Pages are permission-
+  // gated server-side; the sidebar shows them to Admin/Subadmin.
+  {
+    id: 'credential-manager',
+    label: 'Credential Manager',
+    icon: 'FileSignature',
+    children: [
+      { id: 'credential-dashboard', label: 'Dashboard', href: '/admin/credentials/dashboard' },
+      { id: 'credential-ready', label: 'Ready to Issue', href: '/admin/credentials/ready' },
+      { id: 'credential-issued', label: 'Issued', href: '/admin/credentials/issued' },
+      { id: 'credential-delivery', label: 'Delivery Tracking', href: '/admin/credentials/delivery' },
+      { id: 'credential-scans', label: 'Scan History', href: '/admin/credentials/scans' },
+      { id: 'credential-reports', label: 'Reports', href: '/admin/credentials/reports' },
+      { id: 'credential-settings', label: 'Settings', href: '/admin/credentials/settings' },
+    ],
+  },
   {
     id: 'documents-manager',
     label: 'Documents Manager',

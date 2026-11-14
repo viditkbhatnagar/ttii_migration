@@ -30,12 +30,14 @@
     "mysql2": "^3.17.4",
     "nodemailer": "^8.0.5",
     "pdfkit": "^0.15.1",
+    "qrcode": "1.5.4",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/nodemailer": "^8.0.0",
     "@types/pdfkit": "^0.13.9",
+    "@types/qrcode": "1.5.5",
     "prisma": "^6.16.2",
     "tsx": "^4.20.6"
   }
