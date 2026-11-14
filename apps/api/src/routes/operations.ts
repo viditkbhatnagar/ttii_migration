@@ -26,6 +26,7 @@ import { CentreProfileService } from '../operations/centre-profile-service.js';
 import { registerCentreDashboardRoutes } from './centre-dashboard-routes.js';
 import type { CentreDashboardService } from '../operations/centre-dashboard-service.js';
 import { registerCentreOnboardingRoutes } from './centre-onboarding-routes.js';
+import { registerCredentialIssueRoutes } from './credential-issue-routes.js';
 import { registerCentrePortalAppsRoutes } from './centre-portal-apps-routes.js';
 import { CentrePortalAppsService } from '../operations/centre-portal-apps-service.js';
 import { registerCentrePortalShellRoutes } from './centre-portal-shell-routes.js';
@@ -2265,6 +2266,8 @@ export function registerOperationsRoutes(
   // and the PUBLIC centre application form (/centre-form/:token, rate-limited).
   // Admin/Subadmin only for every /admin/centres/onboarding|affiliation route.
   registerCentreOnboardingRoutes(app, { requireAuth, requireAdminOnlyRole, storage: options.storage });
+  // Credential Manager: Ready to Issue, Issued, public verification, learner certificates.
+  registerCredentialIssueRoutes(app, { requireAuth, requireStudentRole: requireLegacyRoles(authService, [LEGACY_ROLE.STUDENT]), storage: options.storage });
 
   // TTII 2026-10-12 — Associate Management in Naji's design. Read-only
   // (operations/associate-admin-service.ts) except Log Communication, which
