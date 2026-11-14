@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  Bell,
   CalendarDays,
   ChevronDown,
   KeyRound,
@@ -25,6 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { RoleSwitcher } from '@/components/RoleSwitcher';
+import { CredentialBell } from '../pages/credentials/CredentialBell.js';
 import { useAdminLayout } from './AdminLayoutContext.js';
 import { AdminGlobalSearch } from './AdminGlobalSearch.js';
 import { ChangePasswordDialog, MyProfileDialog } from './AdminAccountDialogs.js';
@@ -137,9 +137,7 @@ export function AdminNavbar({ onNavigate, onLogout, api, session }: AdminNavbarP
             <NavIconButton label="Chat support" onClick={() => onNavigate('/admin/chat_support')}>
               <MessageSquare aria-hidden="true" className="size-4" />
             </NavIconButton>
-            <NavIconButton label="Notifications" onClick={() => onNavigate('/admin/notification/index')}>
-              <Bell aria-hidden="true" className="size-4" />
-            </NavIconButton>
+            <CredentialBell api={api} token={session.token} onNavigate={onNavigate} />
             <NavIconButton label="Settings" onClick={() => onNavigate(SETTINGS_HREF)} className="hidden sm:inline-flex">
               <Settings aria-hidden="true" className="size-4" />
             </NavIconButton>

@@ -282,7 +282,7 @@ export function DuplicateDialog({ api, session, onDone, item, onClose }: Common 
   );
 }
 
-export function NoticesDialog({ notices, onClose, onOpen }: { notices: Array<{ id: number; title: string; body: string; audience: string; at: string; emailStatus: string }>; onClose: () => void }) {
+export function NoticesDialog({ notices, onClose }: { notices: Array<{ id: number; title: string; body: string; audience: string; at: string; emailStatus: string }>; onClose: () => void }) {
   return (
     <CredDialog open onOpenChange={(o) => { if (!o) onClose(); }} title="Credential notifications" width={680}>
       {notices.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">No notifications yet.</p> : (
