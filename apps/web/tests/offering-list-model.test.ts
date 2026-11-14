@@ -38,6 +38,6 @@ describe('Course Offerings list model', () => {
   test('sorts and lists modes; CSV uses dd/mm/yyyy', () => {
     expect(sortOfferings(rows, 'enrolled', 'desc').map((r) => r.id)).toEqual(['3', '4', '5']);
     expect(modeOptions(rows)).toEqual([{ value: 'cohort', label: 'Cohort' }, { value: 'self_paced', label: 'Self-Paced' }]);
-    expect(offeringCsvRows(rows)[1]).toEqual(['Diploma Aug 2026', 'DMTT-AUG26', 'Diploma', 'Cohort', '01/08/2026', '31/07/2027', '25/07/2026', 'Paid', 40, 'active']);
+    expect(offeringCsvRows(rows)[1]).toEqual(['Diploma Aug 2026', 'DMTT-AUG26', 'Diploma', 'Cohort', '01/08/2026', '31/07/2027', '25/07/2026', 'Paid', 40, 'No', 'active']);
   });
 });

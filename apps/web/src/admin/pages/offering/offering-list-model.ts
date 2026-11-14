@@ -32,9 +32,14 @@ export interface OfferingRow {
   cohortCount: number;
   expiryDays: number;
   status: string;
+  /** Credential issued by TTII (credential_offering_settings); false when not set. */
+  credentialIssued: boolean;
 }
 
-export function toOfferingRows(raw: Record<string, unknown>[]): OfferingRow[] {
+/** offering id -> issued by TTII, from /admin/credentials/offering-settings. */
+export type CredentialIssuedMap = ReadonlyMap<string, boolean>;
+
+export function toOfferingRows(raw: Record<string, unknown>[], credentials: CredentialIssuedMap = new Map()): OfferingRow[] {
   return raw.map((r) => {
     const mode = asString(r.delivery_mode);
     return {
@@ -61,6 +66,7 @@ export function toOfferingRows(raw: Record<string, unknown>[]): OfferingRow[] {
       cohortCount: asNumber(r.cohort_count),
       expiryDays: asNumber(r.course_expiry_days),
       status: asString(r.status) || 'draft',
+      credentialIssued: credentials.get(asString(r.id)) === true,
     };
   });
 }
@@ -71,9 +77,11 @@ export interface OfferingFilters {
   courseId: string;
   mode: string;
   pricing: string;
+  /** '' = All, 'Yes' | 'No' = TTII credentials filter. */
+  ttii: string;
 }
 
-export const EMPTY_OFFERING_FILTERS: OfferingFilters = { search: '', status: 'all', courseId: '', mode: '', pricing: '' };
+export const EMPTY_OFFERING_FILTERS: OfferingFilters = { search: '', status: 'all', courseId: '', mode: '', pricing: '', ttii: '' };
 
 export function filterOfferings(rows: OfferingRow[], f: OfferingFilters): OfferingRow[] {
   return rows.filter((r) => {
@@ -81,11 +89,12 @@ export function filterOfferings(rows: OfferingRow[], f: OfferingFilters): Offeri
     if (f.courseId && r.courseId !== f.courseId) return false;
     if (f.mode && r.mode !== f.mode) return false;
     if (f.pricing && r.pricing !== f.pricing) return false;
+    if (f.ttii && (r.credentialIssued ? 'Yes' : 'No') !== f.ttii) return false;
     return matchesSearch(f.search, [r.title, r.code, r.course]);
   });
 }
 
-export type OfferingSortKey = 'title' | 'course' | 'mode' | 'start' | 'end' | 'enrolEnd' | 'pricing' | 'enrolled' | 'status';
+export type OfferingSortKey = 'title' | 'course' | 'mode' | 'start' | 'end' | 'enrolEnd' | 'pricing' | 'enrolled' | 'status' | 'ttii';
 
 export function sortOfferings(rows: OfferingRow[], key: OfferingSortKey, dir: SortDir): OfferingRow[] {
   const pick: Record<OfferingSortKey, (r: OfferingRow) => string | number> = {
@@ -98,6 +107,7 @@ export function sortOfferings(rows: OfferingRow[], key: OfferingSortKey, dir: So
     pricing: (r) => r.pricing,
     enrolled: (r) => r.enrolled,
     status: (r) => r.status,
+    ttii: (r) => (r.credentialIssued ? 1 : 0),
   };
   return sortRows(rows, pick[key], dir);
 }
@@ -119,7 +129,7 @@ export function modeOptions(rows: OfferingRow[]): Array<{ value: string; label: 
 
 export function offeringCsvRows(rows: OfferingRow[]): Array<Array<string | number>> {
   return [
-    ['Offering', 'Code', 'Course', 'Mode', 'Start Date', 'End Date', 'Enrolments Ends', 'Pricing Type', 'Enrollments', 'Status'],
-    ...rows.map((r) => [r.title, r.code, r.course, r.modeLabel, dmy(r.startYmd), dmy(r.endYmd), dmy(r.enrolEndYmd), r.pricing, r.enrolled, r.status]),
+    ['Offering', 'Code', 'Course', 'Mode', 'Start Date', 'End Date', 'Enrolments Ends', 'Pricing Type', 'Enrollments', 'Credential issued by TTII', 'Status'],
+    ...rows.map((r) => [r.title, r.code, r.course, r.modeLabel, dmy(r.startYmd), dmy(r.endYmd), dmy(r.enrolEndYmd), r.pricing, r.enrolled, r.credentialIssued ? 'Yes' : 'No', r.status]),
   ];
 }
