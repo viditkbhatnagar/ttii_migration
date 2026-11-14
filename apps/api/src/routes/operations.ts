@@ -22,6 +22,7 @@ import type { CounsellorTeamsService } from '../operations/counsellor-teams-serv
 import type { CounsellorGroupsService } from '../operations/counsellor-groups-service.js';
 import { registerCounsellorTeamsRoutes } from './counsellor-teams-routes.js';
 import { registerCredentialSettingsRoutes } from './credential-settings-routes.js';
+import { connectCredentialReadyProvider } from '../operations/credential-ready-bridge.js';
 import { requirePermissionManager } from '../auth/permission-guards.js';
 import { registerCentreProfileRoutes } from './centre-profile-routes.js';
 import { registerCredentialDeliveryRoutes } from './credential-delivery-routes.js';
@@ -2279,6 +2280,7 @@ export function registerOperationsRoutes(
   // Credential Manager (Naji 2026-11-14) — Delivery Tracking, Scan History,
   // notifications, Dashboard, Reports and the centre portal's Certificates page.
   registerCredentialDeliveryRoutes(app, { requireAuth, authService, storage: options.storage });
+  connectCredentialReadyProvider();
 
   // TTII 2026-10-12 — Associate Management in Naji's design. Read-only
   // (operations/associate-admin-service.ts) except Log Communication, which

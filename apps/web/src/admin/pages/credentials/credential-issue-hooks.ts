@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
+import { loadCredentialPermissions } from './use-credential-permissions.js';
 
 export interface CredentialGrants { loaded: boolean; access: boolean; revoke: boolean; override: boolean }
 
@@ -12,7 +13,7 @@ export function useCredentialGrants(api: AdminPortalApi, token: string): Credent
   const [grants, setGrants] = useState<CredentialGrants>({ loaded: false, access: false, revoke: false, override: false });
   useEffect(() => {
     let live = true;
-    api.credentialPermissions(token)
+    loadCredentialPermissions(api, token)
       .then((p) => { if (live) setGrants({ loaded: true, access: p.access, revoke: p.revoke, override: p.override }); })
       .catch(() => { if (live) setGrants({ loaded: true, access: false, revoke: false, override: false }); });
     return () => { live = false; };

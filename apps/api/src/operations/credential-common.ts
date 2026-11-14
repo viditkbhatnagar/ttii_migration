@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { NOT_SET_UP_MESSAGE, isMissingTable } from './credential-types.js';
+import { notifyCredentialAdmins } from './credential-notifications.js';
 
 // Shared helpers of the issuing side of the Credential Manager.
 
@@ -74,11 +75,19 @@ export async function userNames(db: Db, ids: Array<number | null | undefined>): 
 
 export type CredentialNoticeKind = 'issue' | 'revoke' | 'restore' | 'correction' | 'duplicate';
 
+const NOTICE_TITLE: Record<CredentialNoticeKind, string> = {
+  issue: 'Credential issued', revoke: 'Credential revoked', restore: 'Credential restored',
+  correction: 'Credential corrected', duplicate: 'Credential duplicate',
+};
+
 /**
- * Single seam for the in-app notices of the Credential Manager (issue, revoke, restore,
- * correction, duplicate). The rows in credential_notifications are written by notify() inside the
- * action; this hook is a deliberate no-op until the notification centre is wired at merge.
+ * Admin bell notices for the Credential Manager (issue, revoke, restore, correction,
+ * duplicate). Learner notices are written by notify() inside each action; this adds the
+ * Credential admins / Management notices. Fire-and-forget: notifyCredential never throws.
  */
-export function emitCredentialNotice(_kind: CredentialNoticeKind, _doc: { id: number; userId: number; documentNo: string }): void {
-  /* no-op stub */
+export function emitCredentialNotice(kind: CredentialNoticeKind, doc: { id: number; userId: number; documentNo: string }): void {
+  void notifyCredentialAdmins({
+    key: kind === 'issue' || kind === 'correction' ? `doc-${kind}:${doc.id}` : `doc-${kind}:${doc.id}:${Date.now()}`, title: NOTICE_TITLE[kind], body: doc.documentNo,
+    link: kind === 'issue' ? '/admin/credentials/delivery' : '/admin/credentials/issued',
+  });
 }

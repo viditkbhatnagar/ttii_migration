@@ -1,6 +1,6 @@
 import { ApiError, type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
 import type {
-  BatchDetail as CredBatchDetail, CredResult, DashboardData as CredDashboardData, DeliveryOverview as CredDeliveryOverview,
+  BatchDetail as CredBatchDetail, CredResult as CredDeliveryResult, DashboardData as CredDashboardData, DeliveryOverview as CredDeliveryOverview,
   NoticeFeed as CredNoticeFeed, ReportData as CredReportData, ScansOverview as CredScansOverview,
 } from './pages/credentials/credential-delivery-model.js';
 import { isImportedLiveSessionPlatform } from '@ttii/shared-types';
@@ -3549,7 +3549,7 @@ export class AdminPortalApi {
   // (credential-delivery builder). Reads throw on a refusal; writes resolve to
   // { ok, message, data } so a dialog can show why it was refused.
 
-  private async credWrite<T = Record<string, unknown>>(path: string, authToken: string, body: Record<string, unknown>): Promise<CredResult<T>> {
+  private async credWrite<T = Record<string, unknown>>(path: string, authToken: string, body: Record<string, unknown>): Promise<CredDeliveryResult<T>> {
     try {
       const payload = await this.post<LegacyEnvelope<unknown>>(path, authToken, body);
       return { ok: true, message: payload.message ?? 'Saved.', data: (asRecord(payload.data) ?? {}) as T };
@@ -3578,13 +3578,13 @@ export class AdminPortalApi {
     return this.credRead<CredDeliveryOverview>('/admin/credentials/delivery/overview', authToken);
   }
 
-  async credPrintItems(authToken: string, itemIds: number[], serials: Record<string, string>): Promise<CredResult> {
+  async credPrintItems(authToken: string, itemIds: number[], serials: Record<string, string>): Promise<CredDeliveryResult> {
     return this.credWrite('/admin/credentials/delivery/print', authToken, { item_ids: itemIds, serials });
   }
 
   async credCreateBatch(authToken: string, input: {
     itemIds: number[]; type: string; centreId: number; address: string; courierId: number; awbNo: string;
-  }): Promise<CredResult<{ id?: number; batchNo?: string }>> {
+  }): Promise<CredDeliveryResult<{ id?: number; batchNo?: string }>> {
     return this.credWrite('/admin/credentials/delivery/batches/create', authToken, {
       item_ids: input.itemIds, type: input.type, centre_id: input.centreId, address: input.address, courier_id: input.courierId, awb_no: input.awbNo,
     });
@@ -3594,21 +3594,21 @@ export class AdminPortalApi {
     return this.credRead<CredBatchDetail>(`/admin/credentials/delivery/batches/${id}`, authToken);
   }
 
-  async credGeneratePackingList(authToken: string, id: number): Promise<CredResult> {
+  async credGeneratePackingList(authToken: string, id: number): Promise<CredDeliveryResult> {
     return this.credWrite(`/admin/credentials/delivery/batches/${id}/packing-list`, authToken, {});
   }
 
-  async credDispatchBatch(authToken: string, id: number): Promise<CredResult> {
+  async credDispatchBatch(authToken: string, id: number): Promise<CredDeliveryResult> {
     return this.credWrite(`/admin/credentials/delivery/batches/${id}/dispatch`, authToken, {});
   }
 
-  async credUpdateItem(authToken: string, id: number, input: { status: string; receiverName: string; proofKey: string; remarks: string }): Promise<CredResult> {
+  async credUpdateItem(authToken: string, id: number, input: { status: string; receiverName: string; proofKey: string; remarks: string }): Promise<CredDeliveryResult> {
     return this.credWrite(`/admin/credentials/delivery/items/${id}/update`, authToken, {
       status: input.status, receiver_name: input.receiverName, proof_key: input.proofKey, remarks: input.remarks,
     });
   }
 
-  async credDuplicateItem(authToken: string, id: number, reason: string): Promise<CredResult> {
+  async credDuplicateItem(authToken: string, id: number, reason: string): Promise<CredDeliveryResult> {
     return this.credWrite(`/admin/credentials/delivery/items/${id}/duplicate`, authToken, { reason });
   }
 
@@ -3638,7 +3638,7 @@ export class AdminPortalApi {
     });
   }
 
-  async credReviewAlert(authToken: string, id: number, note: string): Promise<CredResult> {
+  async credReviewAlert(authToken: string, id: number, note: string): Promise<CredDeliveryResult> {
     return this.credWrite(`/admin/credentials/scans/alerts/${id}/review`, authToken, { note });
   }
 
