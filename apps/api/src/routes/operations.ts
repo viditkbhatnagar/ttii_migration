@@ -21,6 +21,8 @@ import { EnrolmentFeePlanService } from '../operations/enrolment-fee-plan-servic
 import type { CounsellorTeamsService } from '../operations/counsellor-teams-service.js';
 import type { CounsellorGroupsService } from '../operations/counsellor-groups-service.js';
 import { registerCounsellorTeamsRoutes } from './counsellor-teams-routes.js';
+import { registerCredentialSettingsRoutes } from './credential-settings-routes.js';
+import { requirePermissionManager } from '../auth/permission-guards.js';
 import { registerCentreProfileRoutes } from './centre-profile-routes.js';
 import { CentreProfileService } from '../operations/centre-profile-service.js';
 import { registerCentreDashboardRoutes } from './centre-dashboard-routes.js';
@@ -2261,6 +2263,10 @@ export function registerOperationsRoutes(
     ...(options.counsellorGroupsService ? { groupsService: options.counsellorGroupsService } : {}),
   });
 
+  // Credential Manager (Naji 2026-11-14) — Settings, offering credential fields
+  // and the signed-in user's credential permissions (credential-settings-routes.ts).
+  registerCredentialSettingsRoutes(app, { requireAuth, requireAdminOnlyRole, storage: options.storage });
+
   // Centres v2 (Naji 2026-10-22) — Centre Onboarding, Affiliation & Agreements
   // and the PUBLIC centre application form (/centre-form/:token, rate-limited).
   // Admin/Subadmin only for every /admin/centres/onboarding|affiliation route.
@@ -4198,7 +4204,8 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/permissions/user/set', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  // Only Super Admin / users.manage_admins may change grants (counsellors pass requireAdminRole).
+  app.post('/admin/permissions/user/set', { preHandler: [requireAuth, requireAdminOnlyRole, requirePermissionManager()] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const targetUserId = toInteger(payload.user_id);
