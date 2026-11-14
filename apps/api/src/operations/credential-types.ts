@@ -127,7 +127,7 @@ export function parseConfigData<T>(raw: string | null | undefined, fallback: T):
   if (!raw) return fallback;
   try {
     const value = JSON.parse(raw) as unknown;
-    return value && typeof value === 'object' ? { ...fallback, ...(value as object) } as T : fallback;
+    return value && typeof value === 'object' ? { ...fallback, ...(value) } : fallback;
   } catch {
     return fallback;
   }
