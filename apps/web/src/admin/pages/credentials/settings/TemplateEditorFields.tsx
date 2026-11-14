@@ -1,5 +1,6 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { DmyDateInput } from '@/components/ui/dmy-date-field';
+import { asString } from '../../../shared/utils/admin-data-utils.js';
 import type { AdminPortalApi } from '../../../admin-portal-api.js';
 import { Field, Section, selectClass, thisYear } from './editor-ui.js';
 import { ImageField } from './ImageField.js';
@@ -50,7 +51,7 @@ export function TemplateEditorFields({ form, onChange, offerings, signatories, a
             {signatories.map((s) => (
               <label key={s.id} className="flex items-center gap-2 text-sm">
                 <Checkbox checked={form.signatoryIds.includes(s.id)} onCheckedChange={(v) => onChange({ signatoryIds: toggle(form.signatoryIds, s.id, v === true) })} />
-                {s.name} · {String(s.data.designation ?? '')}
+                {s.name} · {asString(s.data.designation)}
               </label>
             ))}
           </div>

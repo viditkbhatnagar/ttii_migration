@@ -14,12 +14,17 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asNumber, asString, messageFromError, toRecords } from '../../shared/utils/admin-data-utils.js';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseOnBlur } from '@/lib/text-format';
+import { useCredentialPermissions } from '../credentials/use-credential-permissions.js';
+import { DELIVERY_MODE_OPTIONS, LEVELS } from '../credentials/settings/settings-model.js';
 
 // Restyled in Naji's design (TTII 2026-10-12): same sections in the same
 // order, section cards, dd/mm/yyyy date entry. The form fields, payloads,
 // certificate-package pricing and save flow are unchanged.
 const sectionClass = 'gap-0 border-border/70 shadow-[var(--shadow-soft)]';
 const thisYear = new Date().getFullYear();
+
+interface CredentialFields { issued: 'Yes' | 'No'; mode: string; level: string }
+const EMPTY_CREDENTIAL_FIELDS: CredentialFields = { issued: 'No', mode: 'digital', level: '' };
 
 /** Surface a failed save instead of swallowing it. */
 function toastFailure(err: unknown, fallback: string): void {
@@ -109,6 +114,11 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
   const confirm = useConfirm();
   const [form, setForm] = useState<OfferingForm>(emptyForm);
   const [saving, setSaving] = useState(false);
+  // Credential Manager (spec 1.12): stored in credential_offering_settings, not on the offering.
+  const [cred, setCred] = useState<CredentialFields>(EMPTY_CREDENTIAL_FIELDS);
+  const [credLoaded, setCredLoaded] = useState<CredentialFields>(EMPTY_CREDENTIAL_FIELDS);
+  const [credReady, setCredReady] = useState(true);
+  const credPerms = useCredentialPermissions(api, session.token, session.roleId);
   const [packages, setPackages] = useState<Record<string, unknown>[]>([]);
   const [packageDialog, setPackageDialog] = useState(false);
   const [packageForm, setPackageForm] = useState<PackageForm>(emptyPackageForm);
@@ -269,6 +279,37 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
     }).catch(() => {/* ignore */});
   }, [editId, api, session.token]);
 
+  // Load the credential fields for an existing offering; a missing table disables them with the note.
+  useEffect(() => {
+    api.listCredentialOfferingSettings(session.token).then((out) => {
+      setCredReady(out.ready !== false);
+      if (!editId) return;
+      const row = toRecords(out.rows).find((r) => asString(r.offeringId) === editId);
+      const next: CredentialFields = row
+        ? { issued: row.issuedByTtii === true ? 'Yes' : 'No', mode: asString(row.defaultDeliveryMode) || 'digital', level: asString(row.level) }
+        : EMPTY_CREDENTIAL_FIELDS;
+      setCred(next);
+      setCredLoaded(next);
+    }).catch(() => setCredReady(false));
+  }, [editId, api, session.token]);
+
+  const credEditable = credReady && credPerms?.settings === true;
+
+  /** Saves the credential fields after the offering itself saved; the offering is never rolled back. */
+  const saveCredentialFields = useCallback(async (offeringId: string) => {
+    if (!credEditable || !offeringId) return;
+    if (cred.issued === credLoaded.issued && cred.mode === credLoaded.mode && cred.level === credLoaded.level) return;
+    try {
+      const out = await api.saveCredentialOfferingSettings(session.token, {
+        offering_id: Number(offeringId), issued_by_ttii: cred.issued === 'Yes', default_delivery_mode: cred.mode, level: cred.level,
+      });
+      if (out.status !== 1) { toast.error(out.message || 'The offering was saved, but its credential settings were not.'); return; }
+      setCredLoaded(cred);
+    } catch (err) {
+      toastFailure(err, 'The offering was saved, but its credential settings were not.');
+    }
+  }, [api, session.token, cred, credLoaded, credEditable]);
+
   const updateField = useCallback((field: keyof OfferingForm, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   }, []);
@@ -300,6 +341,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
       };
       if (editId) {
         await api.updateOffering(session.token, editId, payload);
+        await saveCredentialFields(editId);
         onNavigate('/admin/offerings/index');
       } else {
         // First save: stay on the form so the Certificate Package card
@@ -311,6 +353,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         const data = (result.data ?? {}) as Record<string, unknown>;
         const newId = asString(data.id) || asString(result.id);
         if (newId) {
+          await saveCredentialFields(newId);
           window.history.replaceState({}, '', `/admin/offerings/edit/${newId}`);
           setEditId(newId);
           toast.success('Offering created. You can now attach Certificate Packages below.');
@@ -321,7 +364,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
     } catch (err) {
       toastFailure(err, 'Could not save the offering.');
     } finally { setSaving(false); }
-  }, [api, session.token, editId, form, onNavigate]);
+  }, [api, session.token, editId, form, onNavigate, saveCredentialFields]);
 
   if (coursesLoading) {
     return <div className="space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-96 w-full" /></div>;
@@ -588,6 +631,36 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className={sectionClass}>
+        <CardHeader><CardTitle className="text-base">Credentials</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          {!credReady ? <p role="status" className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">The Credential Manager is not set up yet. Please contact the administrator.</p> : null}
+          {credReady && credPerms && !credPerms.settings ? <p role="status" className="text-xs text-muted-foreground">Changing credential settings needs the Credential settings permission.</p> : null}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-1">
+              <Label htmlFor="cred-issued">Credential issued by TTII</Label>
+              <select id="cred-issued" required className={selectClass} disabled={!credEditable} value={cred.issued} onChange={(e) => setCred((c) => ({ ...c, issued: e.target.value === 'Yes' ? 'Yes' : 'No' }))}>
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="cred-mode">Default delivery mode</Label>
+              <select id="cred-mode" className={selectClass} disabled={!credEditable} value={cred.mode} onChange={(e) => setCred((c) => ({ ...c, mode: e.target.value }))}>
+                {DELIVERY_MODE_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="cred-level">Level</Label>
+              <select id="cred-level" className={selectClass} disabled={!credEditable} value={cred.level} onChange={(e) => setCred((c) => ({ ...c, level: e.target.value }))}>
+                <option value="">Not set</option>
+                {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
           </div>
         </CardContent>
       </Card>

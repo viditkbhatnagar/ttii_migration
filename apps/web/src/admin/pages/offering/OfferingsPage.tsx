@@ -56,7 +56,17 @@ export default function OfferingsPage({ api, session, onNavigate }: AdminPagePro
 
   const { data, loading, error, reload } = useAdminPageData(() => api.listOfferings(session.token), []);
 
-  const rows = useMemo(() => toOfferingRows(toRecords(data)), [data]);
+  // Credential issued by TTII (Credential Manager). Read failures degrade to "No" (never a page error).
+  const { data: credData } = useAdminPageData(
+    () => api.listCredentialOfferingSettings(session.token).catch((): Record<string, unknown> => ({})),
+    [],
+  );
+  const credentialMap = useMemo(
+    () => new Map(toRecords(credData?.rows).map((r) => [asString(r.offeringId), r.issuedByTtii === true] as const)),
+    [credData],
+  );
+
+  const rows = useMemo(() => toOfferingRows(toRecords(data), credentialMap), [data, credentialMap]);
   const totals = useMemo(() => offeringTotals(rows), [rows]);
   const pills = useMemo(() => statusCounts(rows.map((r) => r.status), OFFERING_STATUS_ORDER), [rows]);
   const modes = useMemo(() => modeOptions(rows), [rows]);
@@ -151,7 +161,7 @@ export default function OfferingsPage({ api, session, onNavigate }: AdminPagePro
       </div>
 
       <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_240px_150px_140px_auto]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_240px_150px_140px_160px_auto]">
           <div className="relative">
             <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input aria-label="Search offerings" placeholder="Search by offering title, code or course…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
@@ -159,6 +169,7 @@ export default function OfferingsPage({ api, session, onNavigate }: AdminPagePro
           <FilterSelect label="Course" value={filters.courseId} onChange={(v) => set({ courseId: v })} allLabel="All Courses" options={courseOptions} />
           <FilterSelect label="Mode" value={filters.mode} onChange={(v) => set({ mode: v })} allLabel="All Modes" options={modes} />
           <FilterSelect label="Pricing" value={filters.pricing} onChange={(v) => set({ pricing: v })} allLabel="All Pricing" options={[{ value: 'Paid', label: 'Paid' }, { value: 'Free', label: 'Free' }]} />
+          <FilterSelect label="TTII credentials" value={filters.ttii} onChange={(v) => set({ ttii: v })} allLabel="TTII credentials: All" options={[{ value: 'Yes', label: 'TTII credentials: Yes' }, { value: 'No', label: 'TTII credentials: No' }]} />
           <div className="flex items-center justify-end">
             <Button variant="ghost" size="sm" onClick={reset}>Reset filters</Button>
           </div>
@@ -191,6 +202,7 @@ export default function OfferingsPage({ api, session, onNavigate }: AdminPagePro
                   <SortHead label="Enrolments Ends" k="enrolEnd" sortKey={sortKey} dir={sortDir} onSort={onSort} />
                   <SortHead label="Pricing Type" k="pricing" sortKey={sortKey} dir={sortDir} onSort={onSort} />
                   <SortHead label="Enrollments" k="enrolled" sortKey={sortKey} dir={sortDir} onSort={onSort} className="text-right" />
+                  <SortHead label="Credential issued by TTII" k="ttii" sortKey={sortKey} dir={sortDir} onSort={onSort} />
                   <SortHead label="Status" k="status" sortKey={sortKey} dir={sortDir} onSort={onSort} />
                   <TableHead className="text-right text-xs">Action</TableHead>
                 </TableRow>
@@ -215,6 +227,7 @@ export default function OfferingsPage({ api, session, onNavigate }: AdminPagePro
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{dmy(r.enrolEndYmd) || '-'}</TableCell>
                     <TableCell className="text-sm">{r.pricing}</TableCell>
                     <TableCell className="text-right text-sm font-medium tabular-nums">{r.enrolled}</TableCell>
+                    <TableCell className="text-sm">{r.credentialIssued ? 'Yes' : 'No'}</TableCell>
                     <TableCell><Pill tone={STATUS_TONE[r.status] ?? 'slate'}>{r.status}</Pill></TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>

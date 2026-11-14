@@ -10,7 +10,7 @@ import { useConfirm } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { messageFromError } from '../../shared/utils/admin-data-utils.js';
+import { asString, messageFromError } from '../../shared/utils/admin-data-utils.js';
 import { EmptyState, PageTitle } from '../../shared/components/ui-kit.js';
 import { FilterSelect, PillTab } from '../students/list-chrome.js';
 import { AccessUnavailable } from './AccessUnavailable.js';
@@ -49,17 +49,17 @@ function SettingsBody({ api, session }: AdminPageProps) {
 
   const lookups = useAdminPageData(async () => {
     const [options, signatories] = await Promise.all([api.loadCredentialSettingsOptions(token), api.listCredentialSettings(token, 'signatory')]);
-    return { offerings: toOfferingOptions(options.offerings), signatories: toConfigRows(signatories.rows).filter((s) => s.active), notice: String(options.message ?? '') };
+    return { offerings: toOfferingOptions(options.offerings), signatories: toConfigRows(signatories.rows).filter((s) => s.active), notice: asString(options.message) };
   }, []);
   const list = useAdminPageData(() => api.listCredentialSettings(token, tab), [tab]);
-  const offerings: OfferingOption[] = lookups.data?.offerings ?? [];
-  const signatories = lookups.data?.signatories ?? [];
+  const offerings: OfferingOption[] = useMemo(() => lookups.data?.offerings ?? [], [lookups.data]);
+  const signatories = useMemo(() => lookups.data?.signatories ?? [], [lookups.data]);
 
   useEffect(() => { setSearch(''); setStatusFilter('all'); setFilter(''); }, [tab]);
 
   const rows: Row[] = useMemo(() => (tab === 'number_series' ? toSeriesRows(list.data?.rows) : toConfigRows(list.data?.rows)), [tab, list.data]);
   const ready = list.data?.ready !== false;
-  const notice = String(list.data?.message ?? '');
+  const notice = asString(list.data?.message);
 
   const counts = useMemo(() => {
     if (tab === 'number_series') return { all: rows.length, active: 0, inactive: 0 };
@@ -102,10 +102,10 @@ function SettingsBody({ api, session }: AdminPageProps) {
 
   const meta = SETTING_TABS.find((t) => t.id === tab) as (typeof SETTING_TABS)[number];
   const previewTemplate = previewing && {
-    docType: String(previewing.data.docType ?? 'certificate'), level: String(previewing.data.level ?? ''), offeringId: previewing.offeringId,
+    docType: (asString(previewing.data.docType) || 'certificate'), level: asString(previewing.data.level), offeringId: previewing.offeringId,
     fields: (Array.isArray(previewing.data.fields) ? previewing.data.fields : []).map(String),
     signatoryIds: (Array.isArray(previewing.data.signatoryIds) ? previewing.data.signatoryIds : []).map(Number),
-    backContent: String(previewing.data.backContent ?? ''), backgroundKey: String(previewing.data.backgroundKey ?? ''),
+    backContent: asString(previewing.data.backContent), backgroundKey: asString(previewing.data.backgroundKey),
   };
 
   return (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Award, QrCode, UserRound } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { asString } from '../../../shared/utils/admin-data-utils.js';
 import type { AdminPortalApi } from '../../../admin-portal-api.js';
 import { docTypeLabel, type ConfigRow, type OfferingOption } from './settings-model.js';
 
@@ -29,7 +30,7 @@ export function TemplatePreview({ template, offerings, signatories, api, token, 
   useEffect(() => {
     let live = true;
     void signed(api, token, template.backgroundKey).then((u) => { if (live) setBackground(u); });
-    void Promise.all(chosen.map(async (s) => [s.id, await signed(api, token, String(s.data.signatureKey ?? ''))] as const))
+    void Promise.all(chosen.map(async (s) => [s.id, await signed(api, token, asString(s.data.signatureKey))] as const))
       .then((pairs) => { if (live) setSignatures(Object.fromEntries(pairs)); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -74,7 +75,7 @@ export function TemplatePreview({ template, offerings, signatories, api, token, 
                 <div key={s.id} className="text-center">
                   {signatures[s.id] ? <img src={signatures[s.id]} alt={`${s.name} signature`} className="mx-auto h-9 max-w-32 object-contain" /> : null}
                   <p className="text-sm font-medium">{s.name}</p>
-                  <p className="text-xs text-muted-foreground">{String(s.data.designation ?? '')}</p>
+                  <p className="text-xs text-muted-foreground">{asString(s.data.designation)}</p>
                 </div>
               )) : null}
             </div>

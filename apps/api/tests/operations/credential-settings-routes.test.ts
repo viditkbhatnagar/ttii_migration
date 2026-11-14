@@ -118,7 +118,7 @@ describe('settings routes need credentials.settings', () => {
 describe('GET /admin/credentials/me/permissions', () => {
   test('super admin all true; admin its grants; counsellor and ungranted all false', async () => {
     const { app } = makeApp();
-    const get = async (token: string) => (await app.inject({ method: 'GET', url: `/admin/credentials/me/permissions?auth_token=${token}` })).json().data;
+    const get = async (token: string) => (await app.inject({ method: 'GET', url: `/admin/credentials/me/permissions?auth_token=${token}` })).json<{ data: unknown }>().data;
     expect(await get('super')).toEqual({ access: true, revoke: true, override: true, settings: true, reports: true });
     expect(await get('access')).toEqual({ access: true, revoke: false, override: false, settings: false, reports: false });
     expect(await get('nogrant')).toEqual({ access: false, revoke: false, override: false, settings: false, reports: false });
@@ -132,7 +132,7 @@ describe('image upload and signed preview', () => {
   test('PNG/JPG only, stored PRIVATE under credentials/settings/, preview by signed URL', async () => {
     const { app, stored } = makeApp();
     const good = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?kind=signature&auth_token=super', ...multipartBody('sig.png', PNG, 'image/png') });
-    const key = good.json().data.key as string;
+    const key = good.json<{ data: { key: string } }>().data.key;
     expect(good.json()).toMatchObject({ status: 1 });
     expect(key).toMatch(/^credentials\/settings\/signature-[0-9a-f]{32}\.png$/);
     expect(stored[0]?.publicRead).toBeUndefined();
@@ -142,7 +142,7 @@ describe('image upload and signed preview', () => {
     expect(big.json()).toMatchObject({ status: 0, message: 'Choose a PNG or JPG image under 5 MB' });
     expect((await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=nogrant', ...multipartBody('sig.png', PNG, 'image/png') })).statusCode).toBe(403);
     const url = await app.inject({ method: 'GET', url: `/admin/credentials/settings/file_url?key=${encodeURIComponent(key)}&auth_token=super` });
-    expect(url.json().data.url).toContain('signed.example');
+    expect(url.json<{ data: { url: string } }>().data.url).toContain('signed.example');
     const bad = await app.inject({ method: 'GET', url: '/admin/credentials/settings/file_url?key=uploads/secret.png&auth_token=super' });
     expect(bad.json()).toMatchObject({ status: 0 });
     await app.close();

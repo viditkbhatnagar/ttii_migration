@@ -150,7 +150,7 @@ export function emptyForm(): SettingForm {
   };
 }
 
-const s = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
+const s = (v: unknown): string => asString(v);
 
 export function formFromRow(tab: SettingTab, row: ConfigRow | SeriesRow): SettingForm {
   const base = emptyForm();
