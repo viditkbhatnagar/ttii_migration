@@ -11,7 +11,7 @@ import { CredentialEligibilityService, type Evaluated } from './credential-eligi
 import { ISSUE_ERRORS, issueGateError, type GateEnrolment } from './credential-eligibility-model.js';
 import {
   DEFAULT_SERIES_PREFIX, actionRefusal, correctionDocumentNo, formatDocumentNo, newVerificationId, parseSnapshot, publicUrl,
-  type CredentialSnapshot, type VersionAction,
+  type CredentialSnapshot,
 } from './credential-issue-model.js';
 import { dateOnly, dmy, fail, guarded, istToday, notify, ok, ymdOf, type Outcome } from './credential-common.js';
 import {
@@ -399,9 +399,7 @@ export class CredentialIssueService {
       if (refusal) return fail(refusal);
       const ev = await this.event(this.prisma, id, kind === 'duplicate' ? 'Duplicate' : 'Print', actor, { reason: reason.trim(), copyType: kind === 'duplicate' ? 'duplicate' : 'original', before: doc.status, after: doc.status });
       if (kind === 'duplicate') {
-        const snap = parseSnapshot(doc.snapshot);
         await notify(this.prisma, { key: `duplicate:${ev.id}`, audience: 'learner', recipientUserId: doc.user_id, title: 'Credential duplicate', body: `${doc.document_no}: ${reason.trim()}`, link: '/student/certificates' });
-        void snap;
       }
       return ok({ eventId: ev.id }, kind === 'duplicate' ? 'Duplicate copy recorded.' : 'PDF downloaded for printing; Original copy event recorded.');
     });

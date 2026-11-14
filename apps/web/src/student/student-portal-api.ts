@@ -365,6 +365,44 @@ export interface StudentCouponInput {
   couponCode: string;
 }
 
+// ── Credential Manager: My Certificates (types) ─────────────────────────────
+export interface LearnerCredentialDocument {
+  id: number;
+  docType: string;
+  docTypeLabel: string;
+  documentNo: string;
+  verificationId: string;
+  status: 'valid' | 'revoked' | 'superseded';
+  learner: string;
+  course: string;
+  issueDate: string;
+  physicalStatus: string;
+  firstDownloadAt: string;
+  trackingUrl: string;
+  awbNo: string;
+  hasPdf: boolean;
+}
+
+export interface LearnerCredentialPending {
+  enrolId: number;
+  course: string;
+  status: string;
+  label: string;
+  message: string;
+  holdReasons: string[];
+  nameConfirmed: boolean;
+  printedName: string;
+  address: string;
+  defaultName: string;
+  canConfirm: boolean;
+}
+
+export interface LearnerCredentials {
+  documents: LearnerCredentialDocument[];
+  pending: LearnerCredentialPending[];
+}
+// ── end Credential Manager types ────────────────────────────────────────────
+
 export class StudentPortalApi {
   private readonly apiClient: LegacyApiClient;
 
@@ -1486,6 +1524,47 @@ export class StudentPortalApi {
   static getCourseId(value: Record<string, unknown>): number {
     return asNumber(value.course_id) || asNumber(value.id);
   }
+
+  // ── Credential Manager: My Certificates ───────────────────────────────────
+  async loadCertificates(authToken: string): Promise<LearnerCredentials> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/student/certificates/index', authToken);
+    const data = asRecord(payload.data) ?? {};
+    return {
+      documents: asArray(data.documents) as LearnerCredentialDocument[],
+      pending: asArray(data.pending) as LearnerCredentialPending[],
+    };
+  }
+
+  async confirmCertificateDetails(
+    authToken: string,
+    input: { enrolId: number; printedName: string; address: string },
+  ): Promise<void> {
+    await this.post<LegacyEnvelope<unknown>>('/student/certificates/confirm', authToken, {
+      enrol_id: input.enrolId,
+      printed_name: input.printedName,
+      address: input.address,
+    });
+  }
+
+  /** Authed PDF fetch (Bearer header, no token in the URL). Returns the file as a Blob. */
+  async fetchCertificatePdf(authToken: string, documentId: number): Promise<Blob> {
+    const url = new URL('student/certificates/pdf', this.apiClient.getBaseUrl());
+    url.searchParams.set('id', String(documentId));
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${authToken}` } });
+    const type = response.headers.get('content-type') ?? '';
+    if (!response.ok || !type.includes('application/pdf')) {
+      let message = 'The PDF could not be downloaded. Please try again.';
+      try {
+        const body = asRecord(await response.json());
+        if (body && typeof body.message === 'string' && body.message) message = body.message;
+      } catch {
+        // keep the generic message
+      }
+      throw new Error(message);
+    }
+    return response.blob();
+  }
+  // ── end Credential Manager ────────────────────────────────────────────────
 
   static getAssignmentId(value: Record<string, unknown>): number {
     return asNumber(value.id);

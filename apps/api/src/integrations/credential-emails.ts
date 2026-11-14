@@ -1,6 +1,6 @@
 // Learner email: "your credential is ready" (Credential Manager, Naji 2026-11-14). Navy Lovable shell.
 
-import { MUTED, FONT, PARA, ctaButton, detailsCard, esc, orDash, shell } from './lovable-email-shell.js';
+import { MUTED, FONT, PARA, ctaButton, detailsCard, orDash, shell } from './lovable-email-shell.js';
 
 export const CREDENTIAL_PORTAL_URL = 'https://learn.teachersindia.in/student/certificates';
 
@@ -35,7 +35,7 @@ export function renderCredentialReadyEmail(data: CredentialReadyEmailData): stri
       <a href="mailto:support@teachersindia.in">support@teachersindia.in</a>.
     </p>`;
   return shell({
-    title: esc(CREDENTIAL_EMAIL_SUBJECT(data.resend === true)),
+    title: CREDENTIAL_EMAIL_SUBJECT(data.resend === true),
     preheader: 'Your TTII credential is available in your learner portal.',
     bodyInner,
   });

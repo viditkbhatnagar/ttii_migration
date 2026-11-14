@@ -215,7 +215,7 @@ export function actionRefusal(action: VersionAction, status: string, reason: str
   return null;
 }
 
-/** Whether `a` is the same learner-facing PDF content (used by regenerate checks). */
+/** Document types that can be issued today (not the consolidated transcript). */
 export function isIssuableType(t: string): t is Exclude<DocType, 'transcript'> {
   return t === 'certificate' || t === 'marksheet' || t === 'provisional';
 }
