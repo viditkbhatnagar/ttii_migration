@@ -31,7 +31,7 @@ export interface VerifyResult {
   documentNo: string;
   issueDate: string | null;
   credits: number | null;
-  cgpa: number | null;
+  cgpa: string | null;
   grade: string | null;
   examSession: string | null;
   subjects: VerifySubject[] | null;
@@ -84,7 +84,7 @@ function toResult(data: Record<string, unknown>): VerifyResult {
     documentNo: str(data.documentNo),
     issueDate: strOrNull(data.issueDate),
     credits: numOrNull(data.credits),
-    cgpa: numOrNull(data.cgpa),
+    cgpa: strOrNull(data.cgpa),
     grade: strOrNull(data.grade),
     examSession: strOrNull(data.examSession),
     subjects: Array.isArray(data.subjects) ? data.subjects.map(toSubject) : null,

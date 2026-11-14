@@ -35,6 +35,15 @@ export interface Evaluated {
   daysWaiting: number;
 }
 
+export interface EligibilityInsightRow {
+  enrolId: number;
+  learnerName: string;
+  centreId: number | null;
+  courseTitle: string;
+  status: EligibilityStatus;
+  readySince: string | null;
+}
+
 export interface ReadyRow {
   enrolId: number;
   learner: string;
@@ -151,6 +160,15 @@ export class CredentialEligibilityService {
       holdReason: e.activeHolds.map((h) => h.reason).join(', '), heldSince: hold?.placedAt ?? '', hasOverride: e.hasOverride,
       issuedTypes: e.docs.map((d) => d.docType),
     };
+  }
+
+  /** Every in-scope enrolment's status for the Dashboard insights; readySince = the date it became Ready (completion date, or the override date). */
+  async listEligibilityForInsights(): Promise<EligibilityInsightRow[]> {
+    const evaluated = await this.evaluate();
+    return evaluated.map((e) => ({
+      enrolId: e.candidate.enrolId, learnerName: e.candidate.learnerName, centreId: e.candidate.centreId, courseTitle: e.candidate.courseTitle,
+      status: e.status, readySince: e.status === 'Ready' ? (e.candidate.completionDate || null) : null,
+    }));
   }
 
   async holdReasons(): Promise<string[]> {
@@ -276,4 +294,9 @@ export class CredentialEligibilityService {
       return ok(undefined, 'Details confirmed.');
     });
   }
+}
+
+/** Standalone entry for the Dashboard's Ready / Needs attention / Pending report. */
+export function listEligibilityForInsights(): Promise<EligibilityInsightRow[]> {
+  return new CredentialEligibilityService().listEligibilityForInsights();
 }

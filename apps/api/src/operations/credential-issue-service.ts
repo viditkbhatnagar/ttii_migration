@@ -13,7 +13,7 @@ import {
   DEFAULT_SERIES_PREFIX, actionRefusal, correctionDocumentNo, formatDocumentNo, newVerificationId, parseSnapshot, publicUrl,
   type CredentialSnapshot,
 } from './credential-issue-model.js';
-import { dateOnly, dmy, fail, guarded, istToday, notify, ok, ymdOf, type Outcome } from './credential-common.js';
+import { dateOnly, dmy, emitCredentialNotice, fail, guarded, istToday, notify, ok, ymdOf, type Outcome } from './credential-common.js';
 import {
   DOC_TYPE_LABEL, parseConfigData, type DeliveryMode, type DeliverySettingsData, type DocType, type SignatoryData, type TemplateData,
   DEFAULT_DELIVERY_SETTINGS,
@@ -163,6 +163,7 @@ export class CredentialIssueService {
         throw error;
       }
 
+      for (const c of created) emitCredentialNotice('issue', { id: c.id, userId: c.plan.e.candidate.userId, documentNo: c.documentNo });
       // After the commit: PDFs (a failure keeps the document; "Regenerate PDF" retries), then the learner emails.
       let pdfFailures = 0;
       for (const c of created) {
@@ -401,6 +402,7 @@ export class CredentialIssueService {
       if (kind === 'duplicate') {
         await notify(this.prisma, { key: `duplicate:${ev.id}`, audience: 'learner', recipientUserId: doc.user_id, title: 'Credential duplicate', body: `${doc.document_no}: ${reason.trim()}`, link: '/student/certificates' });
       }
+      if (kind === 'duplicate') emitCredentialNotice('duplicate', { id, userId: doc.user_id, documentNo: doc.document_no });
       return ok({ eventId: ev.id }, kind === 'duplicate' ? 'Duplicate copy recorded.' : 'PDF downloaded for printing; Original copy event recorded.');
     });
   }
@@ -413,6 +415,11 @@ export class CredentialIssueService {
     const day = istToday(ev.created_at);
     const bytes = await this.renderPdf(id, `DUPLICATE - issued on ${dmy(day)}`);
     return bytes ? { bytes, fileName: `${sanitise(doc.document_no)}-duplicate.pdf` } : null;
+  }
+
+  /** Duplicate copy for a valid document (also the Lost -> Duplicate hook of the delivery side). */
+  issueDuplicateCopy(documentId: number, reason: string, actorId: number | null): Promise<Outcome<{ eventId: number }>> {
+    return this.recordCopy(actorId, documentId, 'duplicate', reason);
   }
 
   logDownload(actor: number | null, id: number): Promise<unknown> {
@@ -446,6 +453,7 @@ export class CredentialIssueService {
         await notify(tx, { key: `${action}:${id}:${at.getTime()}`, audience: 'learner', recipientUserId: doc.user_id, title: action === 'revoke' ? 'Credential revoked' : 'Credential restored', body: doc.document_no, link: '/student/certificates' });
       }).catch((e: unknown) => { if (e instanceof IssueRefusal) return; throw e; });
       const fresh = await this.load(id);
+      if (fresh?.status === to) emitCredentialNotice(action, { id, userId: doc.user_id, documentNo: doc.document_no });
       return fresh?.status === to ? ok(undefined, action === 'revoke' ? 'Document revoked.' : 'Document restored.') : fail('The document status changed. Reload and try again.');
     });
   }
@@ -488,6 +496,7 @@ export class CredentialIssueService {
         if (error instanceof IssueRefusal) return fail(error.message);
         throw error;
       }
+      emitCredentialNotice('correction', { id: created.id, userId: doc.user_id, documentNo: created.documentNo });
       await this.renderAndStore(created.id);
       await this.emailLearners([{ id: created.id, userId: doc.user_id, enrolId: doc.enrol_id }], false);
       return ok(created, 'Corrected version issued.');
@@ -523,3 +532,8 @@ export class CredentialIssueService {
 class IssueRefusal extends Error {}
 
 export { ISSUE_ERRORS };
+
+/** Standalone entry for callers that do not hold the service (delivery side). */
+export function issueDuplicateCopy(documentId: number, reason: string, actorId: number | null): Promise<Outcome<{ eventId: number }>> {
+  return new CredentialIssueService().issueDuplicateCopy(documentId, reason, actorId);
+}

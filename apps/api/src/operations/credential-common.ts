@@ -71,3 +71,14 @@ export async function userNames(db: Db, ids: Array<number | null | undefined>): 
   const rows = await db.users.findMany({ where: { id: { in: unique } }, select: { id: true, name: true } });
   return new Map(rows.map((r) => [r.id, (r.name ?? '').trim() || `User ${r.id}`]));
 }
+
+export type CredentialNoticeKind = 'issue' | 'revoke' | 'restore' | 'correction' | 'duplicate';
+
+/**
+ * Single seam for the in-app notices of the Credential Manager (issue, revoke, restore,
+ * correction, duplicate). The rows in credential_notifications are written by notify() inside the
+ * action; this hook is a deliberate no-op until the notification centre is wired at merge.
+ */
+export function emitCredentialNotice(_kind: CredentialNoticeKind, _doc: { id: number; userId: number; documentNo: string }): void {
+  /* no-op stub */
+}
