@@ -44,7 +44,7 @@ function DeliveryContent({ api, session }: AdminPageProps) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notices, setNotices] = useState<Awaited<ReturnType<typeof api.credNotifications>>['rows']>([]);
 
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data]);
   const batches = data?.batches ?? [];
   const tabItems = useMemo(() => (tab === 'batches' ? [] : items.filter((i) => (ITEM_TABS[tab] as readonly string[]).includes(i.status))), [items, tab]);
   const count = (t: Tab): number => (t === 'batches' ? batches.length : items.filter((i) => (ITEM_TABS[t] as readonly string[]).includes(i.status)).length);

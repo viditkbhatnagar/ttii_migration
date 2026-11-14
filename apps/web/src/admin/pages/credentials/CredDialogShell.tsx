@@ -6,14 +6,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 // container queries (`@container` + `@xl:`), never viewport breakpoints.
 
 export function CredDialog({
-  open, onOpenChange, title, description, width = 640, footer, children,
+  open, onOpenChange, title, description, width = 640, footer, children, className,
 }: {
-  open: boolean; onOpenChange: (open: boolean) => void; title: string; description?: string; width?: number; footer?: ReactNode; children: ReactNode;
+  open: boolean; onOpenChange: (open: boolean) => void; title: string; description?: string; width?: number; footer?: ReactNode; children: ReactNode; className?: string;
 }) {
   const w = `min(${width}px, calc(100vw - 2rem))`;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent style={{ width: w, maxWidth: w }} className="flex max-h-[90vh] flex-col gap-0 p-0">
+      <DialogContent style={{ width: w, maxWidth: w }} className={`flex max-h-[90vh] flex-col gap-0 p-0 ${className ?? ''}`}>
         <DialogHeader className="border-b border-border px-6 py-4 text-left">
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : <DialogDescription className="sr-only">{title}</DialogDescription>}

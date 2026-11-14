@@ -1,4 +1,5 @@
-import { type AuthSession, type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
+import { ApiError, type AuthSession, type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
+import type { CentreCertificatesData } from '../admin/pages/credentials/credential-delivery-model.js';
 
 interface LegacyEnvelope<T> {
   data?: T;
@@ -506,6 +507,50 @@ export class CentrePortalApi {
   async loadCourseDetail(authToken: string, id: string): Promise<Record<string, unknown>> {
     const payload = await this.get<LegacyEnvelope<unknown>>(`/centre/portal/courses/${encodeURIComponent(id)}`, authToken);
     return asRecord(payload.data) ?? {};
+  }
+
+  // ── Credential Manager: the centre's Certificates page (centre login, own centre only) ──
+
+  async credCentreOverview(authToken: string): Promise<CentreCertificatesData> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/centre/portal/credentials', authToken);
+    return { ...((asRecord(payload.data) ?? {}) as unknown as CentreCertificatesData), message: payload.message === 'success' ? '' : payload.message ?? '' };
+  }
+
+  private async credCentreWrite(path: string, authToken: string, body: Record<string, unknown>): Promise<{ ok: boolean; message: string }> {
+    try {
+      const payload = await this.post<LegacyEnvelope<unknown>>(path, authToken, body);
+      return { ok: true, message: payload.message ?? 'Saved.' };
+    } catch (error: unknown) {
+      const refused = error instanceof ApiError ? asRecord(error.payload) : null;
+      if (refused && refused.status === 0) return { ok: false, message: error instanceof Error ? error.message : 'Request failed.' };
+      throw error;
+    }
+  }
+
+  credCentreAcknowledge(authToken: string, batchId: number, receiverName: string): Promise<{ ok: boolean; message: string }> {
+    return this.credCentreWrite(`/centre/portal/credentials/parcels/${batchId}/acknowledge`, authToken, { receiver_name: receiverName });
+  }
+
+  credCentreHandover(authToken: string, itemId: number, receiverName: string, proofKey: string): Promise<{ ok: boolean; message: string }> {
+    return this.credCentreWrite(`/centre/portal/credentials/items/${itemId}/handover`, authToken, { receiver_name: receiverName, proof_key: proofKey });
+  }
+
+  async credCentreUploadProof(authToken: string, file: File): Promise<{ key: string; name: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${this.apiClient.getBaseUrl()}centre/portal/credentials/proof?auth_token=${encodeURIComponent(authToken)}`, { method: 'POST', body: formData });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!payload || payload.status !== 1) throw new Error(typeof payload?.message === 'string' ? payload.message : `Upload failed (${response.status}).`);
+    const data = asRecord(payload.data) ?? {};
+    return { key: typeof data.key === 'string' ? data.key : '', name: typeof data.name === 'string' ? data.name : file.name };
+  }
+
+  /** A short-lived signed link to a document PDF or a handover proof of this centre. */
+  async credCentreSignedUrl(authToken: string, kind: 'document' | 'proof', id: number): Promise<string> {
+    const payload = await this.get<LegacyEnvelope<unknown>>(`/centre/portal/credentials/${kind === 'document' ? 'documents' : 'items'}/${id}/${kind === 'document' ? 'file' : 'proof'}`, authToken);
+    const url = asRecord(payload.data)?.url;
+    if (typeof url !== 'string' || !url) throw new Error('The file is not available.');
+    return url;
   }
 
   // ── Centre portal v2 (Naji's centre login design, 2026-10-22) ──────────────

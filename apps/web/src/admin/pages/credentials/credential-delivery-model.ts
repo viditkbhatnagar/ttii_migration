@@ -79,6 +79,20 @@ export interface ReportData {
   rows: Array<Record<string, string | number>>; hasDate: boolean; chart: { group: string; points: Array<{ label: string; value: number }> } | null; note: string;
 }
 
+export interface CentreCertificatesData {
+  ready: boolean; message: string; centre: string;
+  documents: Array<{
+    id: number; documentNo: string; docType: string; learner: string; enrolmentNo: string; course: string; issueDate: string;
+    status: string; physicalStatus: string; canDownload: boolean;
+  }>;
+  parcels: DeliveryBatch[];
+  handovers: Array<{
+    id: number; learner: string; documentNo: string; course: string; batchNo: string; status: ItemStatus; receiver: string;
+    deliveredAt: string | null; hasProof: boolean; canHandOver: boolean;
+  }>;
+  notices: NoticeRow[];
+}
+
 export interface CredResult<T = Record<string, unknown>> { ok: boolean; message: string; data: T }
 
 // ── Display helpers ─────────────────────────────────────────────────────────

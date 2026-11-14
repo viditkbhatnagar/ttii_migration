@@ -3628,7 +3628,7 @@ export class AdminPortalApi {
     const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     if (!payload || payload.status !== 1) throw new Error(typeof payload?.message === 'string' ? payload.message : `Upload failed (${response.status}).`);
     const data = asRecord(payload.data) ?? {};
-    return { key: String(data.key ?? ''), name: String(data.name ?? file.name) };
+    return { key: typeof data.key === 'string' ? data.key : '', name: typeof data.name === 'string' ? data.name : file.name };
   }
 
   async credScans(authToken: string, range: { from?: string; to?: string } = {}): Promise<CredScansOverview> {
