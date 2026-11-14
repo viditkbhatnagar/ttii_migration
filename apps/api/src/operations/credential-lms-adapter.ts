@@ -141,7 +141,7 @@ export async function loadCandidates(
 
   const [attendance, progress, fees, assignmentPct] = await Promise.all([
     loadAttendance(prisma, userIds, courseIds, users),
-    loadProgress(prisma, userIds, courseIds),
+    loadProgress(prisma, userIds, courseIds, picked.map(({ enrol }) => [enrol.user_id as number, enrol.course_id as number] as const)),
     loadFees(prisma, userIds),
     loadAssignments(prisma, userIds, courseIds),
   ]);
@@ -253,20 +253,32 @@ async function loadAttendance(prisma: PrismaClient, userIds: number[], courseIds
     where: { live_class_id: { in: sessions.map((s) => s.id) }, OR: [{ user_id: { in: userIds } }, ...(emails.length > 0 ? [{ email: { in: emails } }] : [])] },
     select: { live_class_id: true, user_id: true, email: true, percent_attended: true },
   });
+  // Indexed once (was sessions x attendance rows per learner + course).
+  const best = new Map<string, number>();
+  const bump = (k: string, v: number): void => { best.set(k, Math.max(best.get(k) ?? 0, v)); };
+  for (const r of rows) {
+    const pct = r.percent_attended === null ? 0 : Number(r.percent_attended);
+    if (r.user_id !== null) bump(`${r.live_class_id}:u${r.user_id}`, pct);
+    const mail = (r.email ?? '').toLowerCase();
+    if (mail) bump(`${r.live_class_id}:e${mail}`, pct);
+  }
+  const sessionsOfCohort = new Map<number, number[]>();
+  for (const s of sessions) {
+    if (s.cohort_id === null) continue;
+    sessionsOfCohort.set(s.cohort_id, [...(sessionsOfCohort.get(s.cohort_id) ?? []), s.id]);
+  }
   for (const [key, cohorts] of cohortsOf) {
     const userId = Number(key.split(':')[0]);
     const mail = emailOf.get(userId) ?? '';
-    const own = sessions.filter((s) => s.cohort_id !== null && cohorts.includes(s.cohort_id));
+    const own = [...new Set(cohorts.flatMap((c) => sessionsOfCohort.get(c) ?? []))];
     if (own.length === 0) continue;
-    const percents = own.map((s) => Math.max(0, ...rows
-      .filter((r) => r.live_class_id === s.id && (r.user_id === userId || (mail !== '' && r.email.toLowerCase() === mail)))
-      .map((r) => (r.percent_attended === null ? 0 : Number(r.percent_attended)))));
+    const percents = own.map((id) => Math.max(best.get(`${id}:u${userId}`) ?? 0, mail ? best.get(`${id}:e${mail}`) ?? 0 : 0));
     out.set(key, Math.round((percents.reduce((a, b) => a + b, 0) / percents.length) * 100) / 100);
   }
   return out;
 }
 
-async function loadProgress(prisma: PrismaClient, userIds: number[], courseIds: number[]): Promise<Map<string, number>> {
+async function loadProgress(prisma: PrismaClient, userIds: number[], courseIds: number[], pairs: ReadonlyArray<readonly [number, number]>): Promise<Map<string, number>> {
   const lessons = await prisma.lesson.findMany({ where: { course_id: { in: courseIds }, deleted_at: null }, select: { id: true, course_id: true } });
   const out = new Map<string, number>();
   if (lessons.length === 0) return out;
@@ -282,11 +294,13 @@ async function loadProgress(prisma: PrismaClient, userIds: number[], courseIds: 
     const courseId = courseOfLesson.get(f.lesson_id);
     if (courseId === undefined) continue;
     if ((f.lesson_type ?? '').trim().toLowerCase() === 'video') {
-      videosOf.set(courseId, new Set([...(videosOf.get(courseId) ?? []), f.id]));
+      if (!videosOf.has(courseId)) videosOf.set(courseId, new Set());
+      videosOf.get(courseId)?.add(f.id);
       allFileIds.video.push(f.id);
     }
     if (isMaterialKind(completionKind(f))) {
-      materialsOf.set(courseId, new Set([...(materialsOf.get(courseId) ?? []), f.id]));
+      if (!materialsOf.has(courseId)) materialsOf.set(courseId, new Set());
+      materialsOf.get(courseId)?.add(f.id);
       allFileIds.material.push(f.id);
     }
   }
@@ -302,18 +316,28 @@ async function loadProgress(prisma: PrismaClient, userIds: number[], courseIds: 
   ]);
   const doneVideos = new Set(videoDone.map((r) => `${r.user_id}:${r.lesson_file_id}`));
   const doneMaterials = new Set(materialDone.map((r) => `${r.user_id}:${r.lesson_file_id}`));
-  for (const userId of userIds) {
-    for (const courseId of courseIds) {
-      const videos = [...(videosOf.get(courseId) ?? [])];
-      const materials = [...(materialsOf.get(courseId) ?? [])];
-      const own = practice.filter((p) => p.user_id === userId && courseOfLesson.get(Number(p.lesson_id)) === courseId);
-      const total = videos.length + materials.length + own.length;
-      if (total === 0) continue;
-      const done = videos.filter((f) => doneVideos.has(`${userId}:${f}`)).length
-        + materials.filter((f) => doneMaterials.has(`${userId}:${f}`)).length
-        + own.filter((p) => p.submit_status === true).length;
-      out.set(`${userId}:${courseId}`, Math.round((done / total) * 1000) / 10);
-    }
+  // Practice attempts grouped once by learner + course (was a filter per pair: O(users x courses x attempts)).
+  const practiceOf = new Map<string, { total: number; submitted: number }>();
+  for (const p of practice) {
+    const courseId = courseOfLesson.get(Number(p.lesson_id));
+    if (courseId === undefined) continue;
+    const key = `${p.user_id}:${courseId}`;
+    const agg = practiceOf.get(key) ?? { total: 0, submitted: 0 };
+    practiceOf.set(key, { total: agg.total + 1, submitted: agg.submitted + (p.submit_status === true ? 1 : 0) });
+  }
+  // Only the real enrolment pairs, not the users x courses cross product.
+  for (const [userId, courseId] of pairs) {
+    const key = `${userId}:${courseId}`;
+    if (out.has(key)) continue;
+    const videos = videosOf.get(courseId) ?? new Set<number>();
+    const materials = materialsOf.get(courseId) ?? new Set<number>();
+    const own = practiceOf.get(key) ?? { total: 0, submitted: 0 };
+    const total = videos.size + materials.size + own.total;
+    if (total === 0) continue;
+    let done = own.submitted;
+    for (const f of videos) if (doneVideos.has(`${userId}:${f}`)) done += 1;
+    for (const f of materials) if (doneMaterials.has(`${userId}:${f}`)) done += 1;
+    out.set(key, Math.round((done / total) * 1000) / 10);
   }
   return out;
 }

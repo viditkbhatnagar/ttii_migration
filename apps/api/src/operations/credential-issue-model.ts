@@ -66,6 +66,8 @@ export interface CredentialSnapshot {
   ruleVersion: number | null;
   template: { id: number | null; name: string; version: number | null; docType: string };
   signatoryIds: number[];
+  /** Frozen at issue so a re-render (Regenerate, duplicate copy) matches the original. */
+  layout?: { fields: string[]; backgroundKey: string | null; signatories: Array<{ name: string; designation: string; signatureKey: string | null }> };
   issueDate: string;
   generatedAt: string;
 }
@@ -181,7 +183,7 @@ const utcDay = (d: Date): string => d.toISOString().slice(0, 10);
 export function alertCandidates(scan: ScanLite, history: readonly ScanLite[], verificationId: string): AlertCandidate[] {
   const out: AlertCandidate[] = [];
   if (scan.status === 'revoked' || scan.status === 'superseded') {
-    out.push({ key: `status:${scan.id}`, type: scan.status === 'revoked' ? 'revoked_scan' : 'superseded_scan', details: `${verificationId} showed ${scan.status === 'revoked' ? 'Revoked' : 'Superseded'}.` });
+    out.push({ key: `status:${scan.documentId ?? scan.id}:${utcDay(scan.at)}`, type: scan.status === 'revoked' ? 'revoked_scan' : 'superseded_scan', details: `${verificationId} showed ${scan.status === 'revoked' ? 'Revoked' : 'Superseded'}.` });
   }
   if (scan.documentId !== null) {
     const countries = [...new Set(history

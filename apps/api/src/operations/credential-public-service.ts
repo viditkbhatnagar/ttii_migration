@@ -27,10 +27,9 @@ export class CredentialPublicService {
       const verificationId = normaliseVerificationId(rawId);
       if (!verificationId) return fail('Enter a verification ID.');
       const doc = await this.prisma.credential_documents.findUnique({ where: { verification_id: verificationId } });
-      const scope = doc?.offering_id
-        ? await this.prisma.credential_offering_settings.findUnique({ where: { offering_id: doc.offering_id }, select: { issued_by_ttii: true } })
-        : null;
-      const found = doc && scope?.issued_by_ttii === true ? doc : null;
+      // A document row exists only when it was issued in scope; later changes to the
+      // offering's "issued by TTII" switch must never make a printed QR stop verifying.
+      const found = doc ?? null;
       const status: ScanStatus = found ? (found.status as ScanStatus) : 'not_found';
       const at = this.now();
 

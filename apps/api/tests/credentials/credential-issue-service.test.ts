@@ -136,7 +136,8 @@ describe('public lookup', () => {
     expect(f.notices.map((n) => n.audience).sort()).toEqual(['credential_admins', 'management']);
     await svc.lookup('TTII-AAAA-BBBB-CCCC', ctx);
     expect(f.scans).toHaveLength(2);
-    expect(f.alerts).toHaveLength(2); // a new scan id is a new alert key
+    expect(f.alerts).toHaveLength(1); // same document, same UTC day: deduped (no alert flood)
+    expect(f.notices).toHaveLength(2);
   });
   test('over 20 not-found lookups from one IP in a day raise the alert exactly once', async () => {
     const f = publicFake([]);
@@ -144,11 +145,12 @@ describe('public lookup', () => {
     for (let i = 0; i < 22; i += 1) await svc.lookup(`TTII-MISS-${i}`, ctx);
     expect(f.alerts.filter((a) => a.type === 'not_found_attempts')).toHaveLength(1);
   });
-  test('a document of an offering that is not TTII-issued looks like not found', async () => {
+  test('an issued document keeps verifying after its offering is switched off "issued by TTII"', async () => {
+    // Regression: printed QR codes must never stop verifying because of a later settings change.
     const f = publicFake([doc()], false);
     const out = await new CredentialPublicService(f.prisma).lookup('TTII-AAAA-BBBB-CCCC', ctx);
-    expect(out.data?.status).toBe('not_found');
-    expect(f.scans[0]?.document_id).toBeNull();
+    expect(out.data?.status).toBe('valid');
+    expect(f.scans[0]?.document_id).not.toBeNull();
   });
   test('before the migration the lookup refuses with the not-set-up message, never throws', async () => {
     const prisma = { credential_documents: { findUnique: async () => { throw Object.assign(new Error('x'), { code: 'P2021' }); } } } as unknown as PrismaClient;

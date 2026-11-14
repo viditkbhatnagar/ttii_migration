@@ -29,6 +29,9 @@ const VERIFICATION_RETRIES = 8;
 export interface IssuedDoc { id: number; enrolId: number; docType: string; documentNo: string; verificationId: string; learner: string }
 export interface IssueResult { issued: IssuedDoc[]; pdfFailures: number; emailsSent: number }
 
+/** One request renders, stores and emails every document; keep it inside the proxy timeout. */
+export const MAX_ISSUE_BATCH = 50;
+
 interface ResolvedTemplate { id: number | null; name: string; version: number | null; data: TemplateData | null }
 
 export interface CredentialIssueOptions {
@@ -99,6 +102,7 @@ export class CredentialIssueService {
   // ── Issue ──────────────────────────────────────────────────────────────────
   issue(actor: number | null, enrolIds: number[], docTypes: string[]): Promise<Outcome<IssueResult>> {
     return guarded(async () => {
+      if (enrolIds.length > MAX_ISSUE_BATCH) return fail(`Issue at most ${MAX_ISSUE_BATCH} learners at a time.`);
       const evaluated = await this.eligibility.evaluate({ enrolIds });
       const byEnrol = new Map(evaluated.map((e) => [e.candidate.enrolId, e]));
       const gate = new Map<number, GateEnrolment>(enrolIds.map((id): [number, GateEnrolment] => {
@@ -127,7 +131,7 @@ export class CredentialIssueService {
           const sigs = await this.signatoriesFor(this.prisma, template.data ? template.data.signatoryIds : null, today);
           plans.push({
             e, docType, template, mode, signatoryIds: sigs.map((s) => s.id),
-            snapshot: this.buildSnapshot(e, docType, level ?? '', durationOf.get(e.candidate.courseId) ?? '', template, sigs.map((s) => s.id), today),
+            snapshot: this.buildSnapshot(e, docType, level ?? '', durationOf.get(e.candidate.courseId) ?? '', template, sigs, today),
           });
         }
       }
@@ -159,7 +163,13 @@ export class CredentialIssueService {
         }, TX_OPTIONS);
       } catch (error: unknown) {
         if (error instanceof IssueRefusal) return fail(error.message);
-        if ((error as { code?: string }).code === 'P2002') return fail('A document already exists. Use Correction for a new version.');
+        if ((error as { code?: string }).code === 'P2002') {
+          const target = JSON.stringify((error as { meta?: { target?: unknown } }).meta?.target ?? '');
+          if (target.includes('doc_no') || target.includes('document_no')) {
+            return fail('The next document number is already in use. Check Settings > Number Series and set the next number above the last one issued.');
+          }
+          return fail('A document already exists. Use Correction for a new version.');
+        }
         throw error;
       }
 
@@ -178,7 +188,10 @@ export class CredentialIssueService {
     });
   }
 
-  private buildSnapshot(e: Evaluated, docType: DocType, level: string, durationText: string, template: ResolvedTemplate, signatoryIds: number[], today: string): CredentialSnapshot {
+  private buildSnapshot(
+    e: Evaluated, docType: DocType, level: string, durationText: string, template: ResolvedTemplate,
+    sigs: Array<{ id: number; name: string; designation: string; signatureKey: string | null }>, today: string,
+  ): CredentialSnapshot {
     const c = e.candidate;
     const credits = e.academic.subjects.length > 0 && e.academic.subjects.every((s) => s.credits !== null)
       ? e.academic.subjects.reduce((s, r) => s + (r.credits ?? 0), 0) : null;
@@ -201,7 +214,12 @@ export class CredentialIssueService {
       gradingName: e.academic.gradingName,
       ruleVersion: e.rule?.version ?? null,
       template: { id: template.id, name: template.name, version: template.version, docType },
-      signatoryIds,
+      signatoryIds: sigs.map((s) => s.id),
+      layout: {
+        fields: template.data?.fields ?? [],
+        backgroundKey: template.data?.backgroundKey ?? null,
+        signatories: sigs.map((s) => ({ name: s.name, designation: s.designation, signatureKey: s.signatureKey })),
+      },
       issueDate: today,
       generatedAt: this.now().toISOString(),
     };
@@ -250,19 +268,29 @@ export class CredentialIssueService {
   }
 
   /** Renders the document deterministically from its immutable snapshot (+ the template and signatories it recorded). */
-  async renderPdf(documentId: number, copyLabel?: string): Promise<Buffer | null> {
-    const doc = await this.prisma.credential_documents.findUnique({ where: { id: documentId } });
-    const snap = doc ? parseSnapshot(doc.snapshot) : null;
-    if (!doc || !snap) return null;
+  /** Layout for a snapshot written before `layout` was frozen: read the live template / signatories. */
+  private async liveLayout(snap: CredentialSnapshot): Promise<NonNullable<CredentialSnapshot['layout']>> {
     const templateRow = snap.template.id ? await this.prisma.credential_config.findUnique({ where: { id: snap.template.id } }) : null;
     const template = templateRow ? parseConfigData<TemplateData>(templateRow.data, { docType: 'certificate', level: null, fields: [], signatoryIds: [], backContent: '', backgroundKey: null }) : null;
     const sigRows = snap.signatoryIds.length > 0
       ? await this.prisma.credential_config.findMany({ where: { id: { in: snap.signatoryIds }, category: 'signatory' }, orderBy: { id: 'asc' } })
       : [];
-    const signatories = await Promise.all(sigRows.map(async (r) => {
-      const d = parseConfigData<SignatoryData>(r.data, { designation: '', validFrom: '', validTo: null, signatureKey: null });
-      return { name: r.name, designation: d.designation, image: await this.fetchImage(d.signatureKey) };
-    }));
+    return {
+      fields: template?.fields ?? [],
+      backgroundKey: template?.backgroundKey ?? null,
+      signatories: sigRows.map((r) => {
+        const d = parseConfigData<SignatoryData>(r.data, { designation: '', validFrom: '', validTo: null, signatureKey: null });
+        return { name: r.name, designation: d.designation, signatureKey: d.signatureKey };
+      }),
+    };
+  }
+
+  async renderPdf(documentId: number, copyLabel?: string): Promise<Buffer | null> {
+    const doc = await this.prisma.credential_documents.findUnique({ where: { id: documentId } });
+    const snap = doc ? parseSnapshot(doc.snapshot) : null;
+    if (!doc || !snap) return null;
+    const layout = snap.layout ?? await this.liveLayout(snap);
+    const signatories = await Promise.all(layout.signatories.map(async (sg) => ({ name: sg.name, designation: sg.designation, image: await this.fetchImage(sg.signatureKey) })));
     const url = this.url(doc.verification_id);
     const input: CredentialPdfInput = {
       docType: doc.doc_type as CredentialPdfInput['docType'],
@@ -280,8 +308,8 @@ export class CredentialIssueService {
       result: snap.result,
       examSession: snap.examSession,
       subjects: snap.subjects,
-      fields: template?.fields ?? [],
-      backgroundImage: await this.fetchImage(template?.backgroundKey),
+      fields: layout.fields,
+      backgroundImage: await this.fetchImage(layout.backgroundKey),
       signatories,
       qrPng: await QRCode.toBuffer(url, { margin: 1, width: 256, errorCorrectionLevel: 'M' }),
       publicUrl: url,

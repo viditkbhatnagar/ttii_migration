@@ -75,11 +75,13 @@ describe('public projection privacy', () => {
 describe('scan alerts', () => {
   const at = (iso: string) => new Date(iso);
   const nf = (id: number, iso: string, ip = '1.1.1.1'): ScanLite => ({ id, at: at(iso), documentId: null, status: 'not_found', country: null, ip });
-  test('a valid scan raises nothing; revoked and superseded scans raise one keyed by scan', () => {
+  test('a valid scan raises nothing; revoked and superseded scans raise one per document per UTC day', () => {
     const valid: ScanLite = { id: 1, at: at('2026-11-14T10:00:00Z'), documentId: 5, status: 'valid', country: null, ip: 'x' };
     expect(alertCandidates(valid, [valid], 'V')).toEqual([]);
     const rev: ScanLite = { ...valid, id: 2, status: 'revoked' };
-    expect(alertCandidates(rev, [rev], 'V')).toEqual([{ key: 'status:2', type: 'revoked_scan', details: 'V showed Revoked.' }]);
+    expect(alertCandidates(rev, [rev], 'V')).toEqual([{ key: 'status:5:2026-11-14', type: 'revoked_scan', details: 'V showed Revoked.' }]);
+    // A second scan of the same revoked document the same day maps to the same key (deduped by the unique alert_key).
+    expect(alertCandidates({ ...rev, id: 9, at: at('2026-11-14T18:00:00Z') }, [rev], 'V')[0]?.key).toBe('status:5:2026-11-14');
     const sup: ScanLite = { ...valid, id: 3, status: 'superseded' };
     expect(alertCandidates(sup, [sup], 'V')[0]?.type).toBe('superseded_scan');
   });

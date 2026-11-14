@@ -5,6 +5,7 @@ import {
   DEFAULT_DELIVERY_SETTINGS, NOT_SET_UP_MESSAGE, isMissingTable, parseConfigData,
   type ConfigCategory, type DeliverySettingsData,
 } from './credential-types.js';
+import { formatDocumentNo } from './credential-issue-model.js';
 import {
   SETTINGS_FILE_PREFIX, dateToYmd, isDeliveryMode, isLevel, parseCourierInput, parseDeliverySettings, parseGradingInput,
   parseNameOnly, parseRuleInput, parseSeriesInput, parseSignatoryInput, parseTemplateInput, ymdToDate, numberExample,
@@ -260,6 +261,10 @@ export class CredentialSettingsService {
       const id = Math.trunc(Number(raw.id ?? 0)) || 0;
       const clash = (await this.prisma.credential_number_series.findUnique({ where: { doc_type: s.docType } })) as SeriesRow | null;
       if (clash && clash.id !== id) return refuse('A number series already exists for this document type.');
+      const nextNo = formatDocumentNo(s.prefix, s.year, s.nextNumber, s.padding);
+      if (await this.prisma.credential_documents.findFirst({ where: { document_no: nextNo }, select: { id: true } })) {
+        return refuse(`${nextNo} has already been issued. Set the next number above the last number used.`);
+      }
       const data = { doc_type: s.docType, prefix: s.prefix, year: s.year, padding: s.padding, next_number: s.nextNumber, reset_yearly: s.resetYearly, updated_by: actor, updated_at: new Date() };
       if (id > 0) {
         const before = (await this.prisma.credential_number_series.findUnique({ where: { id } })) as SeriesRow | null;
@@ -344,6 +349,10 @@ export class CredentialSettingsService {
       const offering = await this.prisma.offerings.findFirst({ where: { id: offeringId, deleted_at: null }, select: { id: true } });
       if (!offering) return refuse('Offering not found.');
       const beforeRow = await this.prisma.credential_offering_settings.findUnique({ where: { offering_id: offeringId } });
+      if (beforeRow?.issued_by_ttii && !issued) {
+        const issuedDocs = await this.prisma.credential_documents.count({ where: { offering_id: offeringId } });
+        if (issuedDocs > 0) return refuse(`Credentials have already been issued for this offering (${issuedDocs}), so "Credential issued by TTII" must stay Yes.`);
+      }
       const data = { issued_by_ttii: issued, default_delivery_mode: mode, level: levelRaw || null, updated_by: actor, updated_at: new Date() };
       const after = await this.prisma.credential_offering_settings.upsert({ where: { offering_id: offeringId }, create: { offering_id: offeringId, ...data }, update: data });
       const toView = (x: { offering_id: number; issued_by_ttii: boolean; default_delivery_mode: string; level: string | null }): OfferingCredentialView =>

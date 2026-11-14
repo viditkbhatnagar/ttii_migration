@@ -15,7 +15,7 @@ const missingTable = Object.assign(new Error('The table `credential_config` does
 
 interface Cfg { id: number; category: string; name: string; offering_id: number | null; version: number; effective_from: Date | null; is_active: boolean; data: string | null; deleted_at: Date | null; updated_at: Date | null; created_at: Date | null }
 
-function world(opts: { issued?: number[]; missing?: boolean } = {}) {
+function world(opts: { issued?: number[]; missing?: boolean; docs?: Array<{ offering_id: number; document_no: string }> } = {}) {
   const cfg: Cfg[] = [];
   const audit: Array<{ action: string; entity: string; entity_id: number | null; before_json: string | null; after_json: string | null; actor_user_id: number | null }> = [];
   const series: Array<{ id: number; doc_type: string; prefix: string; year: number; padding: number; next_number: number; reset_yearly: boolean }> = [];
@@ -57,6 +57,10 @@ function world(opts: { issued?: number[]; missing?: boolean } = {}) {
       },
     },
     offerings: { findFirst: (a: { where: { id: number } }) => Promise.resolve(a.where.id < 100 ? { id: a.where.id } : null) },
+    credential_documents: {
+      count: (a: { where: { offering_id: number } }) => Promise.resolve((opts.docs ?? []).filter((d) => d.offering_id === a.where.offering_id).length),
+      findFirst: (a: { where: { document_no: string } }) => Promise.resolve((opts.docs ?? []).find((d) => d.document_no === a.where.document_no) ? { id: 1 } : null),
+    },
     credential_number_series: {
       findMany: () => { gate(); return Promise.resolve(series); },
       findUnique: (a: { where: { id?: number; doc_type?: string } }) => { gate(); return Promise.resolve(series.find((s) => (a.where.id !== undefined ? s.id === a.where.id : s.doc_type === a.where.doc_type)) ?? null); },
@@ -181,6 +185,14 @@ describe('number series, signatories, grading, hold reasons, couriers', () => {
     expect((await w.service.remove(1, 'number_series', first.data!.id)).status).toBe(1);
   });
 
+  test('refuses a next number that has already been issued (would block every issue with a unique clash)', async () => {
+    const w = world({ docs: [{ offering_id: 1, document_no: 'TTII/CERT/2026/000005' }] });
+    const clash = await w.service.saveSeries(1, { doc_type: 'certificate', prefix: 'TTII/CERT', year: 2026, padding: 6, next_number: 5 });
+    expect(clash.status).toBe(0);
+    expect(clash.message).toContain('TTII/CERT/2026/000005 has already been issued');
+    expect((await w.service.saveSeries(1, { doc_type: 'certificate', prefix: 'TTII/CERT', year: 2026, padding: 6, next_number: 6 })).status).toBe(1);
+  });
+
   test('signatory needs an image and valid-to not before valid-from', () => {
     const base = { name: 'Dr Rao', data: { designation: 'Director', validFrom: '2026-01-01', signatureKey: 'credentials/settings/signature-ab.png' } };
     expect(parseSignatoryInput(base).ok).toBe(true);
@@ -245,6 +257,15 @@ describe('offering credential fields', () => {
     expect((await w.service.saveOfferingSettings(4, { offering_id: 9, issued_by_ttii: true, level: 'PhD' })).status).toBe(0);
     expect((await w.service.saveOfferingSettings(4, { offering_id: 500, issued_by_ttii: true })).message).toBe('Offering not found.');
     expect((await w.service.listOfferingSettings()).rows).toHaveLength(1);
+  });
+
+  test('cannot switch "issued by TTII" off once credentials exist for the offering (printed QRs keep their scope)', async () => {
+    const w = world({ issued: [3], docs: [{ offering_id: 3, document_no: 'TTII/CERT/2026/000001' }] });
+    const off = await w.service.saveOfferingSettings(4, { offering_id: 3, issued_by_ttii: false, default_delivery_mode: 'digital' });
+    expect(off.status).toBe(0);
+    expect(off.message).toContain('must stay Yes');
+    expect(w.offeringSettings.get(3)?.issued_by_ttii).toBe(true);
+    expect((await w.service.saveOfferingSettings(4, { offering_id: 3, issued_by_ttii: true, default_delivery_mode: 'via_centre' })).status).toBe(1);
   });
 });
 
