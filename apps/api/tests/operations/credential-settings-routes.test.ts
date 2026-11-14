@@ -88,7 +88,7 @@ describe('settings routes need credentials.settings', () => {
     expect(calls).toEqual([]);
     expect((await app.inject({ method: 'GET', url: '/admin/credentials/settings/options?auth_token=super' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'POST', url: '/admin/credentials/settings/save', payload: { auth_token: 'settings', category: 'hold_reason', name: 'x' } })).statusCode).toBe(200);
-    expect(calls).toEqual(['options:undefined', 'save:7'.replace('7', '9')]);
+    expect(calls).toEqual(['options:undefined', 'save:9']);
     await app.close();
   });
 
