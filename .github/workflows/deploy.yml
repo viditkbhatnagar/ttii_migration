@@ -44,7 +44,10 @@ jobs:
             npm ci --no-audit --no-fund
             echo
             echo "=== build all workspaces ==="
-            npm run build
+            # The API typecheck needs ~1.3 GB of heap (Prisma's generated types);
+            # node's default cap on this 2 GB droplet is lower and tsc OOMs
+            # (2026-11-14). Raise it for the build only; swap covers the peak.
+            NODE_OPTIONS=--max-old-space-size=1800 npm run build
             echo
             # Vite builds with emptyOutDir:false so the previous bundle stays
             # fully serveable while the new one is written (no chunk-404 flicker
