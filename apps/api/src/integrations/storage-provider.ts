@@ -1,6 +1,6 @@
 import { createHash, createHmac } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { copyFile, mkdir, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
 
@@ -166,6 +166,15 @@ export class LocalStorageProvider implements StorageProvider {
       if (maybeError.code !== 'ENOENT') {
         throw error;
       }
+    }
+  }
+
+  async downloadObject(rawKey: string): Promise<Buffer | null> {
+    try {
+      return await readFile(this.resolveKeyPath(normalizeObjectKey(rawKey)));
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
     }
   }
 
@@ -348,6 +357,14 @@ export class S3StorageProvider implements StorageProvider {
       key,
       status: response.status,
     });
+  }
+
+  async downloadObject(rawKey: string): Promise<Buffer | null> {
+    const url = await this.createSignedDownloadUrl({ key: rawKey, expiresInSeconds: 60 });
+    const response = await this.fetchImpl(url);
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`S3 download failed (${response.status}).`);
+    return Buffer.from(await response.arrayBuffer());
   }
 
   createSignedDownloadUrl(input: StorageSignedDownloadRequest): Promise<string> {

@@ -39,6 +39,7 @@ import { SsoCompleteProfileModal } from './auth/SsoCompleteProfileModal.js';
 import PublicApplyPage from './public/PublicApplyPage.js';
 // Centres v2 (2026-10-22): the public centre application form, loaded on demand.
 const CentreFormPage = lazy(() => import('./public/centre-form/CentreFormPage.js'));
+const CredentialVerifyPage = lazy(() => import('./public/credential-verify/CredentialVerifyPage.js'));
 
 interface ShellMetric {
   label: string;
@@ -120,6 +121,14 @@ const shellCopyMap: Record<'admin' | 'centre', ShellCopy> = {
     ],
   },
 };
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
 function usePathname(initialPath: string): string {
   const [pathname, setPathname] = useState(() => {
@@ -1108,20 +1117,26 @@ function PortalRouter({
   const centreFormToken = isCentreForm
     ? (pathname.slice('/centre-form/'.length).split('/')[0] ?? '')
     : '';
+  // Credential Manager public verification (no login): /verify (entry form)
+  // and /v/<verification id> (QR target).
+  const isCredentialVerify = pathname === '/verify' || pathname.startsWith('/v/');
+  const credentialVerifyCode = pathname.startsWith('/v/')
+    ? safeDecode((pathname.slice('/v/'.length).split('/')[0] ?? '')).toUpperCase()
+    : '';
 
   // On subdomain, redirect root or wrong-portal paths to the correct portal —
   // but ONLY when the user is authenticated. Otherwise let `/` render the
   // login form; auto-redirecting an unauthenticated user to a protected path
   // lands them on the "Login required" guard screen instead of a login form.
   useEffect(() => {
-    if (isPublicApply || isCentreForm) return;
+    if (isPublicApply || isCentreForm || isCredentialVerify) return;
     if (!subdomainPortal) return;
     if (!session) return;
     const redirect = getSubdomainRedirectPath(subdomainPortal, pathname);
     if (redirect) {
       navigateTo(redirect);
     }
-  }, [isPublicApply, isCentreForm, subdomainPortal, pathname, session]);
+  }, [isPublicApply, isCentreForm, isCredentialVerify, subdomainPortal, pathname, session]);
 
   if (isPublicApply) {
     return <PublicApplyPage token={applyToken} />;
@@ -1131,6 +1146,14 @@ function PortalRouter({
     return (
       <Suspense fallback={<StudentLoader />}>
         <CentreFormPage token={centreFormToken} />
+      </Suspense>
+    );
+  }
+
+  if (isCredentialVerify) {
+    return (
+      <Suspense fallback={<StudentLoader />}>
+        <CredentialVerifyPage code={credentialVerifyCode} onNavigate={navigateTo} />
       </Suspense>
     );
   }

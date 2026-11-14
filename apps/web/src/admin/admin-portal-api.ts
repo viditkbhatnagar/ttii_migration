@@ -4,6 +4,7 @@ import type {
   NoticeFeed as CredNoticeFeed, ReportData as CredReportData, ScansOverview as CredScansOverview,
 } from './pages/credentials/credential-delivery-model.js';
 import { isImportedLiveSessionPlatform } from '@ttii/shared-types';
+import type { CredResult, CredentialPermissions, EligibilityDetail, IssueResult, IssuedDetail, IssuedRow, ReadyList } from './pages/credentials/credential-issue-types.js';
 
 interface LegacyEnvelope<T> {
   data?: T;
@@ -4140,4 +4141,104 @@ export class AdminPortalApi {
     return { status: Number(payload.status), message: String(payload.message ?? '') };
   }
   // ═══ end Credential Manager: settings ═══
+
+  // ── Credential Manager: Ready + Issued (credential-issue) ──
+  // Refusals (HTTP 200, status 0) come back as {ok:false, message}; a missing table sets
+  // notSetUp. Real failures (401/403/500) still throw.
+  private async credCall<T>(
+    run: () => Promise<{ message?: string; data?: T }>,
+  ): Promise<CredResult<T>> {
+    try {
+      const payload = await run();
+      return { ok: true, message: payload.message ?? '', data: payload.data ?? null, notSetUp: false };
+    } catch (error) {
+      if (error instanceof ApiError && error.statusCode < 400) {
+        const body = (error.payload ?? {}) as { data?: { notSetUp?: unknown } };
+        return {
+          ok: false,
+          message: error.message,
+          data: null,
+          notSetUp: body.data?.notSetUp === true || error.message.startsWith('The Credential Manager is not set up'),
+        };
+      }
+      throw error;
+    }
+  }
+
+  async credentialPermissions(authToken: string): Promise<CredentialPermissions> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/credentials/me/permissions', authToken);
+    const d = payload.data ?? {};
+    return { access: d.access === true, revoke: d.revoke === true, override: d.override === true, settings: d.settings === true, reports: d.reports === true };
+  }
+
+  credentialReadyIndex(authToken: string) {
+    return this.credCall<ReadyList>(
+      () => this.get('/admin/credentials/ready/index', authToken),
+    );
+  }
+
+  credentialReadyDetail(authToken: string, enrolId: number) {
+    return this.credCall<EligibilityDetail>(
+      () => this.get('/admin/credentials/ready/detail', authToken, { enrol_id: enrolId }),
+    );
+  }
+
+  /** kind: place_hold | release_hold | override. */
+  credentialReadyAction(authToken: string, kind: 'place_hold' | 'release_hold' | 'override', input: { enrolId: number; reason: string; remarks: string }) {
+    return this.credCall<Record<string, unknown>>(
+      () => this.post(`/admin/credentials/ready/${kind}`, authToken, { enrol_id: input.enrolId, reason: input.reason, remarks: input.remarks }),
+    );
+  }
+
+  credentialReadyIssue(authToken: string, enrolIds: number[], docTypes: string[]) {
+    return this.credCall<IssueResult>(
+      () => this.post('/admin/credentials/ready/issue', authToken, { enrol_ids: enrolIds, doc_types: docTypes }),
+    );
+  }
+
+  credentialIssuedIndex(authToken: string) {
+    return this.credCall<{ rows: IssuedRow[] }>(
+      () => this.get('/admin/credentials/issued/index', authToken),
+    );
+  }
+
+  credentialIssuedDetail(authToken: string, id: number) {
+    return this.credCall<IssuedDetail>(
+      () => this.get('/admin/credentials/issued/detail', authToken, { id }),
+    );
+  }
+
+  /** action: duplicate | print | correction | resend | regenerate | revoke | restore. */
+  credentialIssuedAction(
+    authToken: string,
+    action: 'duplicate' | 'print' | 'correction' | 'resend' | 'regenerate' | 'revoke' | 'restore',
+    input: { id: number; reason?: string; correctedName?: string },
+  ) {
+    const body: Record<string, unknown> = { id: input.id };
+    if (input.reason !== undefined) body.reason = input.reason;
+    if (input.correctedName !== undefined) body.corrected_name = input.correctedName;
+    return this.credCall<{ eventId?: number }>(() => this.post(`/admin/credentials/issued/${action}`, authToken, body));
+  }
+
+  /** The PDF as a Blob. The route needs the auth token, so this is fetched, not linked.
+   *  event = a recorded duplicate event (DUPLICATE mark); log=false skips the Download event. */
+  async credentialIssuedPdf(authToken: string, input: { id: number; event?: number; log?: boolean }): Promise<Blob> {
+    const url = new URL('admin/credentials/issued/pdf', this.apiClient.getBaseUrl());
+    url.searchParams.set('id', String(input.id));
+    if (input.event) url.searchParams.set('event', String(input.event));
+    if (input.log === false) url.searchParams.set('log', '0');
+    url.searchParams.set('auth_token', authToken);
+    const response = await fetch(url);
+    const type = response.headers.get('content-type') ?? '';
+    if (!response.ok || !type.includes('application/pdf')) {
+      let message = 'The PDF could not be loaded.';
+      try {
+        const body = (await response.json()) as { message?: unknown };
+        if (typeof body.message === 'string' && body.message) message = body.message;
+      } catch { /* keep the default message */ }
+      throw new Error(message);
+    }
+    return response.blob();
+  }
+  // ── end Credential Manager: Ready + Issued (credential-issue) ──
 }

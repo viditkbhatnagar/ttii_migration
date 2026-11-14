@@ -117,6 +117,8 @@ export interface StorageProvider {
   uploadFromFile(input: StorageUploadFromFileRequest): Promise<StorageUploadResult>;
   deleteObject(input: StorageDeleteRequest): Promise<void>;
   createSignedDownloadUrl(input: StorageSignedDownloadRequest): Promise<string>;
+  /** The object's bytes, or null when it does not exist (Credential Manager: PDFs, signature images). */
+  downloadObject?(key: string): Promise<Buffer | null>;
 }
 
 export interface PaymentOrderRequest {

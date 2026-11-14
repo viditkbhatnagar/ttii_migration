@@ -126,6 +126,16 @@ export interface ExamSheetSummary {
   sheet: ExamResultSheet;
 }
 
+/** One exam's sheet with the courses it covers, for the Credential Manager. */
+export interface CourseExamSheet {
+  examId: number;
+  title: string;
+  courseIds: number[];
+  published: boolean;
+  sittings: ResultSitting[];
+  sheet: ExamResultSheet;
+}
+
 function ymd(value: Date | null | undefined): string {
   return value instanceof Date && !Number.isNaN(value.getTime()) ? value.toISOString().slice(0, 10) : '';
 }
@@ -161,6 +171,8 @@ interface LoadedExam {
   attempts: ResultAttempt[];
   reExams: ResultReExam[];
   courses: string[];
+  /** Every course the exam is linked to (exam_courses plus the scalar course_id). */
+  courseIds: number[];
   /**
    * A supplementary exam's students per sitting (each sitting has its own).
    * Undefined for every other exam: there every student sits every sitting.
@@ -265,6 +277,33 @@ export class ExamResultsService {
         sheet,
       };
     });
+  }
+
+  /**
+   * Credential Manager (Naji 2026-11-14) — the result sheet of every real exam
+   * (published or not, practice excluded, supplementaries included) linked to
+   * any of the courses, in one batch. `published` is the exam's own flag; the
+   * caller decides what an unpublished sheet means.
+   */
+  async sheetsForCourses(courseIds: number[]): Promise<CourseExamSheet[]> {
+    const ids = [...new Set(courseIds.filter((id) => Number.isInteger(id) && id > 0))];
+    if (ids.length === 0) return [];
+    const links = await this.prisma.exam_courses.findMany({ where: { course_id: { in: ids } }, select: { exam_id: true } });
+    const tops = await this.prisma.exam.findMany({
+      where: {
+        deleted_at: null, parent_exam_id: null, is_practice: 0, status: 'published',
+        OR: [{ id: { in: links.map((l) => l.exam_id) } }, { course_id: { in: ids } }],
+      },
+      select: examSelect,
+    });
+    return (await this.loadMany(tops)).map((loaded) => ({
+      examId: loaded.top.id,
+      title: (loaded.top.title ?? '').trim() || `Exam ${loaded.top.id}`,
+      courseIds: loaded.courseIds,
+      published: isPublished(loaded.top),
+      sittings: loaded.sittings,
+      sheet: sheetOf(loaded),
+    }));
   }
 
   /**
@@ -528,6 +567,7 @@ export class ExamResultsService {
         attempts,
         reExams,
         courses: courseIds.map((id) => courseTitle.get(id) ?? '').filter(Boolean),
+        courseIds,
         ...(entered ? { entered } : {}),
       };
     });
