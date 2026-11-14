@@ -4,6 +4,7 @@ import type { AdminPortalApi } from '../admin-portal-api.js';
 import { AdminLayoutProvider, useAdminLayout } from './AdminLayoutContext.js';
 import { AdminSidebar, AdminSidebarMobile } from './AdminSidebar.js';
 import { AdminNavbar } from './AdminNavbar.js';
+import { useCredentialPermissions } from '../pages/credentials/use-credential-permissions.js';
 import { AdminRouter } from '../routing/AdminRouter.js';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 
@@ -17,6 +18,7 @@ interface AdminLayoutInnerProps {
 
 function AdminLayoutInner({ pathname, session, api, onNavigate, onLogout }: AdminLayoutInnerProps) {
   const { mobileSidebarOpen, closeMobileSidebar } = useAdminLayout();
+  const credentialPermissions = useCredentialPermissions(api, session.token, session.roleId);
 
   // Naji admin design (2026-10-12): the theme lives on <html> while the admin
   // portal is open, so dialogs, popovers and menus portaled to <body> get it
@@ -39,14 +41,14 @@ function AdminLayoutInner({ pathname, session, api, onNavigate, onLogout }: Admi
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Desktop Sidebar (lg and up) */}
-      <AdminSidebar pathname={pathname} roleId={session.roleId} onNavigate={handleNavigate} />
+      <AdminSidebar pathname={pathname} roleId={session.roleId} credentialPermissions={credentialPermissions} onNavigate={handleNavigate} />
 
       {/* Mobile Sidebar (Sheet) */}
       <Sheet open={mobileSidebarOpen} onOpenChange={(open) => { if (!open) closeMobileSidebar(); }}>
         <SheetContent side="left" className="w-72 max-w-[85vw] gap-0 border-r border-border p-0 shadow-xl" showCloseButton={false}>
           <SheetTitle className="sr-only">Admin navigation</SheetTitle>
           <SheetDescription className="sr-only">Sections of the admin portal</SheetDescription>
-          <AdminSidebarMobile pathname={pathname} roleId={session.roleId} onNavigate={handleNavigate} />
+          <AdminSidebarMobile pathname={pathname} roleId={session.roleId} credentialPermissions={credentialPermissions} onNavigate={handleNavigate} />
         </SheetContent>
       </Sheet>
 

@@ -31,6 +31,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAdminLayout } from './AdminLayoutContext.js';
+import { filterCredentialNav, type CredentialPermissions } from '../pages/credentials/credential-permissions.js';
 import { findActiveNavIds, getNavTreeForRole, isNavGroup, type AdminNavEntry, type AdminNavGroup, type AdminNavItem } from '../routing/admin-nav-tree.js';
 
 // Naji's AdminSidebar (2026-10-12): a white card rail, brand tile + collapse
@@ -71,6 +72,8 @@ export const NAV_ICON_NAMES: readonly string[] = Object.keys(ICON_MAP);
 interface AdminSidebarProps {
   pathname: string;
   roleId: number;
+  /** Credential Manager switches; null while loading (the group stays hidden until known). */
+  credentialPermissions?: CredentialPermissions | null | undefined;
   onNavigate: (href: string) => void;
 }
 
@@ -233,16 +236,20 @@ function BrandBlock({ collapsed, onToggleCollapse, onClose }: {
   );
 }
 
-function SidebarContent({ pathname, roleId, collapsed, onNavigate, onToggleCollapse, onClose }: {
+function SidebarContent({ pathname, roleId, credentialPermissions, collapsed, onNavigate, onToggleCollapse, onClose }: {
   pathname: string;
   roleId: number;
+  credentialPermissions?: CredentialPermissions | null | undefined;
   collapsed: boolean;
   onNavigate: (href: string) => void;
   onToggleCollapse?: (() => void) | undefined;
   onClose?: (() => void) | undefined;
 }) {
   const { expandedGroups, toggleGroup, expandGroup } = useAdminLayout();
-  const navTree = useMemo(() => getNavTreeForRole(roleId), [roleId]);
+  const navTree = useMemo(
+    () => filterCredentialNav(getNavTreeForRole(roleId), roleId, credentialPermissions ?? null),
+    [roleId, credentialPermissions],
+  );
   const { groupId: activeGroupId, itemId: activeItemId } = findActiveNavIds(pathname);
 
   useEffect(() => {
@@ -298,7 +305,7 @@ function SidebarContent({ pathname, roleId, collapsed, onNavigate, onToggleColla
 }
 
 /** Desktop sidebar — hidden below lg, where the Sheet takes over. */
-export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps) {
+export function AdminSidebar({ pathname, roleId, credentialPermissions, onNavigate }: AdminSidebarProps) {
   const { sidebarCollapsed, toggleSidebar } = useAdminLayout();
 
   return (
@@ -312,6 +319,7 @@ export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps
       <SidebarContent
         pathname={pathname}
         roleId={roleId}
+        credentialPermissions={credentialPermissions}
         collapsed={sidebarCollapsed}
         onNavigate={onNavigate}
         onToggleCollapse={toggleSidebar}
@@ -321,12 +329,13 @@ export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps
 }
 
 /** Mobile sidebar content — rendered inside a Sheet */
-export function AdminSidebarMobile({ pathname, roleId, onNavigate }: AdminSidebarProps) {
+export function AdminSidebarMobile({ pathname, roleId, credentialPermissions, onNavigate }: AdminSidebarProps) {
   const { closeMobileSidebar } = useAdminLayout();
   return (
     <SidebarContent
       pathname={pathname}
       roleId={roleId}
+      credentialPermissions={credentialPermissions}
       collapsed={false}
       onNavigate={onNavigate}
       onClose={closeMobileSidebar}

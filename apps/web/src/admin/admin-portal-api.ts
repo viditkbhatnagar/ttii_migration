@@ -3939,4 +3939,86 @@ export class AdminPortalApi {
   async rejectPayment(authToken: string, id: string, reason: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/fee_management/payment_approvals/reject', authToken, { id, reason });
   }
+
+  // ═══ Credential Manager: settings + offering fields + permissions (credential-settings builder) ═══
+  // Writes answer 200 with status 0 + message when refused; the caller toasts it.
+
+  async loadCredentialPermissions(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/credentials/me/permissions', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadCredentialSettingsOptions(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/credentials/settings/options', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  /** category: rule | template | signatory | grading | hold_reason | courier | number_series. Returns { ready, message, rows }. */
+  async listCredentialSettings(authToken: string, category: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/credentials/settings/list', authToken, { category });
+    return asRecord(payload.data) ?? {};
+  }
+
+  async saveCredentialSetting(authToken: string, category: string, body: Record<string, unknown>): Promise<{ status: number; message: string; data: Record<string, unknown> }> {
+    const payload = await this.post<LegacyEnvelope<unknown> & { status?: number }>('/admin/credentials/settings/save', authToken, { ...body, category });
+    return { status: Number(payload.status), message: String(payload.message ?? ''), data: asRecord(payload.data) ?? {} };
+  }
+
+  async deleteCredentialSetting(authToken: string, category: string, id: number): Promise<{ status: number; message: string }> {
+    const payload = await this.post<LegacyEnvelope<unknown> & { status?: number }>('/admin/credentials/settings/delete', authToken, { category, id });
+    return { status: Number(payload.status), message: String(payload.message ?? '') };
+  }
+
+  async listCredentialSettingsAudit(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/credentials/settings/audit', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  /** PNG/JPG up to 5 MB, stored privately. Returns the storage key. */
+  async uploadCredentialSettingImage(authToken: string, kind: 'background' | 'signature', file: File): Promise<{ key: string; name: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const url = `${this.apiClient.getBaseUrl()}admin/credentials/settings/upload?kind=${kind}&auth_token=${encodeURIComponent(authToken)}`;
+    const response = await fetch(url, { method: 'POST', body: formData });
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!response.ok || !contentType.includes('application/json')) {
+      throw new Error(response.status === 413 ? 'Choose a PNG or JPG image under 5 MB' : `Upload failed (${response.status}). Please try again.`);
+    }
+    const payload = (await response.json()) as Record<string, unknown>;
+    const data = asRecord(payload.data) ?? {};
+    if (payload.status !== 1 || typeof data.key !== 'string') {
+      throw new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Upload failed');
+    }
+    return { key: data.key, name: typeof data.name === 'string' ? data.name : file.name };
+  }
+
+  /** A short-lived signed URL for a private settings image (empty when unavailable). */
+  async credentialSettingFileUrl(authToken: string, key: string): Promise<string> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/credentials/settings/file_url', authToken, { key });
+    const url = asRecord(payload.data)?.url;
+    return typeof url === 'string' ? url : '';
+  }
+
+  /** { ready, message, settings: { overdueDays, readyDays, centreModes } } */
+  async loadCredentialDeliverySettings(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/credentials/settings/delivery', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async saveCredentialDeliverySettings(authToken: string, body: { overdue_days: number; ready_days: number; centre_modes: Record<string, string> }): Promise<{ status: number; message: string }> {
+    const payload = await this.post<LegacyEnvelope<unknown> & { status?: number }>('/admin/credentials/settings/delivery', authToken, body);
+    return { status: Number(payload.status), message: String(payload.message ?? '') };
+  }
+
+  /** { ready, message, rows: [{ offeringId, issuedByTtii, defaultDeliveryMode, level }] } */
+  async listCredentialOfferingSettings(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/credentials/offering-settings', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async saveCredentialOfferingSettings(authToken: string, body: { offering_id: number; issued_by_ttii: boolean; default_delivery_mode: string; level: string }): Promise<{ status: number; message: string }> {
+    const payload = await this.post<LegacyEnvelope<unknown> & { status?: number }>('/admin/credentials/offering-settings/save', authToken, body);
+    return { status: Number(payload.status), message: String(payload.message ?? '') };
+  }
+  // ═══ end Credential Manager: settings ═══
 }
