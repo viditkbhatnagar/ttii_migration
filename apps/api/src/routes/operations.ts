@@ -24,6 +24,7 @@ import { registerCounsellorTeamsRoutes } from './counsellor-teams-routes.js';
 import { registerCredentialSettingsRoutes } from './credential-settings-routes.js';
 import { requirePermissionManager } from '../auth/permission-guards.js';
 import { registerCentreProfileRoutes } from './centre-profile-routes.js';
+import { registerCredentialDeliveryRoutes } from './credential-delivery-routes.js';
 import { CentreProfileService } from '../operations/centre-profile-service.js';
 import { registerCentreDashboardRoutes } from './centre-dashboard-routes.js';
 import type { CentreDashboardService } from '../operations/centre-dashboard-service.js';
@@ -2271,6 +2272,10 @@ export function registerOperationsRoutes(
   // and the PUBLIC centre application form (/centre-form/:token, rate-limited).
   // Admin/Subadmin only for every /admin/centres/onboarding|affiliation route.
   registerCentreOnboardingRoutes(app, { requireAuth, requireAdminOnlyRole, storage: options.storage });
+
+  // Credential Manager (Naji 2026-11-14) — Delivery Tracking, Scan History,
+  // notifications, Dashboard, Reports and the centre portal's Certificates page.
+  registerCredentialDeliveryRoutes(app, { requireAuth, authService, storage: options.storage });
 
   // TTII 2026-10-12 — Associate Management in Naji's design. Read-only
   // (operations/associate-admin-service.ts) except Log Communication, which

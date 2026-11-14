@@ -1,5 +1,5 @@
 import {
-  BookOpen, Building2, FileText, FolderOpen, GraduationCap, Headphones, LayoutDashboard, PlayCircle, Users, Video, Wallet,
+  Award, BookOpen, Building2, FileText, FolderOpen, GraduationCap, Headphones, LayoutDashboard, PlayCircle, Users, Video, Wallet,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -16,6 +16,7 @@ const ICONS: Readonly<Record<string, LucideIcon>> = {
   FolderOpen,
   Wallet,
   Building2,
+  Award,
   HeadphonesIcon: Headphones,
 };
 

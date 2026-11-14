@@ -30,6 +30,7 @@ const CentreTrainingPage = lazy(() => import('../pages/training/CentreTrainingPa
 const CentreTrainingVideoPage = lazy(() => import('../pages/training/CentreTrainingVideoPage.js'));
 const CentreWalletPage = lazy(() => import('../pages/wallet/CentreWalletPage.js'));
 const CentreSupportPage = lazy(() => import('../pages/support/CentreSupportPage.js'));
+const CentreCertificatesPage = lazy(() => import('../pages/certificates/CentreCertificatesPage.js'));
 const CentreProfilePage = lazy(() => import('../pages/profile/CentreProfilePage.js'));
 
 export const CENTRE_ROUTES: CentreRouteConfig[] = [
@@ -48,6 +49,7 @@ export const CENTRE_ROUTES: CentreRouteConfig[] = [
   { path: '/centre/training/view/:id', pageComponent: CentreTrainingVideoPage, title: 'Training Video' },
   { path: '/centre/wallet', pageComponent: CentreWalletPage, title: 'Wallet' },
   { path: '/centre/support', pageComponent: CentreSupportPage, title: 'Support' },
+  { path: '/centre/certificates', pageComponent: CentreCertificatesPage, title: 'Certificates' },
   { path: '/centre/profile', pageComponent: CentreProfilePage, title: 'Profile' },
 ];
 

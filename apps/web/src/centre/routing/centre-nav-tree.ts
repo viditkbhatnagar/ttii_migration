@@ -7,7 +7,7 @@ export interface CentreNavItem {
 
 // Order: Naji's 2026-10-22 centre portal design (Lovable "centrelogin" export).
 // Held until he answers the centre application / fee / offering questions:
-// Offerings, Certificates, Reports. Live classes moved into the cohort detail
+// Offerings, Reports. (Certificates is the Credential Manager page.) Live classes moved into the cohort detail
 // view and Support moved to the top-bar chat panel (both routes stay).
 export const CENTRE_NAV_TREE: readonly CentreNavItem[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/centre/dashboard', icon: 'LayoutDashboard' },
@@ -18,6 +18,8 @@ export const CENTRE_NAV_TREE: readonly CentreNavItem[] = [
   { id: 'wallet', label: 'Wallet & Payment', href: '/centre/wallet', icon: 'Wallet' },
   { id: 'resources', label: 'Resources', href: '/centre/resources', icon: 'FolderOpen' },
   { id: 'training', label: 'Training', href: '/centre/training', icon: 'PlayCircle' },
+  // Credential Manager (Naji 2026-11-14): role 7 only (not in ASSOCIATE_ALLOWED_IDS).
+  { id: 'certificates', label: 'Certificates', href: '/centre/certificates', icon: 'Award' },
   { id: 'profile', label: 'Profile', href: '/centre/profile', icon: 'Building2' },
 ];
 
