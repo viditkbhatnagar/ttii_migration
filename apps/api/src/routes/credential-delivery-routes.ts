@@ -155,7 +155,7 @@ export function registerCredentialDeliveryRoutes(app: FastifyInstance, deps: Cre
 
   // ── Dashboard (credentials.access) and Reports (credentials.reports) ────
   app.get('/admin/credentials/dashboard', access, run(() => insights.dashboard()));
-  app.get('/admin/credentials/reports', reports, run(async () => ({ status: 1, message: 'success', data: { reports: insights.reportList() } })));
+  app.get('/admin/credentials/reports', reports, run(() => Promise.resolve({ status: 1 as const, message: 'success', data: { reports: insights.reportList() } })));
   app.get('/admin/credentials/reports/:key', reports, run((r) => {
     const p = payloadOf(r);
     return insights.report(str((r.params as { key?: unknown }).key), { from: str(p.from) || null, to: str(p.to) || null });
