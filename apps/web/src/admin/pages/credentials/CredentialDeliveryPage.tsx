@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Bell, Box, Copy, ExternalLink, PackageCheck, Printer, Truck } from 'lucide-react';
+import { Bell, Box, Copy, ExternalLink, PackageCheck, Printer, Settings2, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
@@ -8,6 +8,8 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { messageFromError } from '../../shared/utils/admin-data-utils.js';
 import { PillTab } from '../students/list-chrome.js';
 import { CredentialGate } from './credential-gate.js';
+import { DeliverySettingsDialog } from './DeliverySettingsDialog.js';
+import { useCredentialPermissions } from './use-credential-permissions.js';
 import { CredTable, type CredColumn } from './CredTable.js';
 import {
   BatchCreateDialog, BatchDetailDialog, DuplicateDialog, NoticesDialog, PrintDialog, UpdateDialog,
@@ -26,7 +28,7 @@ const TAB_ORDER: Tab[] = ['print', 'batches', 'transit', 'delivered', 'returned'
 
 type Dialog =
   | { kind: 'print' } | { kind: 'batch' } | { kind: 'batchDetail'; id: number }
-  | { kind: 'update'; item: DeliveryItem } | { kind: 'duplicate'; item: DeliveryItem } | { kind: 'notices' };
+  | { kind: 'update'; item: DeliveryItem } | { kind: 'duplicate'; item: DeliveryItem } | { kind: 'notices' } | { kind: 'settings' };
 
 function IconAction({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -42,6 +44,7 @@ function DeliveryContent({ api, session }: AdminPageProps) {
   const [tab, setTab] = useState<Tab>('print');
   const [selected, setSelected] = useState<number[]>([]);
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const perms = useCredentialPermissions(api, session.token, session.roleId);
   const [notices, setNotices] = useState<Awaited<ReturnType<typeof api.credNotifications>>['rows']>([]);
 
   const items = useMemo(() => data?.items ?? [], [data]);
@@ -129,8 +132,7 @@ function DeliveryContent({ api, session }: AdminPageProps) {
         actions={(
           <>
             <Button variant="outline" className="gap-1.5" onClick={() => void showNotices()}><Bell aria-hidden="true" className="size-4" /> Notifications</Button>
-            {/* MERGE SPOT (settings builder): mount <DeliverySettingsDialog> behind a "Delivery settings"
-                button here, shown only when the `settings` permission is held. */}
+            {perms?.settings ? <Button variant="outline" className="gap-1.5" onClick={() => setDialog({ kind: 'settings' })}><Settings2 aria-hidden="true" className="size-4" /> Delivery settings</Button> : null}
           </>
         )}
       />
@@ -158,6 +160,7 @@ function DeliveryContent({ api, session }: AdminPageProps) {
       {dialog?.kind === 'update' ? <UpdateDialog {...common} item={dialog.item} onClose={() => setDialog(null)} /> : null}
       {dialog?.kind === 'duplicate' ? <DuplicateDialog {...common} item={dialog.item} onClose={() => setDialog(null)} /> : null}
       {dialog?.kind === 'notices' ? <NoticesDialog notices={notices} onClose={() => setDialog(null)} /> : null}
+      {dialog?.kind === 'settings' ? <DeliverySettingsDialog open onClose={() => setDialog(null)} onSaved={reload} api={api} token={session.token} /> : null}
     </div>
   );
 }

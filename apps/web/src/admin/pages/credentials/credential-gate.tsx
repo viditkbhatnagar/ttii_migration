@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
+import { loadCredentialPermissions } from './use-credential-permissions.js';
 
 // THE permission seam for the credential pages I own. useAdminPageData treats a
 // 401/403 as "session expired", so a page must know it is allowed BEFORE it
-// loads any data: children mount (and fetch) only once the check passes. At
-// merge this can be re-pointed at use-credential-permissions.ts.
+// loads any data: children mount (and fetch) only once the check passes.
+// Shares the per-token cache with the sidebar (use-credential-permissions.ts).
 
 export type CredentialNeed = 'access' | 'revoke' | 'override' | 'settings' | 'reports';
 
@@ -12,7 +13,7 @@ export function CredentialGate({ api, token, need, children }: { api: AdminPorta
   const [state, setState] = useState<'loading' | 'allowed' | 'denied'>('loading');
   useEffect(() => {
     let cancelled = false;
-    void api.credMyPermissions(token)
+    void loadCredentialPermissions(api, token)
       .then((p) => { if (!cancelled) setState(p[need] ? 'allowed' : 'denied'); })
       .catch(() => { if (!cancelled) setState('denied'); });
     return () => { cancelled = true; };

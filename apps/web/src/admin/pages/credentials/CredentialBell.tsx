@@ -4,6 +4,7 @@ import type { AdminPortalApi } from '../../admin-portal-api.js';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { dmyAny, type NoticeRow } from './credential-delivery-model.js';
+import { loadCredentialPermissions } from './use-credential-permissions.js';
 
 // The navbar bell for users holding credentials.access: Credential admin /
 // Management notices with an unread badge; clicking one marks it read and opens
@@ -20,6 +21,7 @@ export function CredentialBell({ api, token, onNavigate }: { api: AdminPortalApi
   const load = useCallback(async () => {
     if (denied.current) return;
     try {
+      if (!(await loadCredentialPermissions(api, token)).access) { denied.current = true; return; }
       const data = await api.credNotifications(token);
       setFeed({ rows: data.rows ?? [], unread: data.unread ?? 0 });
     } catch {
