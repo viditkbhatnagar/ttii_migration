@@ -140,6 +140,10 @@ describe('flagging papers that look like a technical failure', () => {
     expect(flagOf(attempt(1, 42, 8, { skipped: 62 }))).toBeNull();
   });
 
+  test('a short quiz finished quickly is not flagged by the early rule', () => {
+    expect(flagOf(attempt(1, 42, 2, { questionCount: 5, skipped: 3, ...twoMin }))).toBeNull();
+  });
+
   test('a full paper handed in quickly is not flagged', () => {
     expect(flagOf(attempt(1, 42, 70, { skipped: 0, ...twoMin }))).toBeNull();
   });

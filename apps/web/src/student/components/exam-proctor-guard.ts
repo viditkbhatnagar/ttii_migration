@@ -12,7 +12,9 @@
 //
 // The rules now:
 //   - One slip = one warning. After a warning nothing more counts until the
-//     student acknowledges it ("Return to Exam"), however many events fire.
+//     student is back: they acknowledge it ("Return to Exam") or the page
+//     regains focus. Leaving again after that is a new slip, so staying away
+//     and alt-tabbing repeatedly is still counted.
 //   - A short grace after Start and after every acknowledgement absorbs the
 //     events full screen itself fires while it animates in.
 //   - Every counted warning is logged with its time and kind, and the report
@@ -72,6 +74,11 @@ export function recordLeave(state: ProctorGuardState, kind: ProctorEventKind, no
 /** The student pressed "Return to Exam": the slip is closed and full screen is re-entering. */
 export function acknowledgeWarning(state: ProctorGuardState, now: number): ProctorGuardState {
   return { ...state, away: false, graceUntil: now + PROCTOR_GRACE_MS };
+}
+
+/** The page has focus and is visible again: the slip is over, with the same grace. */
+export function markBack(state: ProctorGuardState, now: number): ProctorGuardState {
+  return state.away ? acknowledgeWarning(state, now) : state;
 }
 
 export function proctorReport(state: ProctorGuardState): ProctorReport {

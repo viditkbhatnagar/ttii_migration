@@ -73,6 +73,20 @@ export function parseProctorReport(raw: unknown): ProctorReport | null {
   return { warnings, events };
 }
 
+/**
+ * The stored report combined with the client's latest. A reload restarts the
+ * player's count at 0, so a plain overwrite would erase the slips before it:
+ * events are unioned (one per counted warning) and the count never goes down.
+ */
+export function mergeProctorReports(stored: ProctorReport | null, incoming: ProctorReport | null): ProctorReport | null {
+  if (!stored) return incoming;
+  if (!incoming) return stored;
+  const byAt = new Map<string, ProctorEvent>();
+  for (const event of [...stored.events, ...incoming.events]) byAt.set(`${event.at}|${event.kind}`, event);
+  const events = [...byAt.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-MAX_PROCTOR_EVENTS);
+  return { warnings: Math.min(MAX_WARNINGS, Math.max(stored.warnings, incoming.warnings, byAt.size)), events };
+}
+
 function safeJson(raw: string): unknown {
   try {
     return JSON.parse(raw);

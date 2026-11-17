@@ -100,6 +100,7 @@ import {
   PROCTOR_MAX_WARNINGS,
   acknowledgeWarning,
   initialProctorState,
+  markBack,
   proctorReport,
   recordLeave,
   type ProctorEventKind,
@@ -431,6 +432,12 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
 
   // "Return to Exam" (or closing the warning): the slip is over, and the
   // full-screen re-entry it triggers gets a grace period of its own.
+  // Focus came back to the page (alt-tab back, notification dismissed): the
+  // slip is over, so the next time they leave counts again.
+  const markProctorBack = () => {
+    proctorStateRef.current = markBack(proctorStateRef.current, Date.now());
+  };
+
   const acknowledgeProctorWarning = () => {
     proctorStateRef.current = acknowledgeWarning(proctorStateRef.current, Date.now());
     setProctorWarning(null);
@@ -499,12 +506,18 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
 
     const onVisibility = () => {
       if (document.hidden) registerViolation('You switched away from the exam tab.', 'tab');
+      else if (document.hasFocus()) markProctorBack();
     };
     const onBlur = () => {
-      // Clicking into an embedded frame (a video or document inside a
-      // question) blurs the window without leaving the exam.
-      if (document.activeElement instanceof HTMLIFrameElement) return;
-      registerViolation('You left the exam window.', 'window');
+      // Checked a tick later: focus moving into an embedded frame (a video or
+      // document inside a question) blurs the window but the document still
+      // has focus; leaving for another app or tab does not.
+      setTimeout(() => {
+        if (!document.hasFocus()) registerViolation('You left the exam window.', 'window');
+      }, 0);
+    };
+    const onFocus = () => {
+      if (!document.hidden) markProctorBack();
     };
     const onFullscreenChange = () => {
       const fs = Boolean(document.fullscreenElement);
@@ -519,6 +532,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
 
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('contextmenu', onContextMenu);
     window.addEventListener('beforeunload', onBeforeUnload);
@@ -527,6 +541,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
       document.removeEventListener('fullscreenchange', onFullscreenChange);
       document.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('beforeunload', onBeforeUnload);

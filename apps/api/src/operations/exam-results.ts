@@ -45,6 +45,8 @@ export const LOW_ANSWER_SHARE = 0.1;
  */
 export const EARLY_SUBMIT_MINUTES = 5;
 export const EARLY_SUBMIT_ANSWER_SHARE = 0.5;
+/** A short quiz can honestly take under 5 minutes; the rule is for full papers. */
+export const EARLY_SUBMIT_MIN_QUESTIONS = 10;
 
 export interface ResultSitting {
   examId: number;
@@ -223,7 +225,7 @@ export function paperFlag(
   if (share < LOW_ANSWER_SHARE) {
     return `Only ${answered} of ${questionCount} answers saved${time} — possible technical issue${submitReasonText(reason)}`;
   }
-  if (minutes !== null && minutes <= EARLY_SUBMIT_MINUTES && share < EARLY_SUBMIT_ANSWER_SHARE) {
+  if (minutes !== null && minutes <= EARLY_SUBMIT_MINUTES && share < EARLY_SUBMIT_ANSWER_SHARE && questionCount >= EARLY_SUBMIT_MIN_QUESTIONS) {
     return `Submitted after ${minutes} min with ${answered} of ${questionCount} answered — check before publishing${submitReasonText(reason)}`;
   }
   return null;

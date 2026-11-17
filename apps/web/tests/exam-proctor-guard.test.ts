@@ -5,6 +5,7 @@ import {
   PROCTOR_MAX_WARNINGS,
   acknowledgeWarning,
   initialProctorState,
+  markBack,
   proctorReport,
   recordLeave,
   type ProctorEventKind,
@@ -69,6 +70,21 @@ describe('the exam-screen guard counts one warning per slip', () => {
     expect(limit).toBe(true);
     expect(proctorReport(s).warnings).toBe(PROCTOR_MAX_WARNINGS);
     expect(proctorReport(s).events).toHaveLength(PROCTOR_MAX_WARNINGS);
+  });
+
+  test('staying away is not a free pass: back in focus, the next leave counts', () => {
+    const first = recordLeave(initialProctorState(T0), 'window', afterGrace).state;
+    // Ignores the dialog, alt-tabs back (focus returns) and away again later.
+    const back = markBack(first, afterGrace + 4000);
+    const second = recordLeave(back, 'window', afterGrace + 4000 + PROCTOR_GRACE_MS + 1);
+    expect(second.counted).toBe(true);
+    expect(second.state.warnings).toBe(2);
+  });
+
+  test('focus returning mid-slip absorbs the late full-screen exit of the same slip', () => {
+    const first = recordLeave(initialProctorState(T0), 'window', afterGrace).state;
+    const back = markBack(first, afterGrace + 400);
+    expect(recordLeave(back, 'fullscreen', afterGrace + 1200).counted).toBe(false);
   });
 
   test('nothing counts past the limit', () => {

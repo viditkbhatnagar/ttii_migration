@@ -20,7 +20,7 @@ import {
 } from './re-exam-window.js';
 import type { EmailProvider, IntegrationRegistry } from '../integrations/contracts.js';
 import { elapsedToTimeColumn, gradeQuiz, isTrustedQuizAttempt, type QuizSelection } from './quiz-grader.js';
-import { parseProctorReport, readAttemptMeta, withAttemptMeta, type SubmitReason } from './exam-attempt-meta.js';
+import { mergeProctorReports, parseProctorReport, readAttemptMeta, withAttemptMeta, type SubmitReason } from './exam-attempt-meta.js';
 
 function toIntId(id: string | number | null | undefined): number {
   if (typeof id === 'number') return id;
@@ -1236,12 +1236,22 @@ export class AssessmentService {
     // still to come (the paper the guard cut short). Until the re-exam paper is
     // in, the original one must not be shown as their result: only an attempt
     // started under the re-exam counts, and with none the result stays sealed.
+    // A re-exam whose window has passed unused does not seal the result for
+    // ever: the original paper is shown again, as the admin sheet does ("missed").
     const reExam = await findActiveReExam(this.prisma, userIdInt, examIdInt);
-    const attempt = await this.prisma.exam_attempt.findFirst({
-      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null, ...reExamAttemptFloor(reExam) },
+    const newestPaper = (floor: { created_at?: { gte: Date } }) => this.prisma.exam_attempt.findFirst({
+      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null, ...floor },
       orderBy: { id: 'desc' },
       select: { score: true },
     });
+    let attempt = await newestPaper(reExamAttemptFloor(reExam));
+    if (!attempt && reExam) {
+      const closesAt = examWindowCloseInstant(
+        withReExamWindow({ from_date: null, from_time: null, to_date: null, to_time: null, duration: null }, reExam),
+      );
+      const missed = closesAt !== null && Date.now() > closesAt.getTime() + AUTO_SUBMIT_GRACE_MS;
+      if (missed) attempt = await newestPaper({});
+    }
     if (!attempt) return null;
 
     const scheduleId = toNullableIntId(toStringValue(exam.exam_subject_id));
@@ -2152,7 +2162,7 @@ export class AssessmentService {
     const writer = presentedWriter === '' ? storedWriter : presentedWriter;
     // TTII 2026-11-17 — the guard report rides along; a save without one keeps
     // the last report stored, so a token-less client never erases it.
-    const proctor = parseProctorReport(input.proctor) ?? readAttemptMeta(attempt.draft_answers).proctor;
+    const proctor = mergeProctorReports(readAttemptMeta(attempt.draft_answers).proctor, parseProctorReport(input.proctor));
     const sheet = serializeDraft(writer, draft);
     const serialized = proctor ? withAttemptMeta(sheet, { proctor }) : sheet;
     if (serialized.length > MAX_DRAFT_ANSWERS_CHARS) {
@@ -2161,8 +2171,10 @@ export class AssessmentService {
       return reject('Your answer sheet is too large to save automatically.');
     }
 
-    await this.prisma.exam_attempt.update({
-      where: { id: attempt.id },
+    // Guarded on "still open": a save that raced the submit must not replace
+    // the envelope the submit just wrote (it carries submit_reason).
+    await this.prisma.exam_attempt.updateMany({
+      where: { id: attempt.id, submit_status: false },
       data: { draft_answers: serialized, last_seen_at: nowDate, updated_at: nowDate },
     });
 
@@ -2763,7 +2775,7 @@ export class AssessmentService {
     // exam-screen guard". Only a formal-exam paper (it has a draft, or its
     // player says why) carries it; a lesson quiz's row is left exactly as is.
     const submitReason = input.submitReason ?? null;
-    const proctor = parseProctorReport(input.proctor) ?? readAttemptMeta(attempt.draft_answers).proctor;
+    const proctor = mergeProctorReports(readAttemptMeta(attempt.draft_answers).proctor, parseProctorReport(input.proctor));
     const metaDraft = submitReason || proctor
       ? withAttemptMeta(attempt.draft_answers, { submitReason, proctor })
       : undefined;

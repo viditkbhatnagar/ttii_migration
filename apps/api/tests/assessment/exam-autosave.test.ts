@@ -135,6 +135,12 @@ function makeService(state: StubState): AssessmentService {
         Object.assign(state.attempt, args.data);
         return Promise.resolve({ ...state.attempt });
       },
+      updateMany: (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        if (args.where.submit_status === false && state.attempt.submit_status) return Promise.resolve({ count: 0 });
+        state.attemptUpdates.push(args.data);
+        Object.assign(state.attempt, args.data);
+        return Promise.resolve({ count: 1 });
+      },
     },
     exam: {
       findFirst: () => Promise.resolve({ ...state.exam }),
@@ -1438,6 +1444,32 @@ describe('why a paper ended is recorded with it', () => {
     expect(state.attempt.draft_answers).toBeNull();
   });
 
+  test('a reload restarting the player at 0 warnings does not erase the slips before it', async () => {
+    const state = openState({ draft_answers: JSON.stringify({ writer: 'tab-a', answers: [], proctor: { warnings: 2, events: report.events.slice(0, 2) } }) });
+
+    await makeService(state).saveExamProgress('137', {
+      attemptId: '5001', userAnswers: [], draftToken: 'tab-b', proctor: { warnings: 1, events: report.events.slice(2) },
+    });
+
+    const stored = JSON.parse(String(state.attempt.draft_answers)) as { proctor: { warnings: number; events: unknown[] } };
+    expect(stored.proctor.warnings).toBe(3);
+    expect(stored.proctor.events).toEqual(report.events);
+  });
+
+  test('an autosave that raced the submit cannot overwrite the recorded reason', async () => {
+    const state = openState({ draft_answers: JSON.stringify({ writer: 'tab-a', answers: [] }) });
+    const service = makeService(state);
+    // The autosave read the row while it was still open...
+    const staleRead = { ...state.attempt };
+    await service.submitExamAttempt('137', { attemptId: '5001', userAnswers: [], submitReason: 'student' });
+    // ...and its write lands after the submit committed.
+    const prismaLike = (service as unknown as { prisma: { exam_attempt: { findFirst: () => Promise<unknown> } } }).prisma;
+    prismaLike.exam_attempt.findFirst = () => Promise.resolve(staleRead);
+    await service.saveExamProgress('137', { attemptId: '5001', userAnswers: [], draftToken: 'tab-a' });
+
+    expect(JSON.parse(String(state.attempt.draft_answers))).toMatchObject({ submit_reason: 'student' });
+  });
+
   test('a client cannot claim the server-only "closed" reason or park junk', async () => {
     const { parseClientSubmitReason, parseProctorReport } = await import('../../src/assessment/exam-attempt-meta.js');
     expect(parseClientSubmitReason('closed')).toBeNull();
@@ -1468,6 +1500,7 @@ describe('a published result waits for a scheduled re-exam', () => {
       .publishedExamResult({ id: 10, publish_result: true, result_published_at: istAug(16, 10) }, 137);
 
   test('the original paper is hidden while the re-exam has not been sat', async () => {
+    freezeAtInstant(istAug(18, 12).getTime());
     const state = baseState({ created_at: istOn10Aug(19, 30), submit_status: true, score: 0 });
     state.reExams = [reExam];
 
@@ -1479,6 +1512,14 @@ describe('a published result waits for a scheduled re-exam', () => {
     state.reExams = [reExam];
 
     expect(await published(makeService(state))).toMatchObject({ score: 62 });
+  });
+
+  test('a re-exam whose window passed unused shows the original paper again', async () => {
+    freezeAtInstant(istAug(21, 12).getTime());
+    const state = baseState({ created_at: istOn10Aug(19, 30), submit_status: true, score: 0 });
+    state.reExams = [reExam];
+
+    expect(await published(makeService(state))).toMatchObject({ score: 0 });
   });
 
   test('without a re-exam the paper is shown as before', async () => {
