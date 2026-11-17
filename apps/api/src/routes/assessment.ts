@@ -10,6 +10,7 @@ import {
   type StartPracticeAttemptInput,
 } from '../assessment/assessment-service.js';
 import { registerAssignmentUploadRoutes } from './assignment-upload.js';
+import { parseClientSubmitReason } from '../assessment/exam-attempt-meta.js';
 
 interface RegisterAssessmentRoutesOptions {
   authService?: AuthService;
@@ -150,6 +151,10 @@ export function registerAssessmentRoutes(
       await assessmentService.submitExamAttempt(requestUserId(request), {
         attemptId: toStringId(payload.attempt_id),
         userAnswers: payload.user_answers,
+        // TTII 2026-11-17 — why the paper ended + the exam-screen guard report.
+        // Both optional: the Flutter client sends neither.
+        submitReason: parseClientSubmitReason(payload.submit_reason),
+        proctor: payload.proctor,
       });
 
       reply.code(200).send({
@@ -182,6 +187,7 @@ export function registerAssessmentRoutes(
         // WHICH open tab this save came from. Absent for the Flutter client,
         // which coerces to '' and keeps the pre-token behaviour.
         draftToken: toStringId(payload.draft_token),
+        proctor: payload.proctor,
       });
 
       reply.code(200).send(result);

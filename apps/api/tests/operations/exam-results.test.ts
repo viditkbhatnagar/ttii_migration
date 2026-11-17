@@ -114,6 +114,35 @@ describe('flagging papers that look like a technical failure', () => {
     const a = attempt(1, 23, 7, { skipped: 54 });
     expect(computeExamResults([sitting(23)], [student(1)], [a]).students[0]?.sittings[0]?.flag).toBeNull();
   });
+  // TTII 2026-11-17 (Risha, exam 38) — what the player now records.
+  const twoMin = { startTime: new Date('2026-10-29T14:00:52Z'), endTime: new Date('2026-10-29T14:02:57Z') };
+  const flagOf = (a: ResultAttempt) => computeExamResults([sitting(42)], [student(1)], [a]).students[0]?.sittings[0]?.flag;
+
+  test('a guard auto-submit says so, with the warnings and how far the student got', () => {
+    const a = attempt(1, 42, 0, {
+      skipped: 70, startTime: new Date('2026-10-30T14:01:53Z'), endTime: new Date('2026-10-30T14:02:53Z'),
+      submitReason: 'proctor', proctorWarnings: 3,
+    });
+    expect(flagOf(a)).toBe('Auto-submitted by the exam-screen guard after 3 warnings for leaving the exam screen — 0 of 70 answered in 1 min');
+  });
+
+  test('the low-answer flag says how the paper ended when it was recorded', () => {
+    expect(flagOf(attempt(1, 42, 0, { skipped: 70, ...twoMin, submitReason: 'student' })))
+      .toBe('Only 0 of 70 answers saved in 2 min — possible technical issue. The student pressed Submit.');
+  });
+
+  test('a paper handed in within 5 minutes with under half answered is flagged (8 of 70, all correct)', () => {
+    expect(flagOf(attempt(1, 42, 8, { skipped: 62, ...twoMin })))
+      .toBe('Submitted after 2 min with 8 of 70 answered — check before publishing');
+  });
+
+  test('the same 8 of 70 after 40 minutes is a genuine weak paper, not flagged', () => {
+    expect(flagOf(attempt(1, 42, 8, { skipped: 62 }))).toBeNull();
+  });
+
+  test('a full paper handed in quickly is not flagged', () => {
+    expect(flagOf(attempt(1, 42, 70, { skipped: 0, ...twoMin }))).toBeNull();
+  });
 });
 
 describe('exam totals and subject summary', () => {

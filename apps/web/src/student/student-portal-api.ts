@@ -102,6 +102,15 @@ function toDraftAnswers(value: unknown): ExamDraftAnswer[] {
     .filter((entry) => entry.questionId !== '');
 }
 
+/** TTII 2026-11-17 — why a formal-exam paper ended (sent with the submit). */
+export type ExamSubmitReason = 'student' | 'timer' | 'proctor';
+
+/** TTII 2026-11-17 — what the exam-screen guard counted, one warning per slip. */
+export interface ExamProctorReport {
+  warnings: number;
+  events: Array<{ at: string; kind: 'tab' | 'window' | 'fullscreen' }>;
+}
+
 /** What /exams/exam_save_progress tells the player back. `remainingSeconds` is
  * authoritative — it counts down to the EARLIER of the attempt deadline and the
  * exam window close, both computed on the server in IST. */
@@ -1174,10 +1183,19 @@ export class StudentPortalApi {
     return asString(payload.attempt_id);
   }
 
-  async submitExamAttempt(authToken: string, attemptId: string, userAnswers: unknown[] = []): Promise<void> {
+  // TTII 2026-11-17 — `extra` says why the paper ended and what the exam-screen
+  // guard saw, so the results page can tell a real attempt from a technical one.
+  async submitExamAttempt(
+    authToken: string,
+    attemptId: string,
+    userAnswers: unknown[] = [],
+    extra: { reason?: ExamSubmitReason | undefined; proctor?: ExamProctorReport | undefined } = {},
+  ): Promise<void> {
     await this.post<LegacyEnvelope<Record<string, unknown>>>('/exams/exam_save_result', authToken, {
       attempt_id: attemptId,
       user_answers: userAnswers,
+      ...(extra.reason ? { submit_reason: extra.reason } : {}),
+      ...(extra.proctor ? { proctor: extra.proctor } : {}),
     });
   }
 
@@ -1276,11 +1294,13 @@ export class StudentPortalApi {
     attemptId: string,
     userAnswers: unknown[],
     draftToken: string,
+    proctor?: ExamProctorReport,
   ): Promise<ExamProgressSaveResult> {
     const payload = await this.post<Record<string, unknown>>('/exams/exam_save_progress', authToken, {
       attempt_id: attemptId,
       user_answers: userAnswers,
       draft_token: draftToken,
+      ...(proctor ? { proctor } : {}),
     });
     const data = asRecord(payload.data) ?? {};
     return {

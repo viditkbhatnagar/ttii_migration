@@ -93,8 +93,18 @@ import { acquireExamFocusLock } from '@/components/SessionExpiredDialog';
 import type {
   ExamDraftAnswer,
   ExamProgressSaveResult,
+  ExamSubmitReason,
   StudentPortalApi,
 } from '../student-portal-api.js';
+import {
+  PROCTOR_MAX_WARNINGS,
+  acknowledgeWarning,
+  initialProctorState,
+  proctorReport,
+  recordLeave,
+  type ProctorEventKind,
+  type ProctorGuardState,
+} from './exam-proctor-guard.js';
 
 interface ExamQuestion {
   questionId: string;
@@ -175,9 +185,10 @@ interface Props {
   onClose: () => void;
 }
 
-// Proctoring: how many focus-loss / full-screen-exit events are allowed before
-// the exam auto-submits. Frontend-only guard (no server persistence yet).
-const PROCTOR_MAX_VIOLATIONS = 3;
+// Proctoring: how many warnings (one per slip — see exam-proctor-guard.ts) are
+// allowed before the exam auto-submits. TTII 2026-11-17 — the warnings and the
+// reason the paper ended now go to the server with every autosave and submit.
+const PROCTOR_MAX_VIOLATIONS = PROCTOR_MAX_WARNINGS;
 
 // Naji UAT 2026-08-11 — autosave cadence.
 //
@@ -375,8 +386,8 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
   const [violations, setViolations] = useState(0);
   const [proctorWarning, setProctorWarning] = useState<string | null>(null);
   const [proctorAutoSubmit, setProctorAutoSubmit] = useState(false);
-  const violationsRef = useRef(0);
-  const lastViolationAtRef = useRef(0);
+  const proctorStateRef = useRef<ProctorGuardState>(initialProctorState(0));
+  const lastSubmitReasonRef = useRef<ExamSubmitReason>('student');
   const proctorActiveRef = useRef(false);
 
   const enterFullscreen = () => {
@@ -396,16 +407,16 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
   };
 
   // Record a proctoring violation (tab switch / window blur / full-screen exit).
-  // De-duplicates rapid duplicate events and auto-submits once the limit is hit.
-  const registerViolation = (reason: string) => {
+  // One slip counts once, however many browser events it fires (see
+  // exam-proctor-guard.ts), and auto-submits once the limit is hit.
+  const registerViolation = (reason: string, kind: ProctorEventKind) => {
     if (!proctorActiveRef.current) return;
-    const now = Date.now();
-    if (now - lastViolationAtRef.current < 800) return;
-    lastViolationAtRef.current = now;
-    violationsRef.current += 1;
-    const count = violationsRef.current;
+    const outcome = recordLeave(proctorStateRef.current, kind, Date.now());
+    if (!outcome.counted) return;
+    proctorStateRef.current = outcome.state;
+    const count = outcome.state.warnings;
     setViolations(count);
-    if (count >= PROCTOR_MAX_VIOLATIONS) {
+    if (outcome.limitReached) {
       proctorActiveRef.current = false;
       setProctorWarning(
         `${reason} You have reached the limit of ${PROCTOR_MAX_VIOLATIONS} warnings — your exam is being submitted automatically.`,
@@ -416,6 +427,13 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
         `${reason} Warning ${count} of ${PROCTOR_MAX_VIOLATIONS}. Leaving the exam screen again may auto-submit your exam.`,
       );
     }
+  };
+
+  // "Return to Exam" (or closing the warning): the slip is over, and the
+  // full-screen re-entry it triggers gets a grace period of its own.
+  const acknowledgeProctorWarning = () => {
+    proctorStateRef.current = acknowledgeWarning(proctorStateRef.current, Date.now());
+    setProctorWarning(null);
   };
 
   // Load the exam (this also starts/resumes the attempt on the server).
@@ -480,13 +498,18 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     proctorActiveRef.current = true;
 
     const onVisibility = () => {
-      if (document.hidden) registerViolation('You switched away from the exam tab.');
+      if (document.hidden) registerViolation('You switched away from the exam tab.', 'tab');
     };
-    const onBlur = () => registerViolation('You left the exam window.');
+    const onBlur = () => {
+      // Clicking into an embedded frame (a video or document inside a
+      // question) blurs the window without leaving the exam.
+      if (document.activeElement instanceof HTMLIFrameElement) return;
+      registerViolation('You left the exam window.', 'window');
+    };
     const onFullscreenChange = () => {
       const fs = Boolean(document.fullscreenElement);
       setIsFullscreen(fs);
-      if (!fs) registerViolation('You exited full-screen mode.');
+      if (!fs) registerViolation('You exited full-screen mode.', 'fullscreen');
     };
     const onContextMenu = (e: MouseEvent) => e.preventDefault();
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -527,8 +550,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
   const handleStart = () => {
     // Enter full screen on the start gesture (must run inside the click handler).
     enterFullscreen();
-    violationsRef.current = 0;
-    lastViolationAtRef.current = 0;
+    proctorStateRef.current = initialProctorState(Date.now());
     proctorActiveRef.current = proctored;
     setViolations(0);
     setProctorWarning(null);
@@ -666,6 +688,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
         attemptId,
         toWireAnswers(payload),
         draftTokenRef.current,
+        proctored ? proctorReport(proctorStateRef.current) : undefined,
       );
       applyServerClock(result);
       // Naji UAT 2026-08-11 — `saved: false` with the window still OPEN means
@@ -693,7 +716,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     } finally {
       autosaveInFlightRef.current = false;
     }
-  }, [api, authToken, applyServerClock]);
+  }, [api, authToken, applyServerClock, proctored]);
 
   // Heartbeat — runs whether or not anything changed, because keeping the
   // session alive is half its job.
@@ -732,9 +755,10 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
   const goPrev = () => setPhase((p) => (p.kind === 'in_progress' && p.current > 0 ? { ...p, current: p.current - 1 } : p));
   const jumpTo = (index: number) => setPhase((p) => (p.kind === 'in_progress' && index >= 0 && index < p.questions.length ? { ...p, current: index } : p));
 
-  const submit = async () => {
+  const submit = async (reason: ExamSubmitReason) => {
     if (phase.kind !== 'in_progress' || submittingRef.current) return;
     submittingRef.current = true;
+    lastSubmitReasonRef.current = reason;
     proctorActiveRef.current = false;
     const snapshot = phase;
     setSubmitError(null);
@@ -746,7 +770,10 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
       (q) => isQuestionAnswered(q, snapshot.answers, snapshot.textAnswers),
     ).length;
     try {
-      await api.submitExamAttempt(authToken, snapshot.attemptId, userAnswers);
+      await api.submitExamAttempt(authToken, snapshot.attemptId, userAnswers, {
+        reason,
+        proctor: proctored ? proctorReport(proctorStateRef.current) : undefined,
+      });
       const elapsedSec = Math.max(0, Math.floor((Date.now() - snapshot.startedAt) / 1000));
       const totalSec = snapshot.durationMin * 60;
       // Naji UAT 2026-08-11 — on a RESUMED attempt `startedAt` is when the
@@ -808,14 +835,14 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
 
   useEffect(() => {
     if (timeLeftSec === 0 && phase.kind === 'in_progress' && !submittingRef.current) {
-      void submit();
+      void submit('timer');
     }
   }, [timeLeftSec]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Proctoring auto-submit (mirrors the timer auto-submit so `submit` is fresh).
   useEffect(() => {
     if (proctorAutoSubmit && phase.kind === 'in_progress' && !submittingRef.current) {
-      void submit();
+      void submit('proctor');
     }
   }, [proctorAutoSubmit]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1252,7 +1279,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
       </div>
 
       {/* Proctoring warning */}
-      <Dialog open={proctorWarning !== null} onOpenChange={(o) => { if (!o) setProctorWarning(null); }}>
+      <Dialog open={proctorWarning !== null} onOpenChange={(o) => { if (!o) acknowledgeProctorWarning(); }}>
         {/* Risha UAT 2026-08-06 — mobile-safe modal box on every exam dialog:
             modal-maxh bounds the box (a bare dvh cap is ignored by dvh-less
             webviews, and no cap at all means no scroll) and top-2/translate-y-0
@@ -1270,7 +1297,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
           </DialogHeader>
           <DialogFooter>
             <Button
-              onClick={() => { setProctorWarning(null); enterFullscreen(); }}
+              onClick={() => { acknowledgeProctorWarning(); enterFullscreen(); }}
               className="bg-student-primary text-white hover:bg-student-primary/90"
             >
               <Maximize className="mr-2 size-4" /> Return to Exam
@@ -1298,7 +1325,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
           <DialogFooter>
             <Button variant="outline" onClick={() => setSubmitConfirmOpen(false)}>Continue Exam</Button>
             <Button
-              onClick={() => { void submit(); }}
+              onClick={() => { void submit('student'); }}
               className="bg-gradient-to-br from-student-primary to-student-accent text-white hover:opacity-95"
             >
               Confirm &amp; Submit
@@ -1331,7 +1358,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
           <DialogFooter>
             <Button variant="outline" onClick={() => setSubmitError(null)}>Back to Exam</Button>
             <Button
-              onClick={() => { setSubmitError(null); void submit(); }}
+              onClick={() => { setSubmitError(null); void submit(lastSubmitReasonRef.current); }}
               className="bg-gradient-to-br from-student-primary to-student-accent text-white hover:opacity-95"
             >
               Try Again

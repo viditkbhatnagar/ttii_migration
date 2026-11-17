@@ -5,6 +5,7 @@ import { findActiveReExamsForExams, withReExamWindow } from '../assessment/re-ex
 import { isExamPaper, lessonQuizIds } from './exam-paper.js';
 import { papersWithWrittenAnswers } from './written-answers.js';
 import { getPrismaClient } from '../data/prisma-client.js';
+import { readAttemptMeta, type SubmitReason } from '../assessment/exam-attempt-meta.js';
 import type { EmailProvider } from '../integrations/contracts.js';
 import {
   computeExamResults,
@@ -182,6 +183,12 @@ interface LoadedExam {
 
 function sheetOf(loaded: LoadedExam): ExamResultSheet {
   return computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams, loaded.entered);
+}
+
+/** TTII 2026-11-17 — how the paper ended, from the player's report on the draft. */
+function attemptEnd(draftAnswers: string | null): { submitReason: SubmitReason | null; proctorWarnings: number | null } {
+  const meta = readAttemptMeta(draftAnswers);
+  return { submitReason: meta.submitReason, proctorWarnings: meta.proctor?.warnings ?? null };
 }
 
 export class ExamResultsService {
@@ -467,7 +474,7 @@ export class ExamResultsService {
       users.length > 0
         ? this.prisma.exam_attempt.findMany({
             where: { exam_id: { in: allSittingIds }, user_id: { in: users.map((u) => u.id) }, deleted_at: null },
-            select: { id: true, exam_id: true, user_id: true, score: true, question_no: true, skip: true, submit_status: true, start_time: true, end_time: true, created_at: true, question_id: true },
+            select: { id: true, exam_id: true, user_id: true, score: true, question_no: true, skip: true, submit_status: true, start_time: true, end_time: true, created_at: true, question_id: true, draft_answers: true },
           })
         : Promise.resolve([]),
       // Lesson-quiz attempts share exam_attempt and its id space; keep papers only (exam-paper.ts).
@@ -518,6 +525,7 @@ export class ExamResultsService {
         .filter((a) => sittingIdSet.has(a.exam_id as number) && allocated.has(a.user_id as number))
         .filter((a) => isExamPaper(a.question_id, quizIds.get(a.exam_id as number)))
         .map((a) => ({
+          ...attemptEnd(a.draft_answers),
           attemptId: a.id,
           examId: a.exam_id as number,
           userId: a.user_id as number,

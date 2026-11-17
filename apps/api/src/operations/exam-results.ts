@@ -30,12 +30,21 @@
 //     (marks, subjects, overall result, subject summary). Without that map —
 //     every regular exam — every student sits every subject, as before.
 
+import type { SubmitReason } from '../assessment/exam-attempt-meta.js';
+
 export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only' | 'reexam' | 'not_entered';
 export type OverallResult = 'passed' | 'failed' | 'incomplete' | 'absent' | 'pending' | 'marks_only' | 'reexam';
 export type ReExamState = 'scheduled' | 'completed' | 'missed';
 
 /** Below this share of answered questions an attempt is flagged for review. */
 export const LOW_ANSWER_SHARE = 0.1;
+/**
+ * TTII 2026-11-17 — a paper handed in this early with under half answered is
+ * flagged too: 8 of 70 answered (all 8 correct) in 2 minutes, from a student
+ * scoring 66-70 elsewhere, slipped under the 10% rule.
+ */
+export const EARLY_SUBMIT_MINUTES = 5;
+export const EARLY_SUBMIT_ANSWER_SHARE = 0.5;
 
 export interface ResultSitting {
   examId: number;
@@ -69,6 +78,10 @@ export interface ResultAttempt {
   endTime: Date | null;
   /** When the attempt was started; decides whether it belongs to a re-exam. */
   createdAt: Date | null;
+  /** TTII 2026-11-17 — why the paper ended; null on papers from before it was recorded. */
+  submitReason?: SubmitReason | null;
+  /** Exam-screen guard warnings counted on this paper, when recorded. */
+  proctorWarnings?: number | null;
 }
 
 /** The re-exam governing one (student, sitting) — the newest not cancelled. */
@@ -181,10 +194,39 @@ function countingAttempt(attempts: ResultAttempt[]): ResultAttempt | null {
   return best;
 }
 
-function lowAnswerFlag(answered: number, questionCount: number, minutes: number | null): string | null {
-  if (questionCount <= 0 || answered / questionCount >= LOW_ANSWER_SHARE) return null;
+function submitReasonText(reason: SubmitReason | null): string {
+  if (reason === 'student') return '. The student pressed Submit.';
+  if (reason === 'timer') return '. The timer ran out.';
+  if (reason === 'closed') return '. Graded from the saved answers after the exam window closed.';
+  return '';
+}
+
+/**
+ * Why staff should look at a paper before publishing, or null. Flags never
+ * change the result. TTII 2026-11-17 — says HOW the paper ended when the
+ * player recorded it, which papers from before then cannot.
+ */
+export function paperFlag(
+  answered: number,
+  questionCount: number,
+  minutes: number | null,
+  reason: SubmitReason | null = null,
+  warnings: number | null = null,
+): string | null {
+  if (questionCount <= 0) return null;
+  const share = answered / questionCount;
   const time = minutes === null ? '' : ` in ${minutes} min`;
-  return `Only ${answered} of ${questionCount} answers saved${time} — possible technical issue`;
+  if (reason === 'proctor' && answered < questionCount) {
+    const count = warnings === null ? '' : ` after ${warnings} warning${warnings === 1 ? '' : 's'}`;
+    return `Auto-submitted by the exam-screen guard${count} for leaving the exam screen — ${answered} of ${questionCount} answered${time}`;
+  }
+  if (share < LOW_ANSWER_SHARE) {
+    return `Only ${answered} of ${questionCount} answers saved${time} — possible technical issue${submitReasonText(reason)}`;
+  }
+  if (minutes !== null && minutes <= EARLY_SUBMIT_MINUTES && share < EARLY_SUBMIT_ANSWER_SHARE) {
+    return `Submitted after ${minutes} min with ${answered} of ${questionCount} answered — check before publishing${submitReasonText(reason)}`;
+  }
+  return null;
 }
 
 function scoredCell(
@@ -205,7 +247,7 @@ function scoredCell(
     answered,
     questionCount: attempt.questionCount,
     minutesTaken: minutes,
-    flag: lowAnswerFlag(answered, attempt.questionCount, minutes),
+    flag: paperFlag(answered, attempt.questionCount, minutes, attempt.submitReason ?? null, attempt.proctorWarnings ?? null),
     reExam: null,
     previousScore: null,
   };

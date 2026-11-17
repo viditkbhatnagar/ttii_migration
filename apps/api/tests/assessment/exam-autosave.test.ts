@@ -1369,3 +1369,121 @@ describe('a re-exam re-opens the sitting for one student', () => {
     expect(await gate(makeService(state))).toMatchObject({ ok: false, message: 'You have already submitted this exam.' });
   });
 });
+
+// TTII 2026-11-17 (Risha) — a student who scored 69-70/70 on five papers handed
+// in the sixth after 60 seconds with 0 answers, and nobody could tell whether
+// she pressed Submit, ran out of time, or was auto-submitted by the exam-screen
+// guard. The player now reports why, and the server keeps it beside the sheet.
+describe('why a paper ended is recorded with it', () => {
+  const report = { warnings: 3, events: [
+    { at: '2026-08-10T14:01:10.000Z', kind: 'fullscreen' },
+    { at: '2026-08-10T14:01:30.000Z', kind: 'window' },
+    { at: '2026-08-10T14:01:50.000Z', kind: 'tab' },
+  ] };
+  const openState = (over: Partial<AttemptRow> = {}): StubState => {
+    const state = baseState({ start_time: new Date(Date.now() - 60 * 1000), ...over });
+    state.exam = { ...state.exam, to_date: null, to_time: null };
+    return state;
+  };
+
+  test('an autosave keeps the guard report beside the draft, and the answers still read back', async () => {
+    const state = openState();
+    const service = makeService(state);
+
+    await service.saveExamProgress('137', {
+      attemptId: '5001', userAnswers: [{ question_id: '9001', answer: ['0'] }], draftToken: 'tab-a', proctor: { warnings: 1, events: report.events.slice(0, 1) },
+    });
+    const stored = JSON.parse(String(state.attempt.draft_answers)) as Record<string, unknown>;
+    expect(stored.writer).toBe('tab-a');
+    expect(stored.answers).toEqual([{ question_id: '9001', answer: ['0'] }]);
+    expect(stored.proctor).toEqual({ warnings: 1, events: report.events.slice(0, 1) });
+
+    // A save that carries no report (the Flutter app) keeps the stored one.
+    await service.saveExamProgress('137', { attemptId: '5001', userAnswers: [{ question_id: '9002', answer: ['1'] }], draftToken: 'tab-a' });
+    expect((JSON.parse(String(state.attempt.draft_answers)) as { proctor: { warnings: number } }).proctor.warnings).toBe(1);
+
+    // Scoring reads the answers through the envelope as before.
+    const summary = await service.submitExamAttempt('137', { attemptId: '5001', userAnswers: [{ question_id: '9002', answer: ['1'] }] });
+    expect(summary.correct).toBe(1);
+  });
+
+  test('a guard auto-submit stores the reason and the warnings with the paper', async () => {
+    const state = openState({ draft_answers: JSON.stringify({ writer: 'tab-a', answers: [] }) });
+
+    const summary = await makeService(state).submitExamAttempt('137', {
+      attemptId: '5001', userAnswers: [], submitReason: 'proctor', proctor: report,
+    });
+
+    expect(summary.skip).toBe(2);
+    const stored = JSON.parse(String(state.attempt.draft_answers)) as Record<string, unknown>;
+    expect(stored).toMatchObject({ writer: 'tab-a', submit_reason: 'proctor', proctor: report });
+    expect(state.attempt.submit_status).toBe(true);
+  });
+
+  test('a paper graded after its window closed is recorded as such', async () => {
+    freezeAt(20, 50);
+    const state = baseState({ draft_answers: JSON.stringify([{ question_id: '9001', answer: ['0'] }]) });
+
+    await makeService(state).saveExamProgress('137', { attemptId: '5001', userAnswers: [] });
+
+    expect(state.attempt.submit_status).toBe(true);
+    expect(JSON.parse(String(state.attempt.draft_answers))).toMatchObject({ submit_reason: 'closed', answers: [{ question_id: '9001', answer: ['0'] }] });
+  });
+
+  test('a submit with no reason and no draft (a lesson quiz, the Flutter app) leaves the row alone', async () => {
+    const state = openState();
+
+    await makeService(state).submitExamAttempt('137', { attemptId: '5001', userAnswers: [{ question_id: '9001', answer: ['0'] }] });
+
+    expect(state.attempt.draft_answers).toBeNull();
+  });
+
+  test('a client cannot claim the server-only "closed" reason or park junk', async () => {
+    const { parseClientSubmitReason, parseProctorReport } = await import('../../src/assessment/exam-attempt-meta.js');
+    expect(parseClientSubmitReason('closed')).toBeNull();
+    expect(parseClientSubmitReason('proctor')).toBe('proctor');
+    expect(parseProctorReport({ warnings: -1, events: [] })).toBeNull();
+    expect(parseProctorReport({ warnings: 2, events: [{ at: 'nope', kind: 'tab' }, { at: '2026-08-10T14:00:00Z', kind: 'printer' }] })).toEqual({ warnings: 2, events: [] });
+    const many = Array.from({ length: 40 }, () => ({ at: '2026-08-10T14:00:00Z', kind: 'tab' }));
+    expect(parseProctorReport({ warnings: 3, events: many })?.events).toHaveLength(20);
+  });
+});
+
+// TTII 2026-11-17 — results may be published while a student's re-exam is
+// still to come. The student must not see the cut-short paper as their result
+// in the meantime; the re-exam paper replaces it once it is in.
+describe('a published result waits for a scheduled re-exam', () => {
+  const istAug = (day: number, h: number, m = 0): Date =>
+    new Date(Date.UTC(2026, 7, day, h, m) - IST_OFFSET_MS);
+  const reExam = {
+    id: 1, exam_id: 10, user_id: 137,
+    new_date: new Date('2026-08-20T00:00:00Z'),
+    new_start_time: new Date('1970-01-01T10:00:00Z'),
+    new_end_time: new Date('1970-01-01T11:30:00Z'),
+    created_at: istAug(15, 12), status: 'scheduled',
+  };
+  type Published = { score: number; status: string } | null;
+  const published = (service: AssessmentService): Promise<Published> =>
+    (service as unknown as { publishedExamResult: (e: Record<string, unknown>, u: number) => Promise<Published> })
+      .publishedExamResult({ id: 10, publish_result: true, result_published_at: istAug(16, 10) }, 137);
+
+  test('the original paper is hidden while the re-exam has not been sat', async () => {
+    const state = baseState({ created_at: istOn10Aug(19, 30), submit_status: true, score: 0 });
+    state.reExams = [reExam];
+
+    expect(await published(makeService(state))).toBeNull();
+  });
+
+  test('the re-exam paper is shown once it is in', async () => {
+    const state = baseState({ start_time: istAug(20, 10), created_at: istAug(20, 10), submit_status: true, score: 62 });
+    state.reExams = [reExam];
+
+    expect(await published(makeService(state))).toMatchObject({ score: 62 });
+  });
+
+  test('without a re-exam the paper is shown as before', async () => {
+    const state = baseState({ created_at: istOn10Aug(19, 30), submit_status: true, score: 41 });
+
+    expect(await published(makeService(state))).toMatchObject({ score: 41 });
+  });
+});

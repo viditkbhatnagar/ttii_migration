@@ -233,8 +233,9 @@ export function ExamResultsDetail({
             ) : null}
             {totals.flagged > 0 && detail.status !== 'published' ? (
               <Notice tone="amber" icon={AlertTriangle}>
-                <strong>{totals.flagged} student{totals.flagged === 1 ? ' has' : 's have'}</strong> a paper with almost no answers saved, often submitted within minutes.
-                That usually means a technical problem, not a real attempt. Check these, and schedule a re-exam where needed, before publishing.{' '}
+                <strong>{totals.flagged} student{totals.flagged === 1 ? ' has' : 's have'}</strong> a paper that ended within minutes with few or no answers saved.
+                That usually means a technical problem, not a real attempt. Open the student to see how the paper ended. Schedule any re-exam before
+                publishing: once it is scheduled you can publish, and that subject stays hidden from the student until they sit the re-exam.{' '}
                 <button type="button" className="font-semibold underline underline-offset-2" onClick={() => { setTab('students'); setFlaggedOnly(true); }}>
                   Show them
                 </button>

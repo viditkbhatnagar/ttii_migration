@@ -20,6 +20,7 @@ import {
 } from './re-exam-window.js';
 import type { EmailProvider, IntegrationRegistry } from '../integrations/contracts.js';
 import { elapsedToTimeColumn, gradeQuiz, isTrustedQuizAttempt, type QuizSelection } from './quiz-grader.js';
+import { parseProctorReport, readAttemptMeta, withAttemptMeta, type SubmitReason } from './exam-attempt-meta.js';
 
 function toIntId(id: string | number | null | undefined): number {
   if (typeof id === 'number') return id;
@@ -891,6 +892,10 @@ export interface StartExamAttemptInput {
 export interface SubmitAttemptInput {
   attemptId: string;
   userAnswers: unknown;
+  /** TTII 2026-11-17 — why the paper ended; absent from the Flutter client and lesson quizzes. */
+  submitReason?: SubmitReason | null;
+  /** TTII 2026-11-17 — the player's exam-screen guard report (see exam-attempt-meta.ts). */
+  proctor?: unknown;
 }
 
 /** Naji UAT 2026-08-11 — POST /exams/exam_save_progress. */
@@ -906,6 +911,8 @@ export interface SaveExamProgressInput {
    * locked out of it.
    */
   draftToken?: string;
+  /** TTII 2026-11-17 — the exam-screen guard report so far; kept beside the draft. */
+  proctor?: unknown;
 }
 
 export interface SaveExamProgressResult {
@@ -1225,8 +1232,13 @@ export class AssessmentService {
     if (!published || userIdInt <= 0) return null;
 
     const examIdInt = toNullableIntId(toStringValue(exam.id)) ?? 0;
+    // TTII 2026-11-17 — results may be published while a student's re-exam is
+    // still to come (the paper the guard cut short). Until the re-exam paper is
+    // in, the original one must not be shown as their result: only an attempt
+    // started under the re-exam counts, and with none the result stays sealed.
+    const reExam = await findActiveReExam(this.prisma, userIdInt, examIdInt);
     const attempt = await this.prisma.exam_attempt.findFirst({
-      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null },
+      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null, ...reExamAttemptFloor(reExam) },
       orderBy: { id: 'desc' },
       select: { score: true },
     });
@@ -2138,7 +2150,11 @@ export class AssessmentService {
     // client) leaves whoever holds the draft holding it, rather than releasing
     // the claim for the abandoned tab to grab back.
     const writer = presentedWriter === '' ? storedWriter : presentedWriter;
-    const serialized = serializeDraft(writer, draft);
+    // TTII 2026-11-17 — the guard report rides along; a save without one keeps
+    // the last report stored, so a token-less client never erases it.
+    const proctor = parseProctorReport(input.proctor) ?? readAttemptMeta(attempt.draft_answers).proctor;
+    const sheet = serializeDraft(writer, draft);
+    const serialized = proctor ? withAttemptMeta(sheet, { proctor }) : sheet;
     if (serialized.length > MAX_DRAFT_ANSWERS_CHARS) {
       // Keep whatever was last saved rather than replacing it with something
       // oversized; the student's earlier work stays recoverable.
@@ -2354,7 +2370,7 @@ export class AssessmentService {
     }
 
     try {
-      await this.submitExamAttempt(userId, { attemptId, userAnswers: draftRows });
+      await this.submitExamAttempt(userId, { attemptId, userAnswers: draftRows, submitReason: 'closed' });
       return true;
     } catch {
       /* best-effort — the player's own submit will retry */
@@ -2455,6 +2471,7 @@ export class AssessmentService {
     attemptId: string,
     userId: string,
     scored: ScoredAttemptSummary,
+    draftAnswers?: string,
   ): Promise<void> {
     const now = new Date();
 
@@ -2468,6 +2485,7 @@ export class AssessmentService {
         skip: scored.skip,
         score: scored.score,
         submit_status: true,
+        ...(draftAnswers === undefined ? {} : { draft_answers: draftAnswers }),
         updated_by: toNullableIntId(userId),
         updated_at: now,
       },
@@ -2740,7 +2758,17 @@ export class AssessmentService {
       pendingReview,
     };
 
-    await this.finalizeExamAttempt(idString(attempt.id), userId, summary);
+    // TTII 2026-11-17 — record WHY the paper ended next to the sheet, so the
+    // results page can tell "pressed Submit" from "auto-submitted by the
+    // exam-screen guard". Only a formal-exam paper (it has a draft, or its
+    // player says why) carries it; a lesson quiz's row is left exactly as is.
+    const submitReason = input.submitReason ?? null;
+    const proctor = parseProctorReport(input.proctor) ?? readAttemptMeta(attempt.draft_answers).proctor;
+    const metaDraft = submitReason || proctor
+      ? withAttemptMeta(attempt.draft_answers, { submitReason, proctor })
+      : undefined;
+
+    await this.finalizeExamAttempt(idString(attempt.id), userId, summary, metaDraft);
     await this.sendExamSubmittedEmail(examRow, userId, startedAt, now, summary.timeTaken);
     return summary;
   }
