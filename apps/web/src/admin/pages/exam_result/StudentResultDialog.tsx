@@ -19,10 +19,10 @@ const SITTING_TONE: Record<string, Tone> = {
   not_entered: 'slate',
 };
 
-/** A subject can be re-examined once its sitting is over and it was not passed. */
+/** A subject can be re-examined once its sitting is over, whatever the mark: a passed paper may have been cut short. */
 function canReExam(cell: StudentSitting, sitting: Sitting | undefined): boolean {
   if (!sitting?.closed) return false;
-  return cell.status === 'fail' || cell.status === 'absent' || cell.status === 'reexam' || cell.flag !== null;
+  return cell.status === 'fail' || cell.status === 'absent' || cell.status === 'reexam' || cell.status === 'pass' || cell.status === 'marks_only' || cell.flag !== null;
 }
 
 export function StudentResultDialog({

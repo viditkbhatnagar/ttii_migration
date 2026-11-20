@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ClassTimeInput } from '@/components/ui/class-time-input';
 import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Input } from '@/components/ui/input';
@@ -9,7 +10,9 @@ import { formatYmd } from '../exam_result/exam-results-model.js';
 import {
   GROUP_META,
   GROUP_ORDER,
+  SEARCH_FROM,
   candidateNote,
+  filterByQuery,
   togglePicked,
   withTimes,
   type DraftSubject,
@@ -43,6 +46,7 @@ export function SupplementarySubjectCard({
   thisYear: number;
 }) {
   const id = `supp-${subject.sittingExamId}`;
+  const [query, setQuery] = useState('');
   const counts = GROUP_ORDER.map((g) => ({ g, n: subject.candidates.filter((c) => c.group === g).length })).filter((x) => x.n > 0);
   const plan = [
     subject.mcqQuestions > 0 ? `${subject.mcqQuestions} MCQ${subject.marksEach > 0 ? ` × ${subject.marksEach} mark${subject.marksEach === 1 ? '' : 's'}` : ''}` : '',
@@ -96,15 +100,20 @@ export function SupplementarySubjectCard({
           </p>
 
           {GROUP_ORDER.map((g) => {
-            const people = subject.candidates.filter((c) => c.group === g);
-            if (people.length === 0) return null;
+            const all = subject.candidates.filter((c) => c.group === g);
+            if (all.length === 0) return null;
+            const searchable = g === 'passed' && all.length > SEARCH_FROM;
+            const people = searchable ? filterByQuery(all, query) : all;
             return (
               <fieldset key={g} className="space-y-1.5">
                 <legend className="text-xs font-semibold text-foreground">
-                  {GROUP_META[g].label} ({people.length})
+                  {GROUP_META[g].heading ?? GROUP_META[g].label} ({all.length})
                   <span className="ml-1.5 font-normal text-muted-foreground">{GROUP_META[g].hint}</span>
                 </legend>
-                <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+                {searchable ? (
+                  <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name or student code" aria-label="Search the other students who sat this paper" className="h-8 text-sm" />
+                ) : null}
+                <ul className={cn('divide-y divide-border rounded-lg border border-border bg-card', g === 'passed' && 'max-h-64 overflow-y-auto')}>
                   {people.map((c) => (
                     <li key={c.userId}>
                       <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/40">
@@ -121,6 +130,7 @@ export function SupplementarySubjectCard({
                       </label>
                     </li>
                   ))}
+                  {people.length === 0 ? <li className="px-3 py-3 text-center text-xs text-muted-foreground">No student matches.</li> : null}
                 </ul>
               </fieldset>
             );

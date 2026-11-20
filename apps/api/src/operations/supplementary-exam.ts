@@ -11,6 +11,9 @@
 //   - ABSENT   no paper once the sitting (or its re-exam) closed  → listed, unticked
 //   - FLAGGED  a paper with almost no answers saved               → listed, unticked
 //   - REEXAM   a re-exam is scheduled and not yet sat             → listed, unticked
+//   - PASSED   sat and passed (or marks-only); listed so a student whose paper
+//              was cut short by an old proctoring bug can still be given a
+//              second sitting                                     → listed, unticked
 // A subject is pre-selected when it has at least one failed student.
 
 import { parseReExamWindow } from './re-exam-service.js';
@@ -51,7 +54,7 @@ export function supplementaryTitle(sourceTitle: string): string {
 
 // ─── Candidates ───────────────────────────────────────────────────────────
 
-export type CandidateGroup = 'failed' | 'absent' | 'flagged' | 'reexam';
+export type CandidateGroup = 'failed' | 'absent' | 'flagged' | 'reexam' | 'passed';
 
 export interface Candidate {
   userId: number;
@@ -68,15 +71,16 @@ export interface Candidate {
 
 /** Which group a result cell puts the student in for a supplementary, or null when they need none. */
 export function candidateGroup(cell: Pick<StudentSittingResult, 'status' | 'flag'>): CandidateGroup | null {
-  if (cell.status === 'pass' || cell.status === 'not_entered' || cell.status === 'pending') return null;
+  if (cell.status === 'not_entered' || cell.status === 'pending') return null;
   if (cell.flag !== null) return 'flagged';
+  if (cell.status === 'pass' || cell.status === 'marks_only') return 'passed';
   if (cell.status === 'fail') return 'failed';
   if (cell.status === 'absent') return 'absent';
   if (cell.status === 'reexam') return 'reexam';
   return null;
 }
 
-const GROUP_ORDER: Record<CandidateGroup, number> = { failed: 0, flagged: 1, absent: 2, reexam: 3 };
+const GROUP_ORDER: Record<CandidateGroup, number> = { failed: 0, flagged: 1, absent: 2, reexam: 3, passed: 4 };
 
 /** Sitting exam id → the students who may be entered for it, failed first. */
 export function candidatesBySitting(sittings: Array<Pick<ResultSitting, 'examId'>>, students: StudentResult[]): Map<number, Candidate[]> {
@@ -230,7 +234,7 @@ function subjectProblem(s: SubjectInput, label: string, ctx: ValidationContext):
   const allowed = ctx.candidates.get(s.sittingExamId) ?? new Set<number>();
   const outsiders = userIds.filter((id) => !allowed.has(id)).length;
   if (outsiders > 0) {
-    return `${label}: ${outsiders} selected student${outsiders === 1 ? ' did' : 's did'} not fail, miss or have a flagged paper in this subject.`;
+    return `${label}: ${outsiders} selected student${outsiders === 1 ? ' has' : 's have'} no result for this subject on the sheet yet.`;
   }
   return {
     ...s,

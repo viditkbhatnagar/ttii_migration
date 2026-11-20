@@ -144,21 +144,25 @@ const allocationsOf = (db: MemoryDb, examId: number): number[] =>
 beforeEach(() => sendEmail.mockClear());
 
 describe('the Create Supplementary Exam dialog', () => {
-  test('lists only the subjects someone failed, missed or has a flagged paper in; a failed subject comes pre-selected', async () => {
+  test('lists every subject; a failed subject comes pre-selected, a subject everyone passed has nothing ticked', async () => {
     const draft = await services(world()).supplementary.draft(SOURCE);
     expect(draft.status).toBe(1);
     const data = draft.data;
     expect(data?.suggestedTitle).toBe('Diploma in Montessori Teacher Training, Supplementary Examination, August 2026');
     expect(data?.setUp).toBe(true);
-    // Child Psychology: everyone passed — not listed.
-    expect(data?.subjects.map((s) => [s.subjectTitle, s.preselect])).toEqual([['Montessori Methodology', false], ['Child Development', true]]);
+    // Child Psychology: everyone passed — still listed (a passed student may need a second sitting), nothing ticked.
+    expect(data?.subjects.map((s) => [s.subjectTitle, s.preselect])).toEqual([['Montessori Methodology', false], ['Child Psychology', false], ['Child Development', true]]);
+    const psychology = data?.subjects[1];
+    expect(psychology?.candidates.every((c) => c.group === 'passed' && !c.preselect)).toBe(true);
     const development = data?.subjects.find((s) => s.subjectTitle === 'Child Development');
     expect(development?.candidates.map((c) => [c.name, c.group, c.preselect])).toEqual([
       ['ARCHANA RAJ C', 'failed', true],
       ['SAMEERA K', 'absent', false],
+      ['DIVYA P', 'passed', false],
+      ['SHEBA MARY SAMUEL', 'passed', false],
     ]);
     expect(development).toMatchObject({ startTime: '19:30', endTime: '20:45', durationMinutes: 75, totalMarks: 70, passMarks: 25, mcqQuestions: 70, marksEach: 1 });
-    expect(data?.subjects[0]?.candidates.map((c) => [c.name, c.group])).toEqual([['SHEBA MARY SAMUEL', 'flagged']]);
+    expect(data?.subjects[0]?.candidates.map((c) => [c.name, c.group])).toEqual([['SHEBA MARY SAMUEL', 'flagged'], ['ARCHANA RAJ C', 'passed'], ['DIVYA P', 'passed'], ['SAMEERA K', 'passed']]);
   });
 
   test('opening it from a sitting reads the whole exam', async () => {
@@ -224,10 +228,18 @@ describe('creating the supplementary exam', () => {
     expect(exams(db).length).toBe(before);
   });
 
-  test('refuses a student who passed that subject', async () => {
+  test('accepts a student who passed that subject, entered for the supplementary like any other', async () => {
     const db = world();
     const res = await services(db).supplementary.create(1, { sourceExamId: SOURCE, title: SUPP_TITLE, subjects: [subjectInput(25, [ARCHANA, DIVYA], '2026-10-28')] });
-    expect(res).toEqual({ status: 0, message: 'Child Development: 1 selected student did not fail, miss or have a flagged paper in this subject.' });
+    expect(res).toMatchObject({ status: 1 });
+    const sitting = exams(db).find((e) => e.parent_exam_id === res.data?.examId);
+    expect(allocationsOf(db, sitting?.id as number)).toEqual([ARCHANA, DIVYA]);
+  });
+
+  test('still refuses a student who is not on the source exam at all', async () => {
+    const db = world();
+    const res = await services(db).supplementary.create(1, { sourceExamId: SOURCE, title: SUPP_TITLE, subjects: [subjectInput(25, [ARCHANA, 9999], '2026-10-28')] });
+    expect(res).toEqual({ status: 0, message: 'Child Development: 1 selected student has no result for this subject on the sheet yet.' });
     expect(db.tables.exam_supplementary).toEqual([]);
   });
 

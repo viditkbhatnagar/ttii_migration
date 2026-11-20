@@ -8,10 +8,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
-import { TONE, type Tone } from '../../shared/components/ui-tones.js';
+import { type Tone } from '../../shared/components/ui-tones.js';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
+import { atRiskIds } from '../exam_result/re-exam-candidates.js';
+import { CandidateChecklist } from './CandidateChecklist.js';
 
 // Schedule (or move) a re-exam: one subject, one or more students, a window of
 // its own in IST. Shared by Exam → Result and Exam → Re-Examination. The server
@@ -35,6 +36,8 @@ export interface ReExamCandidate {
   note: string;
   tone: CandidateTone;
   preselect: boolean;
+  /** Sat the paper and is not at risk (passed): listed below the rest, never pre-ticked. */
+  other?: boolean;
 }
 
 export interface ReExamWindowDraft {
@@ -181,7 +184,7 @@ export function ScheduleReExamDialog({
               <legend className="text-sm font-medium text-foreground">Students</legend>
               {candidates.length > 1 ? (
                 <div className="flex gap-2 text-xs">
-                  <button type="button" className="text-primary hover:underline" onClick={() => setSelected(new Set(candidates.map((c) => c.userId)))}>All</button>
+                  <button type="button" className="text-primary hover:underline" onClick={() => setSelected(new Set(atRiskIds(candidates)))}>All</button>
                   <button type="button" className="text-muted-foreground hover:underline" onClick={() => setSelected(new Set())}>None</button>
                 </div>
               ) : null}
@@ -191,20 +194,7 @@ export function ScheduleReExamDialog({
                 No student needs a re-exam in this subject.
               </p>
             ) : (
-              <ul className="divide-y divide-border rounded-lg border border-border">
-                {candidates.map((c) => (
-                  <li key={c.userId}>
-                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/40">
-                      <input type="checkbox" className="size-4 accent-primary" checked={selected.has(c.userId)} onChange={() => toggle(c.userId)} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground">{c.name}</span>
-                        <span className="block text-[11px] text-muted-foreground">{c.studentCode}</span>
-                      </span>
-                      <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold', TONE[c.tone].pill)}>{c.note}</span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
+              <CandidateChecklist candidates={candidates} selected={selected} onToggle={toggle} />
             )}
           </fieldset>
 

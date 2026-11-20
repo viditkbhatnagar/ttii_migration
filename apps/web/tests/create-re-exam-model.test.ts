@@ -28,8 +28,21 @@ const students = [
 describe('eligibleSubjects', () => {
   test('lists closed subjects that have a candidate, skipping open sittings and clean subjects', () => {
     const subjects = eligibleSubjects(sittings, students);
-    expect(subjects.map((s) => s.examId)).toEqual([1, 2]);
-    expect(subjects[1]?.candidates.map((c) => c.userId)).toEqual([11]);
+    // Subject 4 everyone passed: still offered, so a passed student can be given a re-exam.
+    expect(subjects.map((s) => s.examId)).toEqual([1, 2, 4]);
+    expect(subjects[1]?.candidates.map((c) => c.userId)).toEqual([11, 10]);
+  });
+
+  test('a subject whose sat students all passed starts excluded with nothing ticked, and a passed student can be ticked', () => {
+    const subjects = eligibleSubjects(sittings, students);
+    const drafts = initialDrafts(subjects);
+    expect(subjects[2]?.candidates.map((c) => [c.userId, c.other])).toEqual([[10, true], [11, true]]);
+    expect(drafts[4]).toMatchObject({ included: false });
+    expect(drafts[4]?.selected.size).toBe(0);
+    let next = updateDraft(drafts, 4, { included: true, date: '2026-11-02', startTime: '10:00', endTime: '11:30' });
+    next = toggleStudent(next, 4, 11);
+    expect(canSubmit(subjects, next)).toBe(false);
+    expect(buildBatchItems(subjects, next, '').find((i) => i.exam_id === 4)?.user_ids).toEqual([11]);
   });
 
   test('nothing eligible gives an empty list', () => {

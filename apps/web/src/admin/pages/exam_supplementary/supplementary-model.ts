@@ -9,7 +9,7 @@ import type { Tone } from '../../shared/components/ui-tones.js';
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
 import { formatYmd, type SittingStatus } from '../exam_result/exam-results-model.js';
 
-export type CandidateGroup = 'failed' | 'absent' | 'flagged' | 'reexam';
+export type CandidateGroup = 'failed' | 'absent' | 'flagged' | 'reexam' | 'passed';
 export type SupplementaryStatus = 'draft' | 'in_progress' | 'ready' | 'published';
 
 export interface DraftCandidate {
@@ -81,7 +81,7 @@ export interface SupplementaryLinks {
   outcomes: SupplementaryOutcome[];
 }
 
-const GROUPS: CandidateGroup[] = ['failed', 'flagged', 'absent', 'reexam'];
+const GROUPS: CandidateGroup[] = ['failed', 'flagged', 'absent', 'reexam', 'passed'];
 const STATUSES: SupplementaryStatus[] = ['draft', 'in_progress', 'ready', 'published'];
 
 function rec(v: unknown): Record<string, unknown> {
@@ -176,19 +176,29 @@ export function toSupplementaryLinks(raw: unknown): SupplementaryLinks {
 
 // ─── Candidate groups ─────────────────────────────────────────────────────
 
-export const GROUP_META: Record<CandidateGroup, { label: string; tone: Tone; hint: string }> = {
+export const GROUP_META: Record<CandidateGroup, { label: string; tone: Tone; hint: string; heading?: string }> = {
   failed: { label: 'Failed', tone: 'rose', hint: 'Marked below the pass mark. Ticked for you.' },
   flagged: { label: 'Flagged paper', tone: 'amber', hint: 'Almost no answers saved, usually a technical problem. Check before adding: a free re-exam may suit better.' },
   absent: { label: 'Absent', tone: 'slate', hint: 'Did not sit the subject. Add them if they should take the supplementary.' },
   reexam: { label: 'Re-exam pending', tone: 'primary', hint: 'A re-exam is already scheduled for them in this subject.' },
+  passed: { label: 'Passed', tone: 'slate', heading: 'Other students who sat this paper', hint: 'Passed. Tick one only to give them a second sitting, e.g. their paper was cut short.' },
 };
 
 export const GROUP_ORDER: CandidateGroup[] = GROUPS;
+
+export const SEARCH_FROM = 8;
+
+/** Candidates whose name or student code contains the query (case-insensitive). */
+export function filterByQuery(list: DraftCandidate[], query: string): DraftCandidate[] {
+  const q = query.trim().toLowerCase();
+  return q ? list.filter((c) => c.name.toLowerCase().includes(q) || c.studentCode.toLowerCase().includes(q)) : list;
+}
 
 /** "17/70", "Missed re-exam 20/08", "0 of 70 answers …" — why this student is listed. */
 export function candidateNote(c: DraftCandidate): string {
   if (c.group === 'failed') return `${c.score ?? 0}/${c.totalMarks}`;
   if (c.group === 'flagged') return c.flag || `${c.score ?? 0}/${c.totalMarks}`;
+  if (c.group === 'passed') return `Passed · ${c.score ?? 0}/${c.totalMarks}`;
   if (c.group === 'reexam') return c.reExamDate ? `Re-exam ${formatYmd(c.reExamDate)}` : 'Re-exam scheduled';
   return c.reExamDate ? `Missed re-exam ${formatYmd(c.reExamDate)}` : 'Did not sit';
 }

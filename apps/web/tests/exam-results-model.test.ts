@@ -8,7 +8,7 @@ import {
   type StudentResult,
   type StudentSitting,
 } from '../src/admin/pages/exam_result/exam-results-model';
-import { reExamCandidates } from '../src/admin/pages/exam_result/re-exam-candidates';
+import { atRiskIds, filterCandidates, reExamCandidates } from '../src/admin/pages/exam_result/re-exam-candidates';
 
 // TTII 2026-10-09 — Exam → Result and re-examination, the parts of the admin
 // screen that encode a rule rather than a layout.
@@ -51,8 +51,24 @@ describe('who the re-exam dialog offers for a subject', () => {
     student(5, cell({ status: 'reexam', score: null, reExam: { id: 9, date: '2026-10-20', startTime: '10:00', endTime: '11:30', state: 'scheduled' } })),
   ];
 
-  test('a pass is never offered', () => {
-    expect(reExamCandidates(students, 0).map((c) => c.userId)).not.toContain(1);
+  test('a student who passed is listed last, unticked, as an other student who sat the paper', () => {
+    const list = reExamCandidates(students, 0);
+    expect(list.find((c) => c.userId === 1)).toMatchObject({ preselect: false, tone: 'slate', note: 'Passed · 60/70', other: true });
+    expect(list.map((c) => c.userId)).toEqual([2, 3, 4, 5, 1]);
+    expect(list.filter((c) => c.preselect).map((c) => c.userId)).toEqual([2, 3]);
+  });
+
+  test('a marks-only paper counts as sat; a not-yet-marked one is not offered', () => {
+    const list = reExamCandidates([student(6, cell({ status: 'marks_only', score: 50 })), student(7, cell({ status: 'pending', score: null }))], 0);
+    expect(list.map((c) => [c.userId, c.note])).toEqual([[6, 'Sat · 50/70']]);
+  });
+
+  test('"All" ticks the at-risk students only, and the search matches name or code', () => {
+    const list = reExamCandidates(students, 0);
+    expect(atRiskIds(list)).toEqual([2, 3, 4, 5]);
+    expect(filterCandidates(list, ' ts1 ').map((c) => c.userId)).toEqual([1]);
+    expect(filterCandidates(list, '').length).toBe(list.length);
+    expect(filterCandidates(list, 'nobody')).toEqual([]);
   });
 
   test('flagged and absent papers are ticked; a genuine fail is offered unticked', () => {

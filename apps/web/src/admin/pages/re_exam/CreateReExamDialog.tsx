@@ -8,7 +8,6 @@ import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { TONE } from '../../shared/components/ui-tones.js';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
 import {
@@ -16,6 +15,8 @@ import {
   toggleStudent, updateDraft, type BatchDrafts, type EligibleSubject, type SubjectDraft,
 } from './create-re-exam-model.js';
 import { ymdLabel } from './re-exam-model.js';
+import { CandidateChecklist } from './CandidateChecklist.js';
+import { atRiskIds } from '../exam_result/re-exam-candidates.js';
 import type { Sitting, StudentResult } from '../exam_result/exam-results-model.js';
 
 // Create Re-exam for the whole exam (Naji 2026-10-27). Every closed subject with
@@ -156,7 +157,7 @@ function SubjectCard({
   const thisYear = new Date().getFullYear();
   const id = `create-reexam-${subject.examId}`;
   const problem = draft.included ? subjectProblem(draft) : null;
-  const allIds = subject.candidates.map((c) => c.userId);
+  const allIds = atRiskIds(subject.candidates);
   return (
     <section
       aria-labelledby={`${id}-title`}
@@ -192,20 +193,7 @@ function SubjectCard({
                 </div>
               ) : null}
             </div>
-            <ul className="max-h-60 divide-y divide-border overflow-y-auto rounded-lg border border-border">
-              {subject.candidates.map((c) => (
-                <li key={c.userId}>
-                  <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/40">
-                    <input type="checkbox" className="size-4 accent-primary" checked={draft.selected.has(c.userId)} onChange={() => onToggleStudent(c.userId)} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">{c.name}</span>
-                      <span className="block text-[11px] text-muted-foreground">{c.studentCode}</span>
-                    </span>
-                    <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold', TONE[c.tone].pill)}>{c.note}</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
+            <CandidateChecklist candidates={subject.candidates} selected={draft.selected} onToggle={onToggleStudent} scrollClass="max-h-60" />
           </fieldset>
 
           <div className="min-w-0 space-y-3">

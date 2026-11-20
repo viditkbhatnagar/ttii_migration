@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   candidateNote,
+  filterByQuery,
   choiceProblem,
   createPayload,
   dialogProblem,
@@ -72,6 +73,34 @@ describe('reading the dialog\'s draft', () => {
     expect(absent && candidateNote(absent)).toBe('Did not sit');
     expect(flagged && candidateNote(flagged)).toMatch(/^Only 0 of 70 answers/);
     expect(missed && candidateNote(missed)).toBe('Missed re-exam 20/10/2026');
+  });
+});
+
+describe('students who passed', () => {
+  const raw = { ...RAW_DRAFT, subjects: [{ ...RAW_DRAFT.subjects[0], failed: 0, preselect: false, candidates: [
+    { userId: 201, name: 'ANU V', studentCode: 'TTS0201', group: 'passed', score: 52, totalMarks: 70, flag: null, reExamDate: '', alreadyIn: '', preselect: false },
+    { userId: 202, name: 'BINU M', studentCode: 'TTS0202', group: 'passed', score: 60, totalMarks: 70, flag: null, reExamDate: '', alreadyIn: '', preselect: false },
+  ] }] };
+  const [subject] = toSupplementaryDraft(raw).subjects;
+
+  test('are read as their own group, worded with the mark, and never pre-ticked', () => {
+    expect(subject?.candidates.map((c) => [c.group, c.preselect, candidateNote(c)])).toEqual([['passed', false, 'Passed · 52/70'], ['passed', false, 'Passed · 60/70']]);
+    expect(initialChoice(subject as NonNullable<typeof subject>)).toMatchObject({ selected: false });
+    expect([...initialChoice(subject as NonNullable<typeof subject>).picked]).toEqual([]);
+  });
+
+  test('ticking one sends them in the create payload', () => {
+    const s = subject as NonNullable<typeof subject>;
+    const choice = togglePicked({ ...initialChoice(s), selected: true, date: '2026-12-01' }, 202);
+    const body = createPayload(22, 'Supp', [s], new Map([[s.sittingExamId, choice]])) as { subjects: Array<{ user_ids: number[] }> };
+    expect(body.subjects[0]?.user_ids).toEqual([202]);
+  });
+
+  test('the search matches name or student code', () => {
+    const list = subject?.candidates ?? [];
+    expect(filterByQuery(list, 'binu').map((c) => c.userId)).toEqual([202]);
+    expect(filterByQuery(list, '0201').map((c) => c.userId)).toEqual([201]);
+    expect(filterByQuery(list, '  ')).toHaveLength(2);
   });
 });
 

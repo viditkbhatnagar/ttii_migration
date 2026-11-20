@@ -71,14 +71,19 @@ const SHEET = computeExamResults(SITTINGS, STUDENTS, [
 ], [reExam]);
 
 describe('who is a candidate — straight from the Result page\'s own sheet', () => {
-  test('each cell lands in exactly one group, and a pass in none', () => {
+  test('each cell lands in exactly one group; a pass is listed as passed', () => {
     const groups = SHEET.students.map((s) => s.sittings.map(candidateGroup));
     expect(groups).toEqual([
-      [null, null, 'failed'],
-      [null, 'absent', null],
-      ['flagged', null, null],
-      ['reexam', null, null],
+      ['passed', 'passed', 'failed'],
+      ['passed', 'absent', 'passed'],
+      ['flagged', 'passed', 'passed'],
+      ['reexam', 'passed', 'passed'],
     ]);
+  });
+
+  test('a paper with no pass mark (marks only) counts as sat, a flagged pass stays flagged', () => {
+    expect(candidateGroup({ status: 'marks_only', flag: null })).toBe('passed');
+    expect(candidateGroup({ status: 'pass', flag: 'Check: 3 of 70 answered' })).toBe('flagged');
   });
 
   test('a subject a supplementary student was not entered for is never a candidate', () => {
@@ -88,9 +93,9 @@ describe('who is a candidate — straight from the Result page\'s own sheet', ()
 
   test('candidates per subject, failed students first', () => {
     const bySitting = candidatesBySitting(SITTINGS, SHEET.students);
-    expect(bySitting.get(25)?.map((c) => [c.userId, c.group, c.score])).toEqual([[1, 'failed', 17]]);
-    expect(bySitting.get(24)?.map((c) => [c.userId, c.group])).toEqual([[2, 'absent']]);
-    expect(bySitting.get(23)?.map((c) => [c.userId, c.group])).toEqual([[3, 'flagged'], [4, 'reexam']]);
+    expect(bySitting.get(25)?.map((c) => [c.userId, c.group, c.score])).toEqual([[1, 'failed', 17], [2, 'passed', 40], [3, 'passed', 45], [4, 'passed', 61]]);
+    expect(bySitting.get(24)?.map((c) => [c.userId, c.group])).toEqual([[2, 'absent'], [1, 'passed'], [3, 'passed'], [4, 'passed']]);
+    expect(bySitting.get(23)?.map((c) => [c.userId, c.group])).toEqual([[3, 'flagged'], [4, 'reexam'], [1, 'passed'], [2, 'passed']]);
     expect(bySitting.get(23)?.find((c) => c.userId === 4)?.reExamDate).toBe('2026-10-20');
   });
 });
@@ -107,14 +112,16 @@ describe('the dialog\'s subjects', () => {
   test('only subjects where someone needs a supplementary; a failed subject is pre-selected with its failed students', () => {
     const subjects = buildDraftSubjects([source(23, 7), source(24, 8), source(25, 9)], candidates);
     expect(subjects.map((s) => [s.sittingExamId, s.failed, s.preselect])).toEqual([[23, 0, false], [24, 0, false], [25, 1, true]]);
-    expect(subjects.find((s) => s.sittingExamId === 25)?.candidates.map((c) => [c.userId, c.preselect])).toEqual([[1, true]]);
-    // Absent, flagged and re-exam students are listed unticked.
+    expect(subjects.find((s) => s.sittingExamId === 25)?.candidates.map((c) => [c.userId, c.preselect])).toEqual([[1, true], [2, false], [3, false], [4, false]]);
+    // Absent, flagged, re-exam and passed students are listed unticked.
     expect(subjects.flatMap((s) => s.candidates).filter((c) => c.group !== 'failed').every((c) => !c.preselect)).toBe(true);
   });
 
-  test('a subject nobody failed, missed or was flagged in is not listed', () => {
+  test('a subject everyone passed is still listed, so a passed student can be given a second sitting, but nothing is pre-ticked', () => {
     const clean = computeExamResults([sitting(30)], [STUDENTS[0] as (typeof STUDENTS)[number]], [paper(1, 30, 66)]);
-    expect(buildDraftSubjects([source(30, 1)], candidatesBySitting([sitting(30)], clean.students))).toEqual([]);
+    const only = buildDraftSubjects([source(30, 1)], candidatesBySitting([sitting(30)], clean.students));
+    expect(only.map((s) => [s.sittingExamId, s.failed, s.preselect])).toEqual([[30, 0, false]]);
+    expect(only[0]?.candidates.map((c) => [c.userId, c.group, c.preselect])).toEqual([[1, 'passed', false]]);
   });
 
   test('a student already in another supplementary for the subject is named and not ticked', () => {
@@ -127,7 +134,7 @@ describe('the dialog\'s subjects', () => {
 describe('creating: what the server accepts', () => {
   const ctx = {
     subjectTitles: new Map([[23, 'Subject 23'], [24, 'Subject 24'], [25, 'Subject 25']]),
-    candidates: new Map([[23, new Set([3, 4])], [24, new Set([2])], [25, new Set([1])]]),
+    candidates: new Map([[23, new Set([3, 4, 1, 2])], [24, new Set([2, 1, 3, 4])], [25, new Set([1, 2, 3, 4])]]),
     nowMs: NOW,
   };
   const subject = (over: Partial<SubjectInput> = {}): SubjectInput => ({
@@ -165,10 +172,14 @@ describe('creating: what the server accepts', () => {
     expect(validateSupplementary(input, ctx)).toEqual({ ok: false, message });
   });
 
-  test('refuses a student who passed the subject — only failed, absent or flagged students can be entered', () => {
-    expect(check([subject({ userIds: [1, 4] })])).toEqual({
+  test('accepts a student who passed the subject (a second sitting for a cut-short paper)', () => {
+    expect(check([subject({ userIds: [1, 4] })]).ok).toBe(true);
+  });
+
+  test('refuses a student with no result on the sheet for that subject', () => {
+    expect(check([subject({ userIds: [1, 99] })])).toEqual({
       ok: false,
-      message: 'Subject 25: 1 selected student did not fail, miss or have a flagged paper in this subject.',
+      message: 'Subject 25: 1 selected student has no result for this subject on the sheet yet.',
     });
   });
 

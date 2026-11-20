@@ -1507,6 +1507,14 @@ describe('a published result waits for a scheduled re-exam', () => {
     expect(await published(makeService(state))).toBeNull();
   });
 
+  test('a PASSED student given a re-exam is treated the same way: original paper hidden until the re-exam is sat', async () => {
+    freezeAtInstant(istAug(18, 12).getTime());
+    const state = baseState({ created_at: istOn10Aug(19, 30), submit_status: true, score: 62 });
+    state.reExams = [reExam];
+
+    expect(await published(makeService(state))).toBeNull();
+  });
+
   test('the re-exam paper is shown once it is in', async () => {
     const state = baseState({ start_time: istAug(20, 10), created_at: istAug(20, 10), submit_status: true, score: 62 });
     state.reExams = [reExam];
