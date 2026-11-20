@@ -2,13 +2,13 @@
 // TTII's Illustrator certificate / marksheet designs (Naji, 2026-11-19/20): the artwork PDF is
 // kept as vector and the learner's details are laid over it.
 import PDFDocument from 'pdfkit';
-import { PDFDocument as PdfLib, PDFName } from 'pdf-lib';
+import { PDFArray, PDFDocument as PdfLib, PDFName, degrees } from 'pdf-lib';
 import type { PrismaClient } from '@prisma/client';
 import { describe, expect, test } from 'vitest';
 
 import { designFor, isPdf, type CredentialDesignAssets } from '../../src/integrations/credential-design-assets.js';
 import {
-  CERTIFICATE_BAKED_TEXT, longDate, monthYearLabel, performanceLevel, programmeLines, renderDesignedCredential,
+  CERTIFICATE_BAKED_TEXT, artworkProblem, longDate, monthYearLabel, performanceLevel, programmeLines, renderDesignedCredential,
   type DesignFonts, type DesignInput,
 } from '../../src/integrations/credential-design-pdf.js';
 import { findShowOps, glyphToText, matchRuns, parseToUnicode, stripPageText } from '../../src/integrations/pdf-text-strip.js';
@@ -112,6 +112,10 @@ describe('removing baked label text from artwork', () => {
     const left = (await pageTexts(pdf)).map((t) => t.trim()).filter(Boolean);
     expect(left).toEqual(['This is to certify that', 'Controller of Examinations']);
   });
+  test('an empty run before a label is not removed with it', async () => {
+    const ops = [' ', 'Grade :', 'Keep'].map((text, i) => ({ start: i, end: i + 1, text, replacement: '' }));
+    expect(matchRuns(ops, ['Grade :']).map((o) => o.text)).toEqual(['Grade :']);
+  });
   test('artwork exported without those labels is left as it is', async () => {
     const pdf = await PdfLib.load(await artwork(['This is to certify that']));
     expect(stripPageText(pdf, 0, CERTIFICATE_BAKED_TEXT)).toBe(0);
@@ -125,6 +129,26 @@ const designInput: DesignInput = {
   subjects: [{ code: '', title: 'Child Psychology', credits: null, maxMarks: 70, obtained: 62, grade: 'A+', points: 9 }],
   qrPng: null, signature: null,
 };
+
+describe('artwork checks', () => {
+  test('only an upright A4 first page can carry the overlay', async () => {
+    const make = async (size: [number, number], rotate = 0) => { const d = await PdfLib.create(); const p = d.addPage(size); if (rotate) p.setRotation(degrees(rotate)); return d; };
+    expect(artworkProblem(await make([595.28, 841.89]))).toBeNull();
+    expect(artworkProblem(await make([612, 792]))).toMatch(/A4 portrait/);
+    expect(artworkProblem(await make([841.89, 595.28]))).toMatch(/A4 portrait/);
+    expect(artworkProblem(await make([595.28, 841.89], 90))).toMatch(/rotated/);
+    expect(artworkProblem(await PdfLib.create())).toMatch(/no pages/);
+  });
+  test('scripts, links and form fields of the artwork are not carried into the credential', async () => {
+    const art = await PdfLib.load(await artwork(['x']));
+    art.catalog.set(PDFName.of('OpenAction'), art.context.obj({ S: 'JavaScript', JS: 'app.alert(1)' }));
+    art.getPage(0).node.set(PDFName.of('Annots'), art.context.obj([art.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [0, 0, 10, 10] })]));
+    const out = await PdfLib.load(await renderDesignedCredential('ttii-certificate', Buffer.from(await art.save()), designInput, STANDARD, 'C'), { updateMetadata: false });
+    expect(out.catalog.get(PDFName.of('OpenAction'))).toBeUndefined();
+    const annots = out.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+    expect(annots?.size() ?? 0).toBe(0); // pdf-lib may write an empty array back
+  });
+});
 
 describe('rendering on the artwork', () => {
   test('the certificate keeps the artwork page (vector) and lays the details over it', async () => {
@@ -184,6 +208,13 @@ describe('the issue service prints the TTII design', () => {
     const pdf = await svc.renderPdf(7);
     expect((await PdfLib.load(pdf as Buffer, { updateMetadata: false })).getProducer()).toBe('TTII LMS');
     expect(defaultUsed).toBe(false);
+  });
+  test('the template has its own artwork but storage cannot return it: no substitute design is stored', async () => {
+    const art = await artwork(['x']);
+    const svc = service(snapshot({ ...layout, backgroundKey: 'credential-settings/background-x.pdf' }),
+      { artwork: async () => art, fonts: async () => STANDARD },
+      { downloadObject: async () => { throw new Error('storage down'); } });
+    expect(await svc.renderPdf(7)).toBeNull();
   });
   test('no artwork, no fonts, a PNG background or an old snapshot: the built-in layout', async () => {
     const art = await artwork(['x']);

@@ -90,7 +90,6 @@ interface AppRow {
   id: number; student_id: number | null; course_id: number | null; offering_id: number | null;
   user_email: string | null; admin_approved_at: Date | null; verification: string | null;
   father_name?: string | null; mother_name?: string | null; guardian_name?: string | null;
-  date_of_birth?: Date | null; dob?: Date | null;
 }
 
 function verifiedSections(raw: string | null): boolean {
@@ -114,7 +113,7 @@ export async function loadCandidates(
     where: { deleted_at: null, offering_id: { in: scope }, course_id: { not: null } },
     select: {
       id: true, student_id: true, course_id: true, offering_id: true, user_email: true, admin_approved_at: true, verification: true, stage: true, is_converted: true,
-      father_name: true, mother_name: true, guardian_name: true, date_of_birth: true, dob: true,
+      father_name: true, mother_name: true, guardian_name: true,
     },
   });
   if (apps.length === 0) return [];
@@ -128,7 +127,7 @@ export async function loadCandidates(
       ...(filter.userId ? { id: filter.userId } : {}),
       OR: [{ id: { in: studentIds } }, { application_id: { in: appIds } }, ...(emails.length > 0 ? [{ user_email: { in: emails } }] : [])],
     },
-    select: { id: true, name: true, user_email: true, email: true, application_id: true, added_under_centre: true, dob: true },
+    select: { id: true, name: true, user_email: true, email: true, application_id: true, added_under_centre: true },
   });
   if (users.length === 0) return [];
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -172,6 +171,7 @@ export async function loadCandidates(
   const centreById = new Map(centres.map((c) => [c.id, (c.centre_name ?? '').trim()]));
   const centreCodeById = new Map(centres.map((c) => [c.id, clean((c as { centre_id?: string | null }).centre_id)]));
 
+  const birthDates = await loadBirthDates(prisma, picked.map((p) => p.app.id), userIds);
   const [attendance, progress, fees, assignmentPct] = await Promise.all([
     loadAttendance(prisma, userIds, courseIds, users),
     loadProgress(prisma, userIds, courseIds, picked.map(({ enrol }) => [enrol.user_id as number, enrol.course_id as number] as const)),
@@ -208,7 +208,7 @@ export async function loadCandidates(
       centre: user.added_under_centre ? centreById.get(user.added_under_centre) ?? '' : '',
       profile: {
         parentName: clean(app.father_name) || clean(app.mother_name) || clean(app.guardian_name),
-        dateOfBirth: dobLabel(app.date_of_birth ?? app.dob ?? (user as { dob?: Date | null }).dob ?? null),
+        dateOfBirth: birthDates.app.get(app.id) ?? birthDates.user.get(user.id) ?? '',
         centreCode: user.added_under_centre ? centreCodeById.get(user.added_under_centre) ?? '' : '',
         academicSession: academicSessionLabel(offering.start_date, offering.end_date),
       },
@@ -224,6 +224,32 @@ export async function loadCandidates(
       },
     }];
   });
+}
+
+/**
+ * Dates of birth (application first, then the user row). Read with NULLIF on the zero date the
+ * legacy PHP app can write: a '0000-00-00' makes Prisma's findMany throw for the whole list, so
+ * these columns stay out of the candidate queries, and a failure here only leaves the DOB blank.
+ */
+async function loadBirthDates(prisma: PrismaClient, appIds: number[], userIds: number[]): Promise<{ app: Map<number, string>; user: Map<number, string> }> {
+  const app = new Map<number, string>();
+  const user = new Map<number, string>();
+  try {
+    if (appIds.length > 0) {
+      const rows = await prisma.$queryRaw<Array<{ id: number; dob: Date | null }>>`
+        SELECT id, COALESCE(NULLIF(date_of_birth, '0000-00-00'), NULLIF(dob, '0000-00-00')) AS dob
+        FROM applications WHERE id IN (${Prisma.join(appIds)})`;
+      for (const r of rows) { const v = dobLabel(r.dob); if (v) app.set(Number(r.id), v); }
+    }
+    if (userIds.length > 0) {
+      const rows = await prisma.$queryRaw<Array<{ id: number; dob: Date | null }>>`
+        SELECT id, NULLIF(dob, '0000-00-00') AS dob FROM users WHERE id IN (${Prisma.join(userIds)})`;
+      for (const r of rows) { const v = dobLabel(r.dob); if (v) user.set(Number(r.id), v); }
+    }
+  } catch {
+    // The date of birth is optional on the marksheet: leave it blank rather than fail eligibility.
+  }
+  return { app, user };
 }
 
 /** Published, scored sittings of the learner, plus included/published exam counts. */

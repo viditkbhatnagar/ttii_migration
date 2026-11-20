@@ -6475,28 +6475,32 @@ export class OperationsService {
       : [];
     const validSet = new Set(valid.map((v) => v.id));
     const finalRows = questions.filter((q) => validSet.has(q.questionId));
-    // Replace strategy — matches schedule/components/allocations.
-    await this.prisma.exam_questions.deleteMany({ where: { exam_id: id } });
-    if (finalRows.length > 0) {
-      await this.prisma.exam_questions.createMany({
-        data: finalRows.map((q, idx) => ({
-          exam_id: id,
-          question_id: q.questionId,
-          question_no: idx + 1,
-          mark: Number.isFinite(q.mark) ? q.mark : 0,
-          // Risha UAT 2026-08-06 — the column existed but was never written, so
-          // the scorer fell back to a hard-coded -1 penalty the admin had not
-          // configured. NULL still means "no penalty was set for this question".
-          negative_mark: q.negativeMark !== undefined && Number.isFinite(q.negativeMark) ? q.negativeMark : null,
-          created_by: actor,
-          created_at: now,
-          updated_at: now,
-        })),
-      });
-    }
-    // Keep exam.mark in sync so the student exam list shows the right total.
+    // Replace strategy — matches schedule/components/allocations. One transaction
+    // (Risha 2026-11-20): a failed insert (the DB disk filled up) used to leave the
+    // exam with its previous questions deleted and none saved.
     const totalMarks = finalRows.reduce((sum, q) => sum + (Number.isFinite(q.mark) ? q.mark : 0), 0);
-    await this.prisma.exam.updateMany({ where: { id }, data: { mark: totalMarks, updated_at: now, updated_by: actor } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.exam_questions.deleteMany({ where: { exam_id: id } });
+      if (finalRows.length > 0) {
+        await tx.exam_questions.createMany({
+          data: finalRows.map((q, idx) => ({
+            exam_id: id,
+            question_id: q.questionId,
+            question_no: idx + 1,
+            mark: Number.isFinite(q.mark) ? q.mark : 0,
+            // Risha UAT 2026-08-06 — the column existed but was never written, so
+            // the scorer fell back to a hard-coded -1 penalty the admin had not
+            // configured. NULL still means "no penalty was set for this question".
+            negative_mark: q.negativeMark !== undefined && Number.isFinite(q.negativeMark) ? q.negativeMark : null,
+            created_by: actor,
+            created_at: now,
+            updated_at: now,
+          })),
+        });
+      }
+      // Keep exam.mark in sync so the student exam list shows the right total.
+      await tx.exam.updateMany({ where: { id }, data: { mark: totalMarks, updated_at: now, updated_by: actor } });
+    });
     return { status: 1, message: 'Questions assigned.', data: { count: finalRows.length, totalMarks } };
   }
 

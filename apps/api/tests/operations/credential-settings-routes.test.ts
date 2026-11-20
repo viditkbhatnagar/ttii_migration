@@ -1,3 +1,4 @@
+import { PDFDocument } from 'pdf-lib';
 import multipart from '@fastify/multipart';
 import Fastify from 'fastify';
 import { describe, expect, test } from 'vitest';
@@ -139,14 +140,21 @@ describe('image upload and signed preview', () => {
     // A signature must be an image; a template background may be the designer's PDF artwork (2026-11-20).
     const pdfSignature = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?kind=signature&auth_token=super', ...multipartBody('x.png', Buffer.from('%PDF-1.7 abc'), 'image/png') });
     expect(pdfSignature.json()).toMatchObject({ status: 0, message: 'Choose a PNG or JPG image under 5 MB' });
-    const pdfArtwork = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('front.pdf', Buffer.from('%PDF-1.7 abc'), 'application/pdf') });
+    const a4 = await PDFDocument.create(); a4.addPage([595.28, 841.89]);
+    const pdfArtwork = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('front.pdf', Buffer.from(await a4.save()), 'application/pdf') });
     expect(pdfArtwork.json()).toMatchObject({ status: 1 });
+    // A damaged PDF, and one that is not upright A4, are refused with the reason.
+    const broken = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('front.pdf', Buffer.from('%PDF-1.7 abc'), 'application/pdf') });
+    expect(broken.json<{ status: number; message: string }>()).toMatchObject({ status: 0, message: expect.stringContaining('cannot be opened') as unknown as string });
+    const letter = await PDFDocument.create(); letter.addPage([612, 792]);
+    const notA4 = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('front.pdf', Buffer.from(await letter.save()), 'application/pdf') });
+    expect(notA4.json()).toMatchObject({ status: 0, message: 'The first page must be A4 portrait (210 x 297 mm).' });
     expect(pdfArtwork.json<{ data: { key: string } }>().data.key).toMatch(/^credentials\/settings\/background-[0-9a-f]{32}\.pdf$/);
     expect(stored.at(-1)?.publicRead).toBeUndefined();
     const text = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('x.png', Buffer.from('hello world'), 'image/png') });
     expect(text.json()).toMatchObject({ status: 0, message: 'Choose a PDF, PNG or JPG file under 5 MB' });
     const big = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('big.png', Buffer.concat([PNG, Buffer.alloc(5 * 1024 * 1024)]), 'image/png') });
-    expect(big.json()).toMatchObject({ status: 0, message: 'Choose a PNG or JPG image under 5 MB' });
+    expect(big.json()).toMatchObject({ status: 0, message: 'Choose a file under 5 MB' });
     expect((await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=nogrant', ...multipartBody('sig.png', PNG, 'image/png') })).statusCode).toBe(403);
     const url = await app.inject({ method: 'GET', url: `/admin/credentials/settings/file_url?key=${encodeURIComponent(key)}&auth_token=super` });
     expect(url.json<{ data: { url: string } }>().data.url).toContain('signed.example');

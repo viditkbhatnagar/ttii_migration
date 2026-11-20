@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto';
 
 import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
+import { PDFDocument } from 'pdf-lib';
 
 import { requireAnyCredentialPermission, resolveCredentialPermissions, type PermissionLoader } from '../auth/permission-guards.js';
 import type { StorageProvider } from '../integrations/contracts.js';
+import { artworkProblem } from '../integrations/credential-design-pdf.js';
 import { intId, sniffFileType, text } from '../operations/centre-onboarding-model.js';
 import { SETTINGS_FILE_PREFIX, SETTINGS_IMAGE_MAX_BYTES } from '../operations/credential-settings-model.js';
 import { CredentialSettingsService, isSettingCategory, type Outcome } from '../operations/credential-settings-service.js';
@@ -45,8 +47,17 @@ function sendOutcome<T>(reply: FastifyReply, outcome: Outcome<T>): void {
 
 interface UploadedFile { filename: string; toBuffer: () => Promise<Buffer> }
 
+/** The template artwork must open (not encrypted) and be an upright A4 page. */
+async function pdfArtworkProblem(body: Buffer): Promise<string | null> {
+  try {
+    return artworkProblem(await PDFDocument.load(body, { updateMetadata: false }));
+  } catch {
+    return 'This PDF cannot be opened (it may be password-protected or damaged). Export it again from Illustrator.';
+  }
+}
+
 async function readImage(request: FastifyRequest): Promise<{ name: string; body: Buffer } | string> {
-  const tooLarge = 'Choose a PNG or JPG image under 5 MB';
+  const tooLarge = 'Choose a file under 5 MB';
   const fileFn = (request as unknown as { file?: (o?: { limits?: Record<string, number> }) => Promise<UploadedFile | undefined> }).file;
   if (typeof fileFn !== 'function' || !request.isMultipart()) return 'Choose a file to upload.';
   const file = await fileFn.call(request, { limits: { fileSize: SETTINGS_IMAGE_MAX_BYTES, files: 1, fields: 3, parts: 4, fieldSize: 1024 } });
@@ -130,6 +141,10 @@ export function registerCredentialSettingsRoutes(app: FastifyInstance, deps: Cre
     if (type !== 'image/png' && type !== 'image/jpeg' && !(allowPdf && type === 'application/pdf')) {
       sendOutcome(reply, { status: 0, message: allowPdf ? 'Choose a PDF, PNG or JPG file under 5 MB' : 'Choose a PNG or JPG image under 5 MB' });
       return;
+    }
+    if (type === 'application/pdf') {
+      const problem = await pdfArtworkProblem(upload.body);
+      if (problem) { sendOutcome(reply, { status: 0, message: problem }); return; }
     }
     const ext = type === 'application/pdf' ? 'pdf' : type === 'image/png' ? 'png' : 'jpg';
     const key = `${SETTINGS_FILE_PREFIX}${kind}-${randomBytes(16).toString('hex')}.${ext}`;

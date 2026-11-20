@@ -81,6 +81,7 @@ import {
   type UpdateCentreInput,
   type UpdateSettingsInput,
 } from '../operations/operations-service.js';
+import { friendlyDatabaseError } from '../operations/db-error-message.js';
 
 interface RegisterOperationsRoutesOptions {
   authService?: AuthService;
@@ -411,7 +412,9 @@ function toLiveEntries(value: unknown): AddLiveClassInput['entries'] {
 }
 
 function sendOperationsError(reply: FastifyReply, error: unknown): void {
-  const message = error instanceof Error ? error.message : 'Internal operations error.';
+  const friendly = friendlyDatabaseError(error);
+  if (friendly) reply.log.error({ err: error }, 'operations: database error');
+  const message = friendly ?? (error instanceof Error ? error.message : 'Internal operations error.');
 
   reply.code(500).send({
     status: 0,

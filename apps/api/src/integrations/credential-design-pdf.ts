@@ -291,10 +291,38 @@ export async function renderDesignOverlay(design: DesignId, input: DesignInput, 
   return finished;
 }
 
+/**
+ * Why this artwork cannot carry the overlay (the positions are A4 portrait), or null. Checked at
+ * upload (Settings > Templates) and again at render, where a failure falls back to the built-in layout.
+ */
+export function artworkProblem(pdf: PdfLibDocument): string | null {
+  if (pdf.getPageCount() < 1) return 'The PDF has no pages.';
+  const page = pdf.getPage(0);
+  if (page.getRotation().angle % 360 !== 0) return 'The first page is rotated. Export it as an upright A4 page.';
+  const { width, height } = page.getTrimBox();
+  if (!(width > 0) || !(height > 0) || Math.abs(height / width - A4.h / A4.w) > 0.01) return 'The first page must be A4 portrait (210 x 297 mm).';
+  return null;
+}
+
+/** Scripts, form fields, links and attachments do not belong on an issued credential. */
+function removeActiveContent(pdf: PdfLibDocument): void {
+  for (const key of ['OpenAction', 'AA', 'Names', 'AcroForm', 'URI', 'JavaScript']) pdf.catalog.delete(PDFName.of(key));
+  for (const page of pdf.getPages()) {
+    page.node.delete(PDFName.of('Annots'));
+    page.node.delete(PDFName.of('AA'));
+  }
+}
+
 /** The artwork with the learner's details laid over its first page. Later pages (a back) are kept as they are. */
 export async function renderDesignedCredential(design: DesignId, artwork: Buffer, input: DesignInput, fonts: DesignFonts, title: string): Promise<Buffer> {
   const pdf = await PdfLibDocument.load(artwork, { updateMetadata: false });
-  if (design === 'ttii-certificate') stripPageText(pdf, 0, CERTIFICATE_BAKED_TEXT);
+  const problem = artworkProblem(pdf);
+  if (problem) throw new Error(problem);
+  if (design === 'ttii-certificate') {
+    // Not stripping (an unusual content stream) still prints the design; the labels overprint.
+    try { stripPageText(pdf, 0, CERTIFICATE_BAKED_TEXT); } catch { /* keep the artwork as it is */ }
+  }
+  removeActiveContent(pdf);
   const overlayBytes = await renderDesignOverlay(design, input, fonts);
   const [overlay] = await pdf.embedPdf(overlayBytes, [0]);
   const page = pdf.getPage(0);

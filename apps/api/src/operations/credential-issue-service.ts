@@ -306,6 +306,10 @@ export class CredentialIssueService {
     const url = this.url(doc.verification_id);
     const qrPng = await QRCode.toBuffer(url, { margin: 1, width: 256, errorCorrectionLevel: 'M' });
     const background = await this.fetchImage(layout.backgroundKey);
+    // The template has its own artwork but it could not be read (storage hiccup): do not print a
+    // different design and record it as the issued document; renderAndStore fails and the
+    // document's "Regenerate PDF" retries.
+    if (layout.backgroundKey && !background && layout.design) return null;
     const designed = await this.renderDesign(doc, snap, layout.design ?? null, background, signatories[0]?.image ?? null, qrPng, copyLabel);
     if (designed) return designed;
     const input: CredentialPdfInput = {

@@ -240,6 +240,9 @@ export function matchRuns(ops: ShowOp[], phrases: readonly string[], span = 6): 
   const wanted = new Set(phrases.map(squash).filter(Boolean));
   const hit = new Set<ShowOp>();
   for (let i = 0; i < ops.length; i += 1) {
+    // A run that decodes to nothing (spaces, an unmapped glyph, an icon) never starts a match,
+    // so it is not removed along with the label that follows it.
+    if (squash(ops[i]?.text ?? '') === '') continue;
     let joined = '';
     for (let j = i; j < Math.min(ops.length, i + span); j += 1) {
       joined += squash(ops[j]?.text ?? '');
