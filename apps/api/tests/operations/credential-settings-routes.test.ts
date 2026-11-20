@@ -129,15 +129,22 @@ describe('GET /admin/credentials/me/permissions', () => {
 });
 
 describe('image upload and signed preview', () => {
-  test('PNG/JPG only, stored PRIVATE under credentials/settings/, preview by signed URL', async () => {
+  test('PNG/JPG (and a PDF template background), stored PRIVATE under credentials/settings/, preview by signed URL', async () => {
     const { app, stored } = makeApp();
     const good = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?kind=signature&auth_token=super', ...multipartBody('sig.png', PNG, 'image/png') });
     const key = good.json<{ data: { key: string } }>().data.key;
     expect(good.json()).toMatchObject({ status: 1 });
     expect(key).toMatch(/^credentials\/settings\/signature-[0-9a-f]{32}\.png$/);
     expect(stored[0]?.publicRead).toBeUndefined();
-    const pdf = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('x.png', Buffer.from('%PDF-1.7 abc'), 'image/png') });
-    expect(pdf.json()).toMatchObject({ status: 0, message: 'Choose a PNG or JPG image under 5 MB' });
+    // A signature must be an image; a template background may be the designer's PDF artwork (2026-11-20).
+    const pdfSignature = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?kind=signature&auth_token=super', ...multipartBody('x.png', Buffer.from('%PDF-1.7 abc'), 'image/png') });
+    expect(pdfSignature.json()).toMatchObject({ status: 0, message: 'Choose a PNG or JPG image under 5 MB' });
+    const pdfArtwork = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('front.pdf', Buffer.from('%PDF-1.7 abc'), 'application/pdf') });
+    expect(pdfArtwork.json()).toMatchObject({ status: 1 });
+    expect(pdfArtwork.json<{ data: { key: string } }>().data.key).toMatch(/^credentials\/settings\/background-[0-9a-f]{32}\.pdf$/);
+    expect(stored.at(-1)?.publicRead).toBeUndefined();
+    const text = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('x.png', Buffer.from('hello world'), 'image/png') });
+    expect(text.json()).toMatchObject({ status: 0, message: 'Choose a PDF, PNG or JPG file under 5 MB' });
     const big = await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=super', ...multipartBody('big.png', Buffer.concat([PNG, Buffer.alloc(5 * 1024 * 1024)]), 'image/png') });
     expect(big.json()).toMatchObject({ status: 0, message: 'Choose a PNG or JPG image under 5 MB' });
     expect((await app.inject({ method: 'POST', url: '/admin/credentials/settings/upload?auth_token=nogrant', ...multipartBody('sig.png', PNG, 'image/png') })).statusCode).toBe(403);

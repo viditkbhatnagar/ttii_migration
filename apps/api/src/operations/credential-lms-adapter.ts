@@ -41,7 +41,34 @@ export interface LmsCandidate {
   examSession: string;
   centreId: number | null;
   centre: string;
+  /** Printed on the TTII marksheet design (2026-11-20); empty when the LMS has no value. */
+  profile?: LearnerProfile;
   facts: RawLearnerFacts;
+}
+
+export interface LearnerProfile {
+  parentName: string;
+  /** DD/MM/YYYY */
+  dateOfBirth: string;
+  centreCode: string;
+  /** "2026" or "2025–2026", from the offering's start and end dates. */
+  academicSession: string;
+}
+
+const clean = (v: string | null | undefined): string => (v ?? '').replace(/\s+/g, ' ').trim();
+
+/** DD/MM/YYYY of a @db.Date (read with UTC getters: the column has no time zone). */
+export function dobLabel(v: Date | null | undefined): string {
+  if (!(v instanceof Date) || Number.isNaN(v.getTime()) || v.getUTCFullYear() < 1900) return '';
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${p(v.getUTCDate())}/${p(v.getUTCMonth() + 1)}/${v.getUTCFullYear()}`;
+}
+
+export function academicSessionLabel(start: Date | null | undefined, end: Date | null | undefined): string {
+  const y = (d: Date | null | undefined): number | null => (d instanceof Date && !Number.isNaN(d.getTime()) ? d.getUTCFullYear() : null);
+  const a = y(start); const b = y(end);
+  if (a === null) return b === null ? '' : String(b);
+  return b === null || b === a ? String(a) : `${a}\u2013${b}`;
 }
 
 export interface CandidateFilter {
@@ -62,6 +89,8 @@ export async function scopedOfferingIds(prisma: PrismaClient): Promise<number[]>
 interface AppRow {
   id: number; student_id: number | null; course_id: number | null; offering_id: number | null;
   user_email: string | null; admin_approved_at: Date | null; verification: string | null;
+  father_name?: string | null; mother_name?: string | null; guardian_name?: string | null;
+  date_of_birth?: Date | null; dob?: Date | null;
 }
 
 function verifiedSections(raw: string | null): boolean {
@@ -83,7 +112,10 @@ export async function loadCandidates(
 
   const apps: AppRow[] = await prisma.applications.findMany({
     where: { deleted_at: null, offering_id: { in: scope }, course_id: { not: null } },
-    select: { id: true, student_id: true, course_id: true, offering_id: true, user_email: true, admin_approved_at: true, verification: true, stage: true, is_converted: true },
+    select: {
+      id: true, student_id: true, course_id: true, offering_id: true, user_email: true, admin_approved_at: true, verification: true, stage: true, is_converted: true,
+      father_name: true, mother_name: true, guardian_name: true, date_of_birth: true, dob: true,
+    },
   });
   if (apps.length === 0) return [];
   const appIds = apps.map((a) => a.id);
@@ -96,7 +128,7 @@ export async function loadCandidates(
       ...(filter.userId ? { id: filter.userId } : {}),
       OR: [{ id: { in: studentIds } }, { application_id: { in: appIds } }, ...(emails.length > 0 ? [{ user_email: { in: emails } }] : [])],
     },
-    select: { id: true, name: true, user_email: true, email: true, application_id: true, added_under_centre: true },
+    select: { id: true, name: true, user_email: true, email: true, application_id: true, added_under_centre: true, dob: true },
   });
   if (users.length === 0) return [];
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -132,12 +164,13 @@ export async function loadCandidates(
   const [offerings, courses, centres, sheets] = await Promise.all([
     prisma.offerings.findMany({ where: { id: { in: offeringIds } }, select: { id: true, title: true, offering_code: true, start_date: true, end_date: true } }),
     prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, structure_type: true } }),
-    centreIds.length > 0 ? prisma.centres.findMany({ where: { id: { in: centreIds } }, select: { id: true, centre_name: true } }) : Promise.resolve([]),
+    centreIds.length > 0 ? prisma.centres.findMany({ where: { id: { in: centreIds } }, select: { id: true, centre_name: true, centre_id: true } }) : Promise.resolve([]),
     examService.sheetsForCourses(courseIds),
   ]);
   const offeringById = new Map(offerings.map((o) => [o.id, o]));
   const courseById = new Map(courses.map((c) => [c.id, c]));
   const centreById = new Map(centres.map((c) => [c.id, (c.centre_name ?? '').trim()]));
+  const centreCodeById = new Map(centres.map((c) => [c.id, clean((c as { centre_id?: string | null }).centre_id)]));
 
   const [attendance, progress, fees, assignmentPct] = await Promise.all([
     loadAttendance(prisma, userIds, courseIds, users),
@@ -173,6 +206,12 @@ export async function loadCandidates(
       examSession: lastSat ? lastSat.slice(0, 7) : lastDate ? lastDate.slice(0, 7) : '',
       centreId: user.added_under_centre ?? null,
       centre: user.added_under_centre ? centreById.get(user.added_under_centre) ?? '' : '',
+      profile: {
+        parentName: clean(app.father_name) || clean(app.mother_name) || clean(app.guardian_name),
+        dateOfBirth: dobLabel(app.date_of_birth ?? app.dob ?? (user as { dob?: Date | null }).dob ?? null),
+        centreCode: user.added_under_centre ? centreCodeById.get(user.added_under_centre) ?? '' : '',
+        academicSession: academicSessionLabel(offering.start_date, offering.end_date),
+      },
       facts: {
         examCells: cells,
         examsIncluded: included,

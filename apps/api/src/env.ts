@@ -99,6 +99,9 @@ const envSchema = z.object({
   // Production: bucket ttii-lms-recordings in sgp1. Set S3_ENDPOINT to
   // https://<region>.digitaloceanspaces.com and S3_REGION to the Space's
   // datacenter slug (e.g. sgp1). See docs/digitalocean-spaces-setup.md.
+  // TTII's credential artwork (Illustrator PDFs) and the General Sans font files. Kept on the
+  // server, OUTSIDE git: the repo is public, and the font licence forbids redistributing them.
+  CREDENTIAL_ASSETS_DIR: z.string().default('/opt/ttii-credential-assets'),
   STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
   STORAGE_LOCAL_ROOT: z.string().default('/tmp/ttii-storage'),
   STORAGE_LOCAL_SIGNING_KEY: z.string().min(16).default('ttii-dev-storage-signing-key'),

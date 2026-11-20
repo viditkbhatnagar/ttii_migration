@@ -230,3 +230,6 @@ export function dmyOf(ymd: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
   return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
 }
+
+/** A template background stored as the designer's PDF artwork (TTII 2026-11-20). */
+export const isPdfKey = (key: string): boolean => key.toLowerCase().endsWith('.pdf');

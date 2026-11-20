@@ -1,3 +1,4 @@
+import type { DesignId } from '../integrations/credential-design-pdf.js';
 import { randomInt } from 'node:crypto';
 
 import type { SubjectRow } from './credential-eligibility-model.js';
@@ -67,7 +68,19 @@ export interface CredentialSnapshot {
   template: { id: number | null; name: string; version: number | null; docType: string };
   signatoryIds: number[];
   /** Frozen at issue so a re-render (Regenerate, duplicate copy) matches the original. */
-  layout?: { fields: string[]; backgroundKey: string | null; signatories: Array<{ name: string; designation: string; signatureKey: string | null }> };
+  layout?: {
+    fields: string[];
+    backgroundKey: string | null;
+    signatories: Array<{ name: string; designation: string; signatureKey: string | null }>;
+    /** TTII's Illustrator design (2026-11-20); null/absent = the built-in layout. */
+    design?: DesignId | null;
+  };
+  /** Marksheet details of the TTII design (2026-11-20); absent on older snapshots. */
+  parentName?: string;
+  dateOfBirth?: string;
+  centreCode?: string;
+  academicSession?: string;
+  cgpaScale?: number;
   issueDate: string;
   generatedAt: string;
 }

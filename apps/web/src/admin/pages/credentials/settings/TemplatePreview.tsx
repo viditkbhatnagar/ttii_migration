@@ -3,7 +3,7 @@ import { Award, QrCode, UserRound } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { asString } from '../../../shared/utils/admin-data-utils.js';
 import type { AdminPortalApi } from '../../../admin-portal-api.js';
-import { docTypeLabel, type ConfigRow, type OfferingOption } from './settings-model.js';
+import { docTypeLabel, isPdfKey, type ConfigRow, type OfferingOption } from './settings-model.js';
 
 // HTML mock-up of the template at A4 ratio with static sample values
 // (spec §7.3; CredentialTemplatePreview.tsx). Private images load through
@@ -29,7 +29,8 @@ export function TemplatePreview({ template, offerings, signatories, api, token, 
 
   useEffect(() => {
     let live = true;
-    void signed(api, token, template.backgroundKey).then((u) => { if (live) setBackground(u); });
+    // PDF artwork cannot be an <img>; the issued PDF shows it (note below).
+    if (!isPdfKey(template.backgroundKey)) void signed(api, token, template.backgroundKey).then((u) => { if (live) setBackground(u); });
     void Promise.all(chosen.map(async (s) => [s.id, await signed(api, token, asString(s.data.signatureKey))] as const))
       .then((pairs) => { if (live) setSignatures(Object.fromEntries(pairs)); });
     return () => { live = false; };
@@ -47,6 +48,11 @@ export function TemplatePreview({ template, offerings, signatories, api, token, 
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-h-[92vh] overflow-y-auto" style={{ width: WIDTH, maxWidth: WIDTH }}>
         <DialogHeader><DialogTitle>Preview</DialogTitle></DialogHeader>
+        {isPdfKey(template.backgroundKey) ? (
+          <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+            This template uses PDF artwork. Issued documents print the learner&apos;s details on that artwork; this preview shows the fields only.
+          </p>
+        ) : null}
         <div className="relative isolate mx-auto flex aspect-[210/297] w-full max-w-[620px] flex-col border-2 border-primary/40 bg-card p-5 sm:p-10">
           {background ? <img src={background} alt="Template background" className="absolute inset-0 -z-10 h-full w-full object-cover" onError={() => setBackground('')} /> : null}
           <header className="flex items-center justify-between border-b border-primary/30 pb-5">

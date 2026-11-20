@@ -34,7 +34,7 @@ export function TemplateEditorFields({ form, onChange, offerings, signatories, a
           </select>
         </Field>
       </div>
-      <ImageField label="Front background" kind="background" value={form.backgroundKey} onChange={(k) => onChange({ backgroundKey: k })} api={api} token={token} />
+      <ImageField label="Front background" kind="background" allowPdf value={form.backgroundKey} onChange={(k) => onChange({ backgroundKey: k })} api={api} token={token} />
 
       <Section title="Fields to print">
         <div className="grid gap-2 @md:grid-cols-2 @2xl:grid-cols-3">

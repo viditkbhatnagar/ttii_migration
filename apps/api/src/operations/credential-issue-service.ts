@@ -6,6 +6,8 @@ import QRCode from 'qrcode';
 import { getPrismaClient } from '../data/prisma-client.js';
 import type { EmailProvider, StorageProvider } from '../integrations/contracts.js';
 import { CREDENTIAL_EMAIL_SUBJECT, renderCredentialReadyEmail } from '../integrations/credential-emails.js';
+import { designFor, fileDesignAssets, isPdf, type CredentialDesignAssets } from '../integrations/credential-design-assets.js';
+import { renderDesignedCredential, type DesignId, type DesignInput } from '../integrations/credential-design-pdf.js';
 import { renderCredentialPdf, type CredentialPdfInput } from '../integrations/credential-pdf.js';
 import { CredentialEligibilityService, type Evaluated } from './credential-eligibility-service.js';
 import { ISSUE_ERRORS, issueGateError, type GateEnrolment } from './credential-eligibility-model.js';
@@ -40,6 +42,8 @@ export interface CredentialIssueOptions {
   now?: () => Date;
   origin?: string;
   eligibility?: CredentialEligibilityService;
+  /** TTII's design artwork and fonts (default: CREDENTIAL_ASSETS_DIR on disk). */
+  assets?: CredentialDesignAssets;
 }
 
 const randomHex = (): string => randomBytes(16).toString('hex');
@@ -49,6 +53,7 @@ const firstName = (name: string): string => name.trim().split(/\s+/)[0] ?? '';
 export class CredentialIssueService {
   private readonly eligibility: CredentialEligibilityService;
   private emailProvider: EmailProvider | null;
+  private readonly assets: CredentialDesignAssets;
 
   constructor(
     readonly prisma: PrismaClient = getPrismaClient(),
@@ -56,6 +61,7 @@ export class CredentialIssueService {
   ) {
     this.eligibility = options.eligibility ?? new CredentialEligibilityService(prisma, options.now ? { now: options.now } : {});
     this.emailProvider = options.email ?? null;
+    this.assets = options.assets ?? fileDesignAssets();
   }
 
   private now(): Date { return this.options.now?.() ?? new Date(); }
@@ -219,7 +225,13 @@ export class CredentialIssueService {
         fields: template.data?.fields ?? [],
         backgroundKey: template.data?.backgroundKey ?? null,
         signatories: sigs.map((s) => ({ name: s.name, designation: s.designation, signatureKey: s.signatureKey })),
+        design: designFor(docType, level),
       },
+      parentName: c.profile?.parentName ?? '',
+      dateOfBirth: c.profile?.dateOfBirth ?? '',
+      centreCode: c.profile?.centreCode ?? '',
+      academicSession: c.profile?.academicSession ?? '',
+      cgpaScale: e.academic.cgpaScale ?? 10,
       issueDate: today,
       generatedAt: this.now().toISOString(),
     };
@@ -292,6 +304,10 @@ export class CredentialIssueService {
     const layout = snap.layout ?? await this.liveLayout(snap);
     const signatories = await Promise.all(layout.signatories.map(async (sg) => ({ name: sg.name, designation: sg.designation, image: await this.fetchImage(sg.signatureKey) })));
     const url = this.url(doc.verification_id);
+    const qrPng = await QRCode.toBuffer(url, { margin: 1, width: 256, errorCorrectionLevel: 'M' });
+    const background = await this.fetchImage(layout.backgroundKey);
+    const designed = await this.renderDesign(doc, snap, layout.design ?? null, background, signatories[0]?.image ?? null, qrPng, copyLabel);
+    if (designed) return designed;
     const input: CredentialPdfInput = {
       docType: doc.doc_type as CredentialPdfInput['docType'],
       documentNo: doc.document_no,
@@ -309,14 +325,62 @@ export class CredentialIssueService {
       examSession: snap.examSession,
       subjects: snap.subjects,
       fields: layout.fields,
-      backgroundImage: await this.fetchImage(layout.backgroundKey),
+      backgroundImage: isPdf(background) ? null : background,
       signatories,
-      qrPng: await QRCode.toBuffer(url, { margin: 1, width: 256, errorCorrectionLevel: 'M' }),
+      qrPng,
       publicUrl: url,
       templateLabel: snap.template.version ? `Template: ${snap.template.name} v${snap.template.version}` : 'TTII layout',
       ...(copyLabel ? { copyLabel } : {}),
     };
     return renderCredentialPdf(input);
+  }
+
+  /**
+   * TTII's Illustrator design, when the document has one: the template's uploaded PDF artwork if
+   * it is a PDF, else the design's default artwork on disk. Null (built-in layout) when there is
+   * no design, the template's background is a PNG/JPG, or the artwork or fonts are missing.
+   */
+  private async renderDesign(
+    doc: { doc_type: string; document_no: string; issue_date: Date | null; printed_name: string },
+    snap: CredentialSnapshot, design: DesignId | null, background: Buffer | null, signature: Buffer | null, qrPng: Buffer, copyLabel?: string,
+  ): Promise<Buffer | null> {
+    if (!design || (background && !isPdf(background))) return null;
+    const [artwork, fonts] = await Promise.all([isPdf(background) ? Promise.resolve(background) : this.assets.artwork(design), this.assets.fonts()]);
+    if (!artwork || !fonts) return null;
+    const input: DesignInput = {
+      docType: doc.doc_type as DesignInput['docType'],
+      documentNo: doc.document_no,
+      issueDate: dmy(ymdOf(doc.issue_date)),
+      printedName: doc.printed_name,
+      enrolmentNo: snap.enrolmentNo,
+      programme: snap.programme,
+      durationText: snap.durationText,
+      creditsTotal: snap.creditsTotal,
+      cgpa: snap.cgpa,
+      cgpaScale: snap.cgpaScale ?? 10,
+      grade: snap.grade,
+      examSession: snap.examSession,
+      parentName: snap.parentName ?? '',
+      dateOfBirth: snap.dateOfBirth ?? '',
+      centreCode: snap.centreCode ?? '',
+      academicSession: snap.academicSession ?? '',
+      subjects: snap.subjects.map((s) => ({
+        code: s.code, title: s.title, credits: s.credits, grade: s.grade, points: s.points,
+        // Older snapshots carry the percentage only: print it out of 100.
+        maxMarks: s.maxMarks ?? 100,
+        obtained: s.obtained ?? s.total,
+      })),
+      qrPng,
+      signature,
+      ...(copyLabel ? { copyLabel } : {}),
+    };
+    const title = `${DOC_TYPE_LABEL[doc.doc_type as DocType] ?? 'Credential'} ${doc.document_no}`;
+    try {
+      return await renderDesignedCredential(design, artwork, input, fonts, title);
+    } catch {
+      // A malformed uploaded PDF: the built-in layout still produces the document.
+      return null;
+    }
   }
 
   /** Renders, stores privately and records the key + sha256. False when anything fails (the document stays). */

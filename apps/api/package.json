@@ -29,6 +29,7 @@
     "google-auth-library": "^10.6.2",
     "mysql2": "^3.17.4",
     "nodemailer": "^8.0.5",
+    "pdf-lib": "1.17.1",
     "pdfkit": "^0.15.1",
     "qrcode": "1.5.4",
     "zod": "^4.1.12"

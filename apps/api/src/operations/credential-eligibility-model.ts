@@ -166,6 +166,9 @@ export interface SubjectRow {
   points: number;
   grade: string;
   result: 'Pass' | 'Fail';
+  /** The paper's own marks (TTII marksheet design, 2026-11-20); absent on older snapshots. */
+  maxMarks?: number;
+  obtained?: number;
 }
 
 export interface Academic {
@@ -176,6 +179,8 @@ export interface Academic {
   /** Overall result of the marksheet. */
   result: 'Pass' | 'Fail' | '';
   gradingName: string;
+  /** The CGPA's scale (the grading scheme's scaleMax), printed as "8.5/10". */
+  cgpaScale?: number;
 }
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
@@ -255,6 +260,8 @@ export function buildAcademic(
       points: band.points,
       grade: band.grade,
       result: passed ? 'Pass' : 'Fail',
+      maxMarks: cell.total,
+      obtained: cell.obtained,
     };
   });
 
@@ -279,6 +286,7 @@ export function buildAcademic(
     grade: subjects.length > 0 ? overallGrade(round2(cgpaNum), grading.bands) : '',
     result,
     gradingName: opts.gradingName ?? DEFAULT_GRADING_NAME,
+    cgpaScale: grading.scaleMax,
   };
 }
 

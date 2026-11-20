@@ -124,8 +124,15 @@ export function registerCredentialSettingsRoutes(app: FastifyInstance, deps: Cre
     const upload = await readImage(request);
     if (typeof upload === 'string') { sendOutcome(reply, { status: 0, message: upload }); return; }
     const type = sniffFileType(upload.body.subarray(0, 8));
-    if (type !== 'image/png' && type !== 'image/jpeg') { sendOutcome(reply, { status: 0, message: 'Choose a PNG or JPG image under 5 MB' }); return; }
-    const key = `${SETTINGS_FILE_PREFIX}${kind}-${randomBytes(16).toString('hex')}.${type === 'image/png' ? 'png' : 'jpg'}`;
+    // A template background may also be the designer's PDF artwork (TTII 2026-11-20): it is
+    // printed as vector, with the learner's details laid over it.
+    const allowPdf = kind === 'background';
+    if (type !== 'image/png' && type !== 'image/jpeg' && !(allowPdf && type === 'application/pdf')) {
+      sendOutcome(reply, { status: 0, message: allowPdf ? 'Choose a PDF, PNG or JPG file under 5 MB' : 'Choose a PNG or JPG image under 5 MB' });
+      return;
+    }
+    const ext = type === 'application/pdf' ? 'pdf' : type === 'image/png' ? 'png' : 'jpg';
+    const key = `${SETTINGS_FILE_PREFIX}${kind}-${randomBytes(16).toString('hex')}.${ext}`;
     await deps.storage.uploadObject({ key, body: upload.body, contentType: type });
     sendOutcome(reply, { status: 1, message: 'Uploaded', data: { key, name: upload.name.slice(0, 200) } });
   }));
