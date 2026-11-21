@@ -39,8 +39,9 @@ export function StepAllocationSupplementary({ api, authToken, examId, closeLabel
           <Banner tone="warning" icon={Info}>Couldn’t load the students. They are kept with the exam; reload the page to see them.</Banner>
         ) : (
           <Banner tone="info" icon={Info}>
-            These lists cannot be edited here. To change them, delete this exam and create the supplementary exam again from the Result page.
-            Removing a subject in Step 2 removes its students from this exam.
+            These lists cannot be edited here. To add a student or a subject: delete this draft (Exams list, Delete), then open the
+            Result page of “{info?.sourceTitle || 'the regular exam'}” and click Create Supplementary again. Every subject students sat is listed
+            there, and students who passed are under “Other students who sat this paper”. Removing a subject in Step 2 removes its students from this exam.
           </Banner>
         )}
         <div className="grid gap-4 md:grid-cols-2">
